@@ -19,6 +19,7 @@ import { StopPanel } from './components/StopPanel.tsx';
 import { VehiclePanel } from './components/VehiclePanel.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
 import { RouteBadge } from './components/RouteBadge.tsx';
+import { MapLegend } from './components/MapLegend.tsx';
 import { modeLabel } from './lib/format.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes';
@@ -65,6 +66,31 @@ export function App() {
   // host, or the Node API server when one is configured.
   const source = useMemo(() => createDataSource(), []);
   const [engine, setEngine] = useState<EngineStatus>({ state: 'loading', progress: null, error: null });
+  /**
+   * Whether the side panel is collapsed out of the way.
+   *
+   * Remembered, because someone who wants the map uncovered usually wants it
+   * uncovered every time, not once per visit.
+   */
+  const [panelHidden, setPanelHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem('livetrains.panelHidden') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const togglePanel = useCallback(() => {
+    setPanelHidden((hidden) => {
+      const next = !hidden;
+      try {
+        window.localStorage.setItem('livetrains.panelHidden', next ? '1' : '0');
+      } catch {
+        // A preference that cannot be saved is not worth failing over.
+      }
+      return next;
+    });
+  }, []);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // --- Boot -----------------------------------------------------------------
@@ -172,11 +198,13 @@ export function App() {
 
   // --- Routes tab -----------------------------------------------------------
   useEffect(() => {
-    if (tab !== 'routes' || routes.length > 0 || engine.state !== 'ready') return;
+    // Loaded for the legend as well as the Routes tab, so this is no longer
+    // gated on the tab being open.
+    if (routes.length > 0 || engine.state !== 'ready') return;
     const controller = new AbortController();
     source.routes(controller.signal).then(setRoutes).catch(() => undefined);
     return () => controller.abort();
-  }, [tab, routes.length, engine.state, source]);
+  }, [routes.length, engine.state, source]);
 
   // --- Planning -------------------------------------------------------------
   const runPlan = useCallback(
@@ -355,6 +383,21 @@ export function App() {
         onViewportChange={setViewport}
       />
 
+      <MapLegend routes={routes} />
+
+      {panelHidden && (
+        <button
+          type="button"
+          className="panel-reveal"
+          onClick={togglePanel}
+          aria-expanded={false}
+          aria-controls="livetrains-panel"
+        >
+          <span aria-hidden="true">☰</span>
+          Plan a trip
+        </button>
+      )}
+
       {mapPickTarget && (
         <div className="map-pick-hint" role="status">
           Tap the map to set your {mapPickTarget === 'origin' ? 'starting point' : 'destination'}
@@ -364,12 +407,43 @@ export function App() {
         </div>
       )}
 
-      <div className="sheet" ref={sheetRef}>
+      <div
+        className={`sheet${panelHidden ? ' is-hidden' : ''}`}
+        id="livetrains-panel"
+        ref={sheetRef}
+        // Keep the collapsed panel out of the tab order and off screen readers;
+        // the reveal button is the way back in.
+        aria-hidden={panelHidden}
+        inert={panelHidden}
+      >
         <header className="sheet__header">
-          <h1 className="sheet__brand">
-            livetrains
-            <span className="sheet__agency">{agency.name}</span>
-          </h1>
+          <div className="sheet__title-row">
+            <h1 className="sheet__brand">
+              livetrains
+              <span className="sheet__agency">{agency.name}</span>
+            </h1>
+            <button
+              type="button"
+              className="icon-button sheet__collapse"
+              onClick={togglePanel}
+              aria-expanded={!panelHidden}
+              aria-controls="livetrains-panel"
+              title="Hide this panel"
+            >
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <path
+                  d="M9.5 3.5 5 8l4.5 4.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path d="M12.4 3.2v9.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              <span className="visually-hidden">Hide panel</span>
+            </button>
+          </div>
           <StatusBar status={status} stream={stream} />
         </header>
 
