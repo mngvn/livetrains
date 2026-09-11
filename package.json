@@ -16,7 +16,7 @@
     "dev:web": "npm -w @livetrains/web run dev",
     "build": "npm -w @livetrains/server run build && npm -w @livetrains/web run build",
     "start": "npm -w @livetrains/server run start",
-    "test": "npm -w @livetrains/server run test",
+    "test": "npm -w @livetrains/server run test && npm -w @livetrains/web run test",
     "typecheck": "npm -w @livetrains/server run typecheck && npm -w @livetrains/web run typecheck",
     "build:web": "npm -w @livetrains/web run build",
     "build:server": "npm -w @livetrains/server run build",

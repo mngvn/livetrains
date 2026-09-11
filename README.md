@@ -20,6 +20,9 @@ worldwide — adding another city is a config entry rather than a rewrite.
 - **Departure boards.** Tap any stop for the next departures, counting down in
   realtime, with both directions of a stop merged the way a rider thinks of it.
 - **Route browsing.** Every route, its shape, and only its vehicles on the map.
+- **A map you can actually see.** The side panel collapses out of the way (and
+  stays collapsed next time), and a legend explains every mark on the map —
+  including which colour is which line, derived from the agency's own feed.
 - **Service alerts** from the agency's alerts feed, attached to the stops and
   routes they affect.
 

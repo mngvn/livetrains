@@ -1159,3 +1159,289 @@ button {
   line-height: 1.55;
   color: var(--text-muted);
 }
+
+/* --------------------------------------------------------------------------
+   Collapsing the side panel
+   --------------------------------------------------------------------------
+   The map is the thing people came to look at, and the panel covers a good
+   third of it. Sliding the panel away rather than unmounting it keeps scroll
+   position and any half-typed search intact for when it comes back. */
+
+.sheet {
+  transition:
+    transform 0.24s ease,
+    opacity 0.18s ease;
+}
+
+.sheet.is-hidden {
+  transform: translateX(calc(-100% - 16px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sheet__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sheet__title-row .sheet__brand {
+  margin-bottom: 8px;
+}
+
+.sheet__collapse {
+  flex: none;
+  font-size: 15px;
+  margin-top: -2px;
+}
+
+/* The way back to a collapsed panel. */
+.panel-reveal {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.panel-reveal:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Map legend
+   --------------------------------------------------------------------------
+   Top-right: the panel occupies the left, and MapLibre's own controls sit
+   bottom-right, so this is the one free corner. Collapsed by default so it
+   never competes with the map itself. */
+
+.legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: min(300px, calc(100vw - 24px));
+}
+
+.legend__toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.legend__toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.legend.is-open .legend__toggle {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.legend__toggle-icon {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.legend.is-open .legend__toggle-icon {
+  color: inherit;
+}
+
+.legend__panel {
+  width: 100%;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+
+  /*
+   * Scrolling shadows.
+   *
+   * The panel caps its height and scrolls, which without a cue just looks like
+   * text clipped mid-word. These four layers put a soft shadow at whichever
+   * edge has more content beyond it: the cover layers scroll with the content
+   * (background-attachment: local) and hide the shadow layers, which do not.
+   * Pure CSS, so it needs no scroll listener and cannot fall out of sync.
+   */
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(var(--surface) 30%, rgb(0 0 0 / 0%)),
+    linear-gradient(rgb(0 0 0 / 0%), var(--surface) 70%),
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 16%), rgb(0 0 0 / 0%)),
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 16%), rgb(0 0 0 / 0%));
+  background-repeat: no-repeat;
+  background-position:
+    center top,
+    center bottom,
+    center top,
+    center bottom;
+  background-size:
+    100% 30px,
+    100% 30px,
+    100% 11px,
+    100% 11px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+.legend__section + .legend__section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.legend__heading {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.legend__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.legend__item > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.legend__item em {
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+.legend__swatch {
+  width: 24px;
+  height: 16px;
+  flex: none;
+}
+
+.legend__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 19px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  border-radius: 5px;
+  flex: none;
+}
+
+.legend__badge--generic {
+  min-width: 24px;
+  font-size: 9px;
+}
+
+/* On a phone the bottom sheet owns the lower half, so the legend stays small
+   and its panel is capped to what is left above it. */
+@media (max-width: 720px) {
+  .legend {
+    top: 10px;
+    right: 10px;
+    max-width: calc(100vw - 20px);
+  }
+
+  .legend__panel {
+    max-height: min(46vh, 400px);
+  }
+
+  .sheet.is-hidden {
+    transform: translateY(calc(100% + 16px));
+  }
+
+  .panel-reveal {
+    top: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  /* With the sheet collapsed, MapLibre's controls can use the full height. */
+  .app:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-right,
+  .app:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-left {
+    bottom: 64px;
+  }
+}
+
+/* Route names stay on one line; the full text is available on hover. */
+.legend__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet__collapse svg {
+  display: block;
+}
+
+/* On a phone the panel slides down, so the chevron should point down too. */
+@media (max-width: 720px) {
+  .sheet__collapse svg {
+    transform: rotate(-90deg);
+  }
+}
