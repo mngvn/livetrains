@@ -112,6 +112,11 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # The github-pages environment only accepts deployments from the default
+    # branch. Pushes to other branches still build and upload above — which is
+    # what validates a pull request — but skip publishing rather than failing
+    # on a protection rule that is working as intended.
+    if: github.ref_name == github.event.repository.default_branch
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
