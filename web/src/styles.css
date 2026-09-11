@@ -1,0 +1,1088 @@
+/*
+ * livetrains styles.
+ *
+ * Layout is map-first: the map fills the viewport and a sheet floats over it —
+ * a side rail on a desktop, a bottom sheet on a phone. That ordering matters,
+ * because the map is the thing riders are actually looking at.
+ */
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f7;
+  --text: #10151f;
+  --text-muted: #5b6775;
+  --border: #dfe3ea;
+  --accent: #1d4ed8;
+  --accent-contrast: #ffffff;
+  --live: #0a9e5c;
+  --late: #c2410c;
+  --early: #7c3aed;
+  --danger: #be123c;
+  --shadow: 0 8px 30px rgb(15 21 32 / 12%);
+  --radius: 14px;
+  --sheet-width: 400px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --surface: #151c2b;
+    --surface-2: #1d2637;
+    --text: #eef2f8;
+    --text-muted: #9aa7b8;
+    --border: #2a3447;
+    --accent: #6f9bff;
+    --accent-contrast: #0b1220;
+    --live: #35d08a;
+    --late: #fb923c;
+    --early: #c4b5fd;
+    --danger: #fb7185;
+    --shadow: 0 8px 30px rgb(0 0 0 / 45%);
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Shell
+   -------------------------------------------------------------------------- */
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app.is-picking .map {
+  cursor: crosshair;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.sheet {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: var(--sheet-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.sheet__header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sheet__brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sheet__agency {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet__body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px 20px;
+}
+
+/* --------------------------------------------------------------------------
+   Status bar
+   -------------------------------------------------------------------------- */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status-bar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+
+.status-bar__dot.is-live {
+  background: var(--live);
+  box-shadow: 0 0 0 0 rgb(10 158 92 / 60%);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+@keyframes pulse {
+  70% {
+    box-shadow: 0 0 0 7px rgb(10 158 92 / 0%);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(10 158 92 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-bar__dot.is-live {
+    animation: none;
+  }
+}
+
+.status-bar__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-bar__badge {
+  flex: none;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.status-bar__badge--warn {
+  background: color-mix(in srgb, var(--late) 18%, transparent);
+  color: var(--late);
+}
+
+/* --------------------------------------------------------------------------
+   Tabs
+   -------------------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 9px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+}
+
+.tab:hover {
+  background: var(--surface-2);
+}
+
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Buttons and chips
+   -------------------------------------------------------------------------- */
+
+.chip {
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip--primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+.chip--primary:hover {
+  color: var(--accent-contrast);
+  filter: brightness(1.08);
+}
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  flex: none;
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.swap-button {
+  width: 100%;
+  padding: 7px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.swap-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Place search
+   -------------------------------------------------------------------------- */
+
+.place-search {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.place-search__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.place-search__field {
+  position: relative;
+}
+
+.place-search__input {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.place-search__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.place-search__chosen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.place-search__chosen-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.place-search__chosen-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-search__chosen-detail,
+.place-search__result-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-search__spinner {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 13px;
+  height: 13px;
+  margin-top: -7px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.place-search__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.place-search__actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.place-search__results {
+  max-height: 260px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.place-search__result {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+
+.place-search__result.is-active,
+.place-search__result:hover {
+  background: var(--surface-2);
+}
+
+.place-search__result-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.place-search__result-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-search__kind {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.place-search__kind--stop {
+  background: var(--accent);
+}
+
+.place-search__kind--landmark {
+  background: var(--live);
+}
+
+.place-search__kind--address {
+  background: var(--early);
+}
+
+.place-search__empty,
+.panel-empty,
+.panel-hint,
+.panel-loading,
+.panel-error {
+  margin: 10px 2px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.panel-error {
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------------------
+   Route badge
+   -------------------------------------------------------------------------- */
+
+.route-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  border-radius: 6px;
+  flex: none;
+}
+
+.route-badge--small {
+  min-width: 24px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  border-radius: 5px;
+}
+
+/* --------------------------------------------------------------------------
+   Itineraries
+   -------------------------------------------------------------------------- */
+
+.itinerary-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.itinerary-summary {
+  width: 100%;
+  padding: 11px 12px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1.5px solid transparent;
+  border-radius: 11px;
+}
+
+.itinerary-summary:hover {
+  border-color: var(--border);
+}
+
+.itinerary-summary.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.itinerary-summary__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.itinerary-summary__leave {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.itinerary-summary__duration {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.itinerary-summary__legs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.itinerary-summary__leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.itinerary-summary__arrow {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.leg-chip--walk {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+}
+
+.itinerary-summary__bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.itinerary-summary__walk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.itinerary-summary__countdown {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--live);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  display: inline-block;
+  flex: none;
+}
+
+/* --- Leg timeline --- */
+
+.itinerary-detail {
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.leg {
+  display: flex;
+  gap: 12px;
+  min-height: 54px;
+}
+
+.leg__rail {
+  position: relative;
+  width: 14px;
+  flex: none;
+  display: flex;
+  justify-content: center;
+}
+
+.leg__dot {
+  position: relative;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 3px;
+  border: 3px solid var(--text-muted);
+  border-radius: 50%;
+  background: var(--surface);
+  flex: none;
+}
+
+.leg__dot--end {
+  border-color: var(--danger);
+}
+
+.leg__line {
+  position: absolute;
+  top: 12px;
+  bottom: -6px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.leg__line--dashed {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--text-muted) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+.leg__body {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 18px;
+}
+
+.leg__time {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.leg__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 3px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.leg__headsign {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leg__detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.leg__stop-link,
+.leg__vehicle-link {
+  display: block;
+  padding: 2px 0;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+
+.leg__stop-link:hover,
+.leg__vehicle-link:hover {
+  color: var(--accent);
+  text-decoration-color: currentcolor;
+}
+
+.leg__vehicle-link {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.delay-tag {
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.delay-tag--ontime {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+  color: var(--live);
+}
+
+.delay-tag--late {
+  background: color-mix(in srgb, var(--late) 16%, transparent);
+  color: var(--late);
+}
+
+.delay-tag--early {
+  background: color-mix(in srgb, var(--early) 16%, transparent);
+  color: var(--early);
+}
+
+/* --------------------------------------------------------------------------
+   Panels: stop, vehicle
+   -------------------------------------------------------------------------- */
+
+.stop-panel,
+.vehicle-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 20px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.panel-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.panel-actions {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.vehicle-panel__title {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.vehicle-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.vehicle-fact {
+  padding: 9px 11px;
+  background: var(--surface-2);
+  border-radius: 10px;
+}
+
+.vehicle-fact dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.vehicle-fact dd {
+  margin: 3px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* --- Departures --- */
+
+.departures {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.departure {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.departure:last-child {
+  border-bottom: none;
+}
+
+.departure__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.departure__headsign {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.departure__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.departure__countdown {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 700;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.departure__countdown.is-live {
+  color: var(--live);
+}
+
+/* --- Alerts --- */
+
+.alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.alert {
+  padding: 9px 11px;
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--late) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--late) 30%, transparent);
+  border-radius: 9px;
+}
+
+.alert summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.alert p {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Lists: stops, routes
+   -------------------------------------------------------------------------- */
+
+.stop-list,
+.route-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stop-list__item,
+.route-list__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 9px;
+}
+
+.stop-list__item:hover,
+.route-list__item:hover {
+  background: var(--surface-2);
+}
+
+.route-list__item.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.stop-list__text,
+.route-list__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.stop-list__name,
+.route-list__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stop-list__meta,
+.route-list__mode {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.stop-list__routes {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+
+/* --------------------------------------------------------------------------
+   Map overlays
+   -------------------------------------------------------------------------- */
+
+.map-pick-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+/* --------------------------------------------------------------------------
+   Boot states
+   -------------------------------------------------------------------------- */
+
+.boot-loading,
+.boot-error {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot-error h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.boot-error__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.boot-error code {
+  padding: 2px 6px;
+  font-size: 12px;
+  background: var(--surface-2);
+  border-radius: 5px;
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* --------------------------------------------------------------------------
+   Phone layout: the sheet becomes a bottom sheet
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .sheet {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .sheet__body,
+  .stop-panel,
+  .vehicle-panel {
+    /* Momentum scrolling inside the sheet, not the page behind it. */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .map-pick-hint {
+    top: 12px;
+    width: calc(100% - 24px);
+    justify-content: space-between;
+  }
+}
+
+/* MapLibre's own controls need to clear the bottom sheet on a phone. */
+@media (max-width: 720px) {
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    bottom: 63vh;
+  }
+}
