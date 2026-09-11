@@ -55,8 +55,55 @@ export class ApiError extends Error {
   }
 }
 
+/** Where a user-chosen API address is remembered. */
+const API_OVERRIDE_KEY = 'livetrains.apiUrl';
+
+/**
+ * Resolves which API server to talk to.
+ *
+ * Three sources, in order of precedence:
+ *
+ *  1. A runtime override the user set in the app. This is what makes a static
+ *     deployment (GitHub Pages) usable: the same published page can be pointed
+ *     at a hosted API, at a laptop running `npm run dev`, or at anything else,
+ *     without rebuilding.
+ *  2. `VITE_API_URL`, baked in at build time for a known deployment.
+ *  3. The page's own origin, which is correct for local development and for the
+ *     single-process production mode where one server serves both.
+ *
+ * Deliberately read from localStorage rather than a query parameter: a `?api=`
+ * link would let anyone hand someone a URL that silently points the app at a
+ * server of their choosing.
+ */
+export function getApiBase(): string {
+  try {
+    const override = window.localStorage.getItem(API_OVERRIDE_KEY);
+    if (override) return override.replace(/\/$/, '');
+  } catch {
+    // Private browsing can throw on access; fall through to the defaults.
+  }
+  const built = import.meta.env.VITE_API_URL?.trim();
+  if (built) return built.replace(/\/$/, '');
+  return window.location.origin;
+}
+
+/** Stores the API address to use, or clears it when given null. */
+export function setApiBase(url: string | null): void {
+  try {
+    if (url === null) window.localStorage.removeItem(API_OVERRIDE_KEY);
+    else window.localStorage.setItem(API_OVERRIDE_KEY, url.trim().replace(/\/$/, ''));
+  } catch {
+    // Nothing useful to do if storage is unavailable.
+  }
+}
+
+/** True when the app is talking to a server other than the one that served it. */
+export function isRemoteApi(): boolean {
+  return getApiBase() !== window.location.origin;
+}
+
 async function get<T>(path: string, params?: Record<string, string | number | undefined>, signal?: AbortSignal): Promise<T> {
-  const url = new URL(path, window.location.origin);
+  const url = new URL(path, `${getApiBase()}/`);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
   }

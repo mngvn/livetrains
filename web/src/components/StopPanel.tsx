@@ -1,15 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api, type Departure, type RouteSummary, type StopDetail } from '../lib/api.ts';
+import type { Departure, RouteSummary, StopDetail } from '../lib/api.ts';
 import { clockTime, countdown, delayText, modeLabel } from '../lib/format.ts';
 import { RouteBadge } from './RouteBadge.tsx';
 
-/**
- * The departure board for a stop.
- *
- * Refreshes on its own timer rather than waiting for the vehicle stream:
- * predictions change even when no vehicle has moved far enough to be worth
- * re-broadcasting, and a stale countdown is worse than no countdown.
- */
 /** A departure carries its route's display fields inline; rebuild the badge's view of it. */
 function routeOf(departure: Departure): RouteSummary {
   return {
@@ -22,15 +15,25 @@ function routeOf(departure: Departure): RouteSummary {
   };
 }
 
+/**
+ * The departure board for a stop.
+ *
+ * Refreshes on its own timer rather than waiting for the vehicle stream:
+ * predictions change even when no vehicle has moved far enough to be worth
+ * re-broadcasting, and a stale countdown is worse than no countdown.
+ */
 export function StopPanel({
   stopId,
   now,
+  load,
   onPlanFromHere,
   onPlanToHere,
   onClose,
 }: {
   stopId: string;
   now: number;
+  /** Supplied by the app so this works against either backend. */
+  load: (stopId: string, limit?: number, signal?: AbortSignal) => Promise<StopDetail>;
   onPlanFromHere: (detail: StopDetail) => void;
   onPlanToHere: (detail: StopDetail) => void;
   onClose: () => void;
@@ -43,9 +46,8 @@ export function StopPanel({
     let cancelled = false;
     const controller = new AbortController();
 
-    const load = () => {
-      api
-        .stop(stopId, 12, controller.signal)
+    const refresh = () => {
+      load(stopId, 12, controller.signal)
         .then((result) => {
           if (cancelled) return;
           setDetail(result);
@@ -61,14 +63,14 @@ export function StopPanel({
     };
 
     setLoading(true);
-    load();
-    const timer = window.setInterval(load, 20_000);
+    refresh();
+    const timer = window.setInterval(refresh, 20_000);
     return () => {
       cancelled = true;
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [stopId]);
+  }, [stopId, load]);
 
   if (loading && !detail) return <div className="panel-loading">Loading departures…</div>;
   if (error && !detail) return <div className="panel-error">{error}</div>;

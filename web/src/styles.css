@@ -1086,3 +1086,76 @@ button {
     bottom: 63vh;
   }
 }
+
+/* --------------------------------------------------------------------------
+   First-load screen
+   --------------------------------------------------------------------------
+   Browser mode downloads and parses a full metro timetable before it can
+   answer anything, so this reports the real phase rather than spinning. */
+
+.boot-loading__brand {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.boot-loading__bar {
+  position: relative;
+  width: min(340px, 80vw);
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.boot-loading__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.25s ease-out;
+}
+
+/* The parsing phases are CPU-bound with no meaningful fraction to report. */
+.boot-loading__fill.is-indeterminate {
+  width: 35%;
+  animation: slide 1.3s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-loading__fill.is-indeterminate {
+    width: 100%;
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+.boot-loading__phase {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.boot-loading__detail {
+  margin: -6px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.boot-loading__note {
+  max-width: 42ch;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}

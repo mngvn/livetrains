@@ -1,0 +1,125 @@
+# Publishes the web client to GitHub Pages.
+#
+# The app is deployed in browser mode, where the transit engine runs in a Web
+# Worker in the visitor's own browser: it fetches Metro Transit's GTFS and
+# GTFS-Realtime feeds directly (they send `Access-Control-Allow-Origin: *`),
+# parses them, and runs the trip planner locally. That is what lets a static
+# host serve a live transit app with no backend of any kind.
+#
+# One-time setup: Settings → Pages → Source: "GitHub Actions". Creating the
+# Pages site needs repository admin, which the workflow token does not have.
+name: pages
+
+on:
+  push:
+    branches:
+      - main
+      # Deploys work-in-progress from the development branch too, so the app can
+      # be tried before it is merged.
+      - claude/minneapolis-metro-transit-app-fogex9
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; queued runs supersede rather than race.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        # Enabling Pages needs admin rights the workflow token lacks, so a
+        # failure here is reported below rather than hiding the build results.
+        continue-on-error: true
+        with:
+          enablement: true
+
+      - name: Work out the base path
+        id: base
+        env:
+          # Set when Pages is configured; a custom domain serves from "/" while
+          # a github.io site serves from "/<repo>/".
+          CONFIGURED: ${{ steps.pages.outputs.base_path }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          if [ -n "$CONFIGURED" ]; then
+            path="$CONFIGURED"
+          else
+            # Pages is not enabled yet; assume the usual project-site layout so
+            # the build still produces a correct, inspectable artifact.
+            path="/$REPO"
+          fi
+          # Vite wants a trailing slash.
+          case "$path" in */) ;; *) path="$path/" ;; esac
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "Building for base path: $path"
+
+      - name: Build the static client
+        env:
+          VITE_BASE: ${{ steps.base.outputs.path }}
+          # No server exists on Pages: run the transit engine in the browser.
+          VITE_DATA_MODE: browser
+          VITE_AGENCY_ID: metro-transit
+        run: npm run build:web
+
+      - name: Add a 404 fallback
+        # Pages serves 404.html for unknown paths; serving the app shell there
+        # keeps a mistyped or refreshed deep link working.
+        run: cp web/dist/index.html web/dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+      - name: Require Pages to be enabled
+        if: steps.pages.outcome == 'failure'
+        run: |
+          echo "::error title=GitHub Pages is not enabled::The site built fine, but it cannot be published yet."
+          echo ""
+          echo "Enable it once, by hand:"
+          echo "  Settings -> Pages -> Build and deployment -> Source: GitHub Actions"
+          echo ""
+          echo "  https://github.com/${{ github.repository }}/settings/pages"
+          echo ""
+          echo "Then re-run this workflow. Creating a Pages site requires repository"
+          echo "admin rights, which the workflow token deliberately does not have."
+          exit 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # The github-pages environment only accepts deployments from the default
+    # branch. Pushes to other branches still build and upload above — which is
+    # what validates a pull request — but skip publishing rather than failing
+    # on a protection rule that is working as intended.
+    if: github.ref_name == github.event.repository.default_branch
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

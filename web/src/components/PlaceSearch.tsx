@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { api, type Place } from '../lib/api.ts';
+import type { Place } from '../lib/api.ts';
 
 /**
  * A search box for picking an origin or destination.
@@ -17,6 +17,8 @@ interface Props {
   /** Bias results toward the map centre, so "3rd St" means the nearby one. */
   near?: { lat: number; lon: number };
   onChange: (place: Place | null) => void;
+  /** Supplied by the app so this works against either backend. */
+  search: (q: string, near?: { lat: number; lon: number }, signal?: AbortSignal) => Promise<Place[]>;
   onUseCurrentLocation?: () => void;
   onPickOnMap?: () => void;
   /** True while the parent is waiting for this field to be filled by a map tap. */
@@ -29,6 +31,7 @@ export function PlaceSearch({
   placeholder,
   near,
   onChange,
+  search,
   onUseCurrentLocation,
   onPickOnMap,
   awaitingMapPick,
@@ -54,8 +57,7 @@ export function PlaceSearch({
     const controller = new AbortController();
     setLoading(true);
     const timer = window.setTimeout(() => {
-      api
-        .geocode(text, near, controller.signal)
+      search(text, near, controller.signal)
         .then((places) => {
           setResults(places);
           setHighlight(0);
@@ -71,7 +73,7 @@ export function PlaceSearch({
       window.clearTimeout(timer);
       setLoading(false);
     };
-  }, [query, open, near?.lat, near?.lon]);
+  }, [query, open, near?.lat, near?.lon, search]);
 
   // Close the dropdown when focus or a click goes elsewhere.
   useEffect(() => {

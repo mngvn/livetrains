@@ -1,0 +1,48 @@
+# Verifies the app still works against Metro Transit's real feed.
+#
+# The test suite runs against a synthetic feed so it needs no network and does
+# not break overnight. That leaves one thing untested: whether the *real* feed
+# still parses, still sends browser-readable CORS headers, and still plans
+# trips. This job covers that, on a schedule, so a change upstream surfaces
+# here rather than in someone's browser.
+name: verify-feed
+
+on:
+  schedule:
+    # Weekly, Monday morning UTC.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Check the feeds are readable from a browser
+        run: |
+          fail=0
+          for url in \
+            "https://svc.metrotransit.org/mtgtfs/gtfs.zip" \
+            "https://svc.metrotransit.org/mtgtfs/vehiclepositions.pb" \
+            "https://svc.metrotransit.org/mtgtfs/tripupdates.pb" \
+            "https://svc.metrotransit.org/mtgtfs/alerts.pb"; do
+            headers=$(curl -sS -o /dev/null -D - --max-time 60 -r 0-512 \
+              -H 'Origin: https://example.com' "$url" || true)
+            if printf '%s' "$headers" | grep -qi '^access-control-allow-origin:'; then
+              echo "ok   $url"
+            else
+              echo "FAIL $url is no longer readable from a browser"
+              # The static deployment depends on this; it is not a warning.
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Load the real feed and plan a trip
+        run: npx tsx server/src/verifyFeed.ts

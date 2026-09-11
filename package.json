@@ -17,7 +17,12 @@
     "build": "npm -w @livetrains/server run build && npm -w @livetrains/web run build",
     "start": "npm -w @livetrains/server run start",
     "test": "npm -w @livetrains/server run test",
-    "typecheck": "npm -w @livetrains/server run typecheck && npm -w @livetrains/web run typecheck"
+    "typecheck": "npm -w @livetrains/server run typecheck && npm -w @livetrains/web run typecheck",
+    "build:web": "npm -w @livetrains/web run build",
+    "build:server": "npm -w @livetrains/server run build",
+    "fixtures": "npx tsx server/src/mock/fixtures.ts fixtures",
+    "verify:feed": "npx tsx server/src/verifyFeed.ts",
+    "dev:browser": "VITE_DATA_MODE=browser npm -w @livetrains/web run dev"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
