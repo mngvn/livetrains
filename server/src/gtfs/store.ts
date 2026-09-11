@@ -145,19 +145,40 @@ export class GtfsStore {
   // Loading
   // -------------------------------------------------------------------------
 
-  /** Builds a store from the raw text of each GTFS file. */
+  /**
+   * Builds a store from the raw text of each GTFS file.
+   *
+   * **Consumes `files`**: each entry is dropped as soon as it has been parsed.
+   * That is deliberate. JavaScript strings are UTF-16, so a 60MB feed costs
+   * about 120MB held as text — on top of the arrays being built from it. On a
+   * phone that transient peak, not the finished store, is what gets a tab
+   * killed. Releasing as we go roughly halves it, and no caller needs the text
+   * afterwards.
+   */
   static load(files: Map<string, string>): GtfsStore {
     const store = new GtfsStore();
     const started = Date.now();
 
-    store.loadAgency(files.get('agency.txt'));
-    store.loadStops(requireFile(files, 'stops.txt'));
-    store.loadRoutes(requireFile(files, 'routes.txt'));
-    store.loadCalendar(files.get('calendar.txt'), files.get('calendar_dates.txt'));
-    store.loadTrips(requireFile(files, 'trips.txt'));
-    store.loadStopTimes(requireFile(files, 'stop_times.txt'));
-    store.loadShapes(files.get('shapes.txt'));
-    store.loadFeedInfo(files.get('feed_info.txt'));
+    /** Reads a file and immediately lets its text be collected. */
+    const take = (name: string, required = false): string | undefined => {
+      const text = files.get(name);
+      if (text === undefined && required) {
+        throw new Error(`GTFS archive is missing required file ${name}`);
+      }
+      files.delete(name);
+      return text;
+    };
+
+    store.loadAgency(take('agency.txt'));
+    store.loadStops(take('stops.txt', true)!);
+    store.loadRoutes(take('routes.txt', true)!);
+    store.loadCalendar(take('calendar.txt'), take('calendar_dates.txt'));
+    store.loadTrips(take('trips.txt', true)!);
+    store.loadFeedInfo(take('feed_info.txt'));
+    // Shapes before stop_times: they are the two largest files in the feed, and
+    // parsing them in this order means both are never held as text at once.
+    store.loadShapes(take('shapes.txt'));
+    store.loadStopTimes(take('stop_times.txt', true)!);
 
     store.buildSpatialIndex();
     store.buildRoutesAtStop();
@@ -578,12 +599,6 @@ export class GtfsStore {
     }
     return pts;
   }
-}
-
-function requireFile(files: Map<string, string>, name: string): string {
-  const text = files.get(name);
-  if (text === undefined) throw new Error(`GTFS archive is missing required file ${name}`);
-  return text;
 }
 
 /** The GTFS files this server reads. Anything else in the zip is ignored. */

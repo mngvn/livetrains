@@ -170,10 +170,14 @@ export async function loadGtfsFiles(
   });
 
   const files = new Map<string, string>();
-  for (const [path, contents] of Object.entries(unpacked)) {
+  for (const path of Object.keys(unpacked)) {
     const name = path.split('/').pop() ?? path;
+    const contents = unpacked[path];
     if (!wanted.has(name) || contents.length === 0) continue;
     files.set(name, strFromU8(contents));
+    // Release the decompressed bytes now that they are a string; holding both
+    // doubles peak memory during load, which is what constrains phones.
+    delete unpacked[path];
   }
 
   if (files.size === 0) {

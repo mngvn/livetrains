@@ -181,10 +181,16 @@ Feeds for most agencies are listed in the
 
 `.github/workflows/pages.yml` builds the client in browser mode and publishes
 it. It runs on pushes to `main`, and can be run by hand from the Actions tab.
-Nothing else is needed — no server, no secrets, no API keys.
+No server, no secrets, no API keys.
 
-The build sets `VITE_BASE` so assets resolve under `/<repo>/`, and
-`VITE_DATA_MODE=browser` so the engine runs client-side.
+**One-time setup:** Settings → Pages → Build and deployment → Source:
+**GitHub Actions**. Creating the Pages site requires repository admin rights,
+which the workflow token deliberately does not have, so this single step cannot
+be automated. The workflow builds and uploads the site regardless and fails with
+a link to the setting if it is still missing.
+
+The build sets `VITE_BASE` so assets resolve under `/<repo>/` (or `/` behind a
+custom domain), and `VITE_DATA_MODE=browser` so the engine runs client-side.
 
 ### Anywhere that runs Node
 
