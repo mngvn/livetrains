@@ -1,0 +1,26 @@
+{
+  "name": "livetrains",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Live transit map and door-to-door trip planner, starting with Twin Cities Metro Transit",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm -w @livetrains/server run dev",
+    "dev:web": "npm -w @livetrains/web run dev",
+    "build": "npm -w @livetrains/server run build && npm -w @livetrains/web run build",
+    "start": "npm -w @livetrains/server run start",
+    "test": "npm -w @livetrains/server run test",
+    "typecheck": "npm -w @livetrains/server run typecheck && npm -w @livetrains/web run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
