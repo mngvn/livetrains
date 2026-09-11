@@ -169,7 +169,7 @@ export class Planner {
       }
       if (bestStop === -1) continue;
 
-      const itinerary = this.buildItinerary(result.labels, round, bestStop, from, to, egress.get(bestStop)!, walkSpeed);
+      const itinerary = this.buildItinerary(result.labels, round, bestStop, from, to, egress.get(bestStop)!);
       if (itinerary) itineraries.push(itinerary);
     }
     return itineraries;
@@ -237,7 +237,6 @@ export class Planner {
     from: Place,
     to: Place,
     egressWalk: { seconds: number; meters: number },
-    walkSpeed: number,
   ): Itinerary | null {
     const chain: { round: number; stop: number; label: Label }[] = [];
     let stop = egressStop;
@@ -307,7 +306,7 @@ export class Planner {
     }
 
     if (legs.length === 0) return null;
-    return finaliseItinerary(legs, walkSpeed);
+    return finaliseItinerary(legs);
   }
 
   /** Builds one ride leg, refining times with per-stop realtime predictions. */
@@ -365,7 +364,7 @@ export class Planner {
       isRealtime: predictedDeparture !== null || delay !== null,
       numStops: label.alightPosition - label.boardPosition,
       intermediateStops: intermediate,
-      geometry: this.legGeometry(tripIndex, label.boardPosition, label.alightPosition, geometry),
+      geometry: this.legGeometry(tripIndex, geometry),
       vehicleId: this.realtime.vehicleForTrip(tripId)?.id,
     };
   }
@@ -377,12 +376,7 @@ export class Planner {
    * rider is actually on, so the map follows the street rather than cutting
    * across blocks between stops.
    */
-  private legGeometry(
-    tripIndex: number,
-    boardPosition: number,
-    alightPosition: number,
-    stopLine: [number, number][],
-  ): [number, number][] {
+  private legGeometry(tripIndex: number, stopLine: [number, number][]): [number, number][] {
     const shape = this.store.tripGeometry(tripIndex);
     if (shape.length < 2 || stopLine.length < 2) return stopLine;
 
@@ -505,7 +499,7 @@ function walkOnlyItinerary(
  * to finish just before the vehicle arrives is both more useful and more honest
  * about when they actually need to set off.
  */
-function finaliseItinerary(legs: Leg[], walkSpeed: number): Itinerary {
+function finaliseItinerary(legs: Leg[]): Itinerary {
   const firstTransit = legs.findIndex((leg) => leg.type === 'transit');
   if (firstTransit > 0) {
     let boardTime = (legs[firstTransit] as TransitLeg).departureTime;

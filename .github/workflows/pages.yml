@@ -1,0 +1,83 @@
+# Publishes the web client to GitHub Pages.
+#
+# The app is deployed in browser mode, where the transit engine runs in a Web
+# Worker in the visitor's own browser: it fetches Metro Transit's GTFS and
+# GTFS-Realtime feeds directly (they send `Access-Control-Allow-Origin: *`),
+# parses them, and runs the trip planner locally. That is what lets a static
+# host serve a live transit app with no backend of any kind.
+name: pages
+
+on:
+  push:
+    branches:
+      - main
+      # Deploys work-in-progress from the development branch too, so the app can
+      # be tried before it is merged.
+      - claude/minneapolis-metro-transit-app-fogex9
+  workflow_dispatch:
+
+# Allow the workflow to publish to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; queued runs supersede rather than race.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          # Turns Pages on for the repository if it is not already enabled.
+          enablement: true
+
+      - name: Build the static client
+        env:
+          # Pages serves the site from /<repo>/, so asset URLs need that prefix.
+          VITE_BASE: ${{ steps.pages.outputs.base_path }}/
+          # No server exists on Pages: run the transit engine in the browser.
+          VITE_DATA_MODE: browser
+          VITE_AGENCY_ID: metro-transit
+        run: npm run build:web
+
+      - name: Add a 404 fallback
+        # Pages serves 404.html for unknown paths; serving the app shell there
+        # keeps a mistyped or refreshed deep link working.
+        run: cp web/dist/index.html web/dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  api,
   type AgencyInfo,
   type FeedStatus,
   type Itinerary,
@@ -11,6 +10,8 @@ import {
   type Vehicle,
 } from './lib/api.ts';
 import { VehicleTracker, type StreamStatus } from './lib/vehicleTracker.ts';
+import { createDataSource, type EngineStatus } from './lib/dataSource.ts';
+import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { TransitMap } from './components/TransitMap.tsx';
 import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
@@ -60,12 +61,26 @@ export function App() {
   const [now, setNow] = useState(() => Date.now() / 1000);
 
   const tracker = useMemo(() => new VehicleTracker(), []);
+  // One interface, two backends: the in-browser transit engine on a static
+  // host, or the Node API server when one is configured.
+  const source = useMemo(() => createDataSource(), []);
+  const [engine, setEngine] = useState<EngineStatus>({ state: 'loading', progress: null, error: null });
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
+    const unsubscribe = source.onStatus(setEngine);
+    source.start();
+    return () => {
+      unsubscribe();
+      source.dispose();
+    };
+  }, [source]);
+
+  useEffect(() => {
+    if (engine.state !== 'ready') return;
     const controller = new AbortController();
-    Promise.all([api.agency(controller.signal), api.status(controller.signal)])
+    Promise.all([source.agency(controller.signal), source.status(controller.signal)])
       .then(([agencyInfo, feedStatus]) => {
         setAgency(agencyInfo);
         setStatus(feedStatus);
@@ -74,20 +89,23 @@ export function App() {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setBootError(
           err instanceof Error
-            ? `${err.message}. Is the API server running?`
-            : 'Could not reach the API server.',
+            ? source.mode === 'server'
+              ? `${err.message}. Is the API server running?`
+              : err.message
+            : 'Could not load the transit feed.',
         );
       });
     return () => controller.abort();
-  }, []);
+  }, [source, engine.state]);
 
   // Poll feed health so the status bar reflects outages the stream cannot show.
   useEffect(() => {
+    if (engine.state !== 'ready') return;
     const timer = window.setInterval(() => {
-      api.status().then(setStatus).catch(() => undefined);
+      source.status().then(setStatus).catch(() => undefined);
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [source, engine.state]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now() / 1000), 1_000);
@@ -97,13 +115,13 @@ export function App() {
   // --- Live vehicle stream --------------------------------------------------
   useEffect(() => {
     if (!agency?.hasVehicles) return;
-    tracker.connect();
+    tracker.connect({}, source);
     const unsubscribe = tracker.onStatus(setStream);
     return () => {
       unsubscribe();
       tracker.disconnect();
     };
-  }, [tracker, agency?.hasVehicles]);
+  }, [tracker, source, agency?.hasVehicles]);
 
   // Keep the selected vehicle's details fresh as new positions arrive.
   useEffect(() => {
@@ -119,7 +137,7 @@ export function App() {
 
   // --- Stops in view --------------------------------------------------------
   useEffect(() => {
-    if (!viewport || !agency) return;
+    if (!viewport || !agency || engine.state !== 'ready') return;
     const [west, south, east, north] = viewport;
     // Drawing every stop in a whole metro is unreadable and slow; only load
     // them once the viewport is tight enough for them to mean something.
@@ -129,7 +147,7 @@ export function App() {
     }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api
+      source
         .stopsWithin(viewport, 400, controller.signal)
         .then(setStops)
         .catch(() => undefined);
@@ -138,34 +156,34 @@ export function App() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [viewport, agency]);
+  }, [viewport, agency, engine.state, source]);
 
   // --- Nearby tab -----------------------------------------------------------
   useEffect(() => {
-    if (tab !== 'nearby' || !viewport) return;
+    if (tab !== 'nearby' || !viewport || engine.state !== 'ready') return;
     const [west, south, east, north] = viewport;
     const controller = new AbortController();
-    api
+    source
       .nearbyStops((south + north) / 2, (west + east) / 2, 1200, 25, controller.signal)
       .then(setNearbyStops)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [tab, viewport]);
+  }, [tab, viewport, engine.state, source]);
 
   // --- Routes tab -----------------------------------------------------------
   useEffect(() => {
-    if (tab !== 'routes' || routes.length > 0) return;
+    if (tab !== 'routes' || routes.length > 0 || engine.state !== 'ready') return;
     const controller = new AbortController();
-    api.routes(controller.signal).then(setRoutes).catch(() => undefined);
+    source.routes(controller.signal).then(setRoutes).catch(() => undefined);
     return () => controller.abort();
-  }, [tab, routes.length]);
+  }, [tab, routes.length, engine.state, source]);
 
   // --- Planning -------------------------------------------------------------
   const runPlan = useCallback(
     (from: Place, to: Place) => {
       setPlanning(true);
       setPlanMessage(null);
-      api
+      source
         .plan({ fromLat: from.lat, fromLon: from.lon, toLat: to.lat, toLon: to.lon })
         .then((result) => {
           setItineraries(result.itineraries);
@@ -179,7 +197,7 @@ export function App() {
         })
         .finally(() => setPlanning(false));
     },
-    [],
+    [source],
   );
 
   // Plan automatically once both ends are known — the rider has already said
@@ -222,7 +240,7 @@ export function App() {
   const handleMapClick = useCallback(
     (lat: number, lon: number) => {
       if (!mapPickTarget) return;
-      api
+      source
         .reverseGeocode(lat, lon)
         .then((place) => {
           if (mapPickTarget === 'origin') setOrigin(place);
@@ -255,7 +273,7 @@ export function App() {
       setActiveRouteId(route.id);
       // Narrow the live stream to this route so the map shows only its vehicles.
       tracker.setFilter({ routeId: route.id });
-      api
+      source
         .route(route.id)
         .then((detail) => {
           const direction = detail.directions[0];
@@ -263,7 +281,7 @@ export function App() {
         })
         .catch(() => undefined);
     },
-    [activeRouteId, tracker],
+    [activeRouteId, tracker, source],
   );
 
   const planFromStop = useCallback((detail: StopDetail, target: 'origin' | 'destination') => {
@@ -303,12 +321,15 @@ export function App() {
     );
   }
 
-  if (!agency) {
+  // Browser mode has a real first-load cost — a 19MB timetable to fetch and
+  // parse — so show what is actually happening rather than a bare spinner.
+  if (engine.state !== 'ready' || !agency) {
     return (
-      <div className="boot-loading">
-        <span className="spinner" />
-        <p>Loading the transit feed…</p>
-      </div>
+      <LoadingScreen
+        status={engine}
+        mode={source.mode}
+        onRetry={() => source.refresh(true)}
+      />
     );
   }
 
@@ -358,6 +379,7 @@ export function App() {
           <StopPanel
             stopId={selectedStopId}
             now={now}
+            load={source.stop}
             onPlanFromHere={(detail) => planFromStop(detail, 'origin')}
             onPlanToHere={(detail) => planFromStop(detail, 'destination')}
             onClose={() => setSelectedStopId(null)}
@@ -383,6 +405,7 @@ export function App() {
                 <div className="plan-tab">
                   <PlaceSearch
                     label="From"
+                    search={source.geocode}
                     value={origin}
                     placeholder="Starting point"
                     near={mapCentre}
@@ -393,6 +416,7 @@ export function App() {
                   />
                   <PlaceSearch
                     label="To"
+                    search={source.geocode}
                     value={destination}
                     placeholder="Where are you going?"
                     near={mapCentre}

@@ -33,6 +33,21 @@ interface Track {
   lastSeen: number;
 }
 
+/**
+ * Anything that can push vehicle updates.
+ *
+ * The in-browser engine satisfies this structurally, which lets the tracker
+ * stay agnostic about whether positions arrive from a worker in this tab or
+ * over Server-Sent Events from a server.
+ */
+export interface VehiclePushSource {
+  mode: 'browser' | 'server';
+  onVehicles(
+    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+  ): () => void;
+  setRouteFilter(routeId?: string): void;
+}
+
 export type FrameListener = (vehicles: TrackedVehicle[]) => void;
 export type StatusListener = (status: StreamStatus) => void;
 
@@ -75,6 +90,9 @@ export class VehicleTracker {
    * for a full minute.
    */
   private resetOnNextMessage = false;
+  /** Set in browser mode, where a worker pushes instead of an SSE stream. */
+  private pushSource: VehiclePushSource | null = null;
+  private unsubscribePush: (() => void) | null = null;
 
   private status: StreamStatus = { connected: false, vehicleCount: 0, lastUpdate: null, error: null };
 
@@ -88,13 +106,39 @@ export class VehicleTracker {
   private animationMs = 15_000;
   private lastMessageAt = 0;
 
-  connect(filter: { routeId?: string } = {}): void {
+  /**
+   * Starts receiving positions.
+   *
+   * With a push source (the in-browser engine) the tracker subscribes to it;
+   * without one it opens the server's SSE stream. Either way the interpolation
+   * and frame loop below are identical.
+   */
+  connect(filter: { routeId?: string } = {}, source?: VehiclePushSource): void {
     this.filter = filter;
-    this.openStream();
+
+    if (source && source.mode === 'browser') {
+      this.pushSource = source;
+      this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error }) => {
+        this.ingest(vehicles);
+        this.setStatus({
+          connected: error === null,
+          vehicleCount: vehicles.length,
+          lastUpdate: timestamp,
+          error,
+        });
+      });
+      if (filter.routeId) source.setRouteFilter(filter.routeId);
+    } else {
+      this.openStream();
+    }
+
     this.startFrames();
   }
 
   disconnect(): void {
+    this.unsubscribePush?.();
+    this.unsubscribePush = null;
+    this.pushSource = null;
     this.source?.close();
     this.source = null;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
@@ -110,7 +154,8 @@ export class VehicleTracker {
     if (filter.routeId === this.filter.routeId) return;
     this.filter = filter;
     this.resetOnNextMessage = true;
-    this.openStream();
+    if (this.pushSource) this.pushSource.setRouteFilter(filter.routeId);
+    else this.openStream();
   }
 
   onFrame(listener: FrameListener): () => void {
