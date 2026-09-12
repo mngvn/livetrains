@@ -1,4 +1,4 @@
-import { api, getApiBase, type StopDetail, type RouteDetail } from './api.ts';
+import { api, getApiBase, type StopDetail, type RouteDetail, type RouteNetwork } from './api.ts';
 import { TransitEngine, type EngineStatus } from '../engine/client.ts';
 import { resolveAgency } from '../engine/agency.ts';
 import type {
@@ -74,6 +74,7 @@ export interface DataSource {
   agency(signal?: AbortSignal): Promise<AgencyInfo>;
   routes(signal?: AbortSignal): Promise<RouteSummary[]>;
   route(routeId: string, signal?: AbortSignal): Promise<RouteDetail>;
+  routeNetwork(signal?: AbortSignal): Promise<RouteNetwork>;
   nearbyStops(lat: number, lon: number, radius?: number, limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stopsWithin(bbox: [number, number, number, number], limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stop(stopId: string, limit?: number, signal?: AbortSignal): Promise<StopDetail>;
@@ -113,6 +114,7 @@ class BrowserSource implements DataSource {
   agency = () => this.engine.request<AgencyInfo>('agency');
   routes = () => this.engine.request<RouteSummary[]>('routes');
   route = (routeId: string) => this.engine.request<RouteDetail>('route', { routeId });
+  routeNetwork = () => this.engine.request<RouteNetwork>('routeNetwork');
   nearbyStops = (lat: number, lon: number, radius = 800, limit = 20) =>
     this.engine.request<StopSummary[]>('nearbyStops', { lat, lon, radius, limit });
   stopsWithin = (bbox: [number, number, number, number], limit = 300) =>
@@ -160,6 +162,7 @@ class ServerSource implements DataSource {
   agency = api.agency;
   routes = api.routes;
   route = api.route;
+  routeNetwork = api.routeNetwork;
   nearbyStops = api.nearbyStops;
   stopsWithin = api.stopsWithin;
   stop = api.stop;

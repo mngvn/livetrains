@@ -28,6 +28,16 @@ export type {
   WalkLeg,
 } from '@shared/api.ts';
 
+/** GeoJSON of every route's drawn shape, for the faint network underlay. */
+export interface RouteNetwork {
+  type: 'FeatureCollection';
+  features: {
+    type: 'Feature';
+    geometry: { type: 'LineString'; coordinates: [number, number][] };
+    properties: { routeId: string; color: string; mode: string; rail: boolean };
+  }[];
+}
+
 export interface StopDetail {
   stop: StopSummary;
   groupedStopIds: string[];
@@ -174,6 +184,8 @@ export const api = {
       },
       signal,
     ),
+
+  routeNetwork: (signal?: AbortSignal) => get<RouteNetwork>('/api/network', undefined, signal),
 
   alerts: (signal?: AbortSignal) => get<{ alerts: ServiceAlert[] }>('/api/alerts', undefined, signal),
 };

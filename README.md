@@ -14,7 +14,10 @@ worldwide — adding another city is a config entry rather than a rewrite.
 
 - **Live vehicle map.** Every bus and train currently in service, drawn from the
   agency's GTFS-Realtime feed and smoothly interpolated between updates so the
-  map reads as live rather than as a slideshow.
+  map reads as live rather than as a slideshow. Trains are square and buses
+  round, each carries an arrow showing which way it is heading, and the whole
+  route network sits underneath as a faint wash so vehicles read as following
+  lines rather than drifting.
 - **Door-to-door trip planning.** Enter a destination and get ranked itineraries
   — walk, ride, transfer, walk — with realtime delays folded into the times.
 - **Departure boards.** Tap any stop for the next departures, counting down in

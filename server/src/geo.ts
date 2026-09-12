@@ -62,3 +62,83 @@ export function bearingDegrees(
     Math.sin(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.cos(dLon);
   return (Math.atan2(y, x) / DEG + 360) % 360;
 }
+
+/**
+ * Ramer-Douglas-Peucker line simplification.
+ *
+ * Route shapes are the bulk of a GTFS feed — 15MB of the 60MB for Metro
+ * Transit — because they carry survey-grade detail no map at city zoom can
+ * show. Drawing the whole network raw would mean moving and rendering
+ * hundreds of thousands of points to draw lines a couple of pixels wide.
+ *
+ * `tolerance` is in degrees; roughly 1e-5 is a metre of latitude. Points are
+ * kept when dropping them would move the line by more than that.
+ */
+export function simplifyPath(
+  points: readonly [number, number][],
+  tolerance: number,
+): [number, number][] {
+  if (points.length <= 2) return points.slice();
+
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  // Iterative rather than recursive: a long shape can be tens of thousands of
+  // points, deep enough to overflow the stack on a pathological input.
+  const stack: [number, number][] = [[0, points.length - 1]];
+  const toleranceSquared = tolerance * tolerance;
+
+  while (stack.length > 0) {
+    const [first, last] = stack.pop()!;
+    if (last <= first + 1) continue;
+
+    let furthest = -1;
+    let furthestDistance = 0;
+    for (let i = first + 1; i < last; i++) {
+      const distance = squaredDistanceToSegment(points[i], points[first], points[last]);
+      if (distance > furthestDistance) {
+        furthestDistance = distance;
+        furthest = i;
+      }
+    }
+
+    if (furthestDistance > toleranceSquared && furthest > 0) {
+      keep[furthest] = 1;
+      stack.push([first, furthest], [furthest, last]);
+    }
+  }
+
+  const out: [number, number][] = [];
+  for (let i = 0; i < points.length; i++) {
+    if (keep[i]) out.push(points[i]);
+  }
+  return out;
+}
+
+/** Squared perpendicular distance from a point to a segment, in degrees. */
+function squaredDistanceToSegment(
+  point: readonly [number, number],
+  start: readonly [number, number],
+  end: readonly [number, number],
+): number {
+  let x = start[0];
+  let y = start[1];
+  let dx = end[0] - x;
+  let dy = end[1] - y;
+
+  if (dx !== 0 || dy !== 0) {
+    const t = ((point[0] - x) * dx + (point[1] - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) {
+      x = end[0];
+      y = end[1];
+    } else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
+    }
+  }
+
+  dx = point[0] - x;
+  dy = point[1] - y;
+  return dx * dx + dy * dy;
+}
