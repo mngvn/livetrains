@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PlanRequest, RouteSummary, Vehicle } from '../shared/api.js';
 import { departuresForStops, groupedStopIndices, stopWithRoutes } from '../departures.js';
 import { routeSummary } from '../planner/index.js';
+import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
 
@@ -305,6 +306,19 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       return result;
     },
   );
+
+  /**
+   * The drawn shape of every route.
+   *
+   * Built once and held: the geometry cannot change without the feed being
+   * reloaded, and rebuilding it per request would be pure waste.
+   */
+  let network: RouteNetwork | null = null;
+  app.get('/api/network', async () => {
+    requireReady(service);
+    network ??= buildRouteNetwork(service.store, service.planner.patterns);
+    return network;
+  });
 
   app.get('/api/alerts', async () => ({ alerts: service.realtime.alerts }));
 }

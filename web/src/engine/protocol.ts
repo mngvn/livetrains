@@ -15,6 +15,7 @@ export type EngineMethod =
   | 'agency'
   | 'routes'
   | 'route'
+  | 'routeNetwork'
   | 'nearbyStops'
   | 'stopsWithin'
   | 'stop'

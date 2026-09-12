@@ -4,6 +4,7 @@ import {
   type FeedStatus,
   type Itinerary,
   type Place,
+  type RouteNetwork,
   type RouteSummary,
   type StopDetail,
   type StopSummary,
@@ -46,6 +47,8 @@ export function App() {
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [activeRoute, setActiveRoute] = useState<{ geometry: [number, number][]; color: string } | null>(null);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
+  /** Every route's drawn shape, for the faint underlay beneath the vehicles. */
+  const [network, setNetwork] = useState<RouteNetwork | null>(null);
 
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -205,6 +208,19 @@ export function App() {
     source.routes(controller.signal).then(setRoutes).catch(() => undefined);
     return () => controller.abort();
   }, [routes.length, engine.state, source]);
+
+  // --- The route network underlay -------------------------------------------
+  useEffect(() => {
+    if (network || engine.state !== 'ready') return;
+    const controller = new AbortController();
+    // Built from every route's geometry, so it is the one heavy query here;
+    // a failure costs the underlay and nothing else.
+    source
+      .routeNetwork(controller.signal)
+      .then(setNetwork)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [network, engine.state, source]);
 
   // --- Planning -------------------------------------------------------------
   const runPlan = useCallback(
@@ -371,6 +387,7 @@ export function App() {
         stops={stops}
         itinerary={chosen}
         routeShape={activeRoute}
+        network={network}
         selectedVehicleId={selectedVehicleId}
         origin={origin}
         destination={destination}

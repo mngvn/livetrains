@@ -17,6 +17,7 @@ import {
   decodeVehiclePositions,
 } from '../../../server/src/realtime/decode.js';
 import { Geocoder } from '../../../server/src/geocode.js';
+import { buildRouteNetwork, type RouteNetwork } from '../../../server/src/network.js';
 import { loadGtfsFiles, clearGtfsCache } from './gtfsSource.js';
 import type { EngineMethod, FromWorker, ToWorker } from './protocol.js';
 
@@ -41,6 +42,8 @@ let planner: Planner | null = null;
 let geocoder: Geocoder | null = null;
 let loadError: string | null = null;
 let loadedAt: number | null = null;
+/** Built on first request and kept: the geometry never changes mid-session. */
+let network: RouteNetwork | null = null;
 
 const realtime = new RealtimeState();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -78,6 +81,7 @@ async function load(hard = false): Promise<void> {
 
   store = loaded;
   planner = builtPlanner;
+  network = null; // a reloaded feed invalidates the drawn network
   geocoder = new Geocoder(loaded, agency.id);
   loadedAt = Math.floor(Date.now() / 1000);
 
@@ -360,6 +364,12 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
         walkSpeed: params.walkSpeed === undefined ? undefined : num(params.walkSpeed),
       };
       return p.plan(request);
+    }
+
+    case 'routeNetwork': {
+      const { store: s, planner: p } = requireReady();
+      network ??= buildRouteNetwork(s, p.patterns);
+      return network;
     }
 
     case 'alerts':
