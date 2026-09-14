@@ -15,8 +15,11 @@ import type maplibregl from 'maplibre-gl';
  * shape, route by colour, and heading by a separate rotating arrow.
  */
 
-/** Drawn at this nominal CSS size; `icon-size` scales it per zoom. */
+/** Marker artwork is drawn at this nominal CSS size; `icon-size` scales it. */
 const ICON_SIZE = 40;
+/** The beam is tall and narrow, so it gets its own canvas shape. */
+const BEAM_WIDTH = 26;
+const BEAM_HEIGHT = 104;
 /** Supersampled so the distance field has sub-pixel accuracy. */
 const PIXEL_RATIO = 2;
 /**
@@ -35,7 +38,12 @@ const SPREAD = 7;
  */
 const CUTOFF = 0.25;
 
-type Draw = (ctx: CanvasRenderingContext2D, size: number) => void;
+interface Box {
+  width: number;
+  height: number;
+}
+
+type Draw = (ctx: CanvasRenderingContext2D, box: Box) => void;
 
 export interface SdfImage {
   width: number;
@@ -51,58 +59,59 @@ export interface SdfImage {
  * of the edge has a value that is not simply "fully inside" or "fully
  * outside", so that is the only band worth computing.
  */
-function makeSdf(draw: Draw): SdfImage {
-  const size = ICON_SIZE * PIXEL_RATIO;
+function makeSdf(draw: Draw, box: Box = { width: ICON_SIZE, height: ICON_SIZE }): SdfImage {
+  const w = Math.round(box.width * PIXEL_RATIO);
+  const h = Math.round(box.height * PIXEL_RATIO);
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = w;
+  canvas.height = h;
 
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('2D canvas is unavailable');
 
   ctx.scale(PIXEL_RATIO, PIXEL_RATIO);
   ctx.fillStyle = '#fff';
-  draw(ctx, ICON_SIZE);
+  draw(ctx, box);
 
-  const pixels = ctx.getImageData(0, 0, size, size).data;
-  const inside = new Uint8Array(size * size);
+  const pixels = ctx.getImageData(0, 0, w, h).data;
+  const inside = new Uint8Array(w * h);
   for (let i = 0; i < inside.length; i++) inside[i] = pixels[i * 4 + 3] > 127 ? 1 : 0;
 
   // Unsigned distance to the boundary, seeded at Infinity.
-  const distance = new Float32Array(size * size).fill(Number.POSITIVE_INFINITY);
+  const distance = new Float32Array(w * h).fill(Number.POSITIVE_INFINITY);
   const reach = Math.ceil(SPREAD * PIXEL_RATIO) + 1;
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const index = y * size + x;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const index = y * w + x;
       if (!inside[index]) continue;
       // A boundary pixel is one inside the shape touching the outside.
       const edge =
         x === 0 ||
         y === 0 ||
-        x === size - 1 ||
-        y === size - 1 ||
+        x === w - 1 ||
+        y === h - 1 ||
         !inside[index - 1] ||
         !inside[index + 1] ||
-        !inside[index - size] ||
-        !inside[index + size];
+        !inside[index - w] ||
+        !inside[index + w];
       if (!edge) continue;
 
       for (let dy = -reach; dy <= reach; dy++) {
         const ny = y + dy;
-        if (ny < 0 || ny >= size) continue;
+        if (ny < 0 || ny >= h) continue;
         for (let dx = -reach; dx <= reach; dx++) {
           const nx = x + dx;
-          if (nx < 0 || nx >= size) continue;
+          if (nx < 0 || nx >= w) continue;
           const d = Math.sqrt(dx * dx + dy * dy);
-          const target = ny * size + nx;
+          const target = ny * w + nx;
           if (d < distance[target]) distance[target] = d;
         }
       }
     }
   }
 
-  const data = new Uint8ClampedArray(size * size * 4);
+  const data = new Uint8ClampedArray(w * h * 4);
   const radius = SPREAD * PIXEL_RATIO;
   for (let i = 0; i < inside.length; i++) {
     // Negative inside, positive outside — the sign is what makes it *signed*.
@@ -115,7 +124,7 @@ function makeSdf(draw: Draw): SdfImage {
     data[o + 3] = Math.max(0, Math.min(255, alpha));
   }
 
-  return { width: size, height: size, data };
+  return { width: w, height: h, data };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +132,7 @@ function makeSdf(draw: Draw): SdfImage {
 // ---------------------------------------------------------------------------
 
 /** Buses and everything unclassified: a plain disc. */
-const drawBus: Draw = (ctx, size) => {
+const drawBus: Draw = (ctx, { width: size }) => {
   const c = size / 2;
   ctx.beginPath();
   ctx.arc(c, c, size * 0.26, 0, Math.PI * 2);
@@ -136,7 +145,7 @@ const drawBus: Draw = (ctx, size) => {
  * Chosen because it stays distinguishable from a disc at any size a vehicle is
  * drawn — the corners survive when a glyph would not.
  */
-const drawRail: Draw = (ctx, size) => {
+const drawRail: Draw = (ctx, { width: size }) => {
   const c = size / 2;
   const half = size * 0.24;
   const radius = size * 0.07;
@@ -146,7 +155,7 @@ const drawRail: Draw = (ctx, size) => {
 };
 
 /** Ferries: a diamond, since they follow neither rails nor streets. */
-const drawFerry: Draw = (ctx, size) => {
+const drawFerry: Draw = (ctx, { width: size }) => {
   const c = size / 2;
   const r = size * 0.28;
   ctx.beginPath();
@@ -166,7 +175,7 @@ const drawFerry: Draw = (ctx, size) => {
  * the offset into the artwork this way avoids depending on how `icon-offset`
  * and `icon-rotate` compose.
  */
-const drawHeading: Draw = (ctx, size) => {
+const drawHeading: Draw = (ctx, { width: size }) => {
   const c = size / 2;
   const tip = size * 0.03;
   const base = size * 0.28;
@@ -183,14 +192,50 @@ const drawHeading: Draw = (ctx, size) => {
   ctx.fill();
 };
 
-export const VEHICLE_ICONS = {
-  'vehicle-bus': drawBus,
-  'vehicle-rail': drawRail,
-  'vehicle-ferry': drawFerry,
-  'vehicle-heading': drawHeading,
-} as const;
+/**
+ * The beam: a shaft of the route's colour rising from the vehicle.
+ *
+ * Zoomed out to a whole metro, a vehicle is a four-pixel dot on a pale map and
+ * genuinely hard to find. A vertical streak is far easier for an eye to catch,
+ * and where several overlap they pool into a wash that reads as "lots of
+ * service here" — so the beams double as a density map.
+ *
+ * It rises in *screen* space rather than as true 3D geometry. The map is
+ * top-down, where an extruded pillar would be an invisible flat square, and a
+ * screen-space shaft also survives at any pitch without forcing a tilted view.
+ *
+ * The taper does the work a gradient would: an SDF is thresholded by the
+ * shader, so alpha cannot fade along the shaft's length, but narrowing it to a
+ * point reads as a fade anyway.
+ */
+const drawBeam: Draw = (ctx, { width, height }) => {
+  const c = width / 2;
+  const baseHalf = width * 0.2;
+  const tipHalf = width * 0.035;
+  // Leave a pixel of headroom so the tip is not clipped by the canvas edge.
+  const top = 1.5;
 
-export type VehicleIconId = keyof typeof VEHICLE_ICONS;
+  ctx.beginPath();
+  ctx.moveTo(c - baseHalf, height);
+  ctx.lineTo(c - tipHalf, top);
+  ctx.lineTo(c + tipHalf, top);
+  ctx.lineTo(c + baseHalf, height);
+  ctx.closePath();
+  ctx.fill();
+};
+
+interface IconSpec {
+  draw: Draw;
+  box?: Box;
+}
+
+export const VEHICLE_ICONS: Record<string, IconSpec> = {
+  'vehicle-bus': { draw: drawBus },
+  'vehicle-rail': { draw: drawRail },
+  'vehicle-ferry': { draw: drawFerry },
+  'vehicle-heading': { draw: drawHeading },
+  'vehicle-beam': { draw: drawBeam, box: { width: BEAM_WIDTH, height: BEAM_HEIGHT } },
+};
 
 /**
  * Registers every marker image on a map style.
@@ -199,10 +244,10 @@ export type VehicleIconId = keyof typeof VEHICLE_ICONS;
  * the layers that use them.
  */
 export function registerVehicleIcons(map: maplibregl.Map): void {
-  for (const [id, draw] of Object.entries(VEHICLE_ICONS)) {
+  for (const [id, spec] of Object.entries(VEHICLE_ICONS)) {
     if (map.hasImage(id)) continue;
     try {
-      map.addImage(id, makeSdf(draw), { sdf: true, pixelRatio: PIXEL_RATIO });
+      map.addImage(id, makeSdf(spec.draw, spec.box), { sdf: true, pixelRatio: PIXEL_RATIO });
     } catch (err) {
       // A missing icon degrades the map; it should not break it.
       console.warn(`livetrains: could not register marker "${id}"`, err);

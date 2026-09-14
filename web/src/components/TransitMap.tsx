@@ -515,6 +515,47 @@ function ensureLayers(map: maplibregl.Map): boolean {
   });
 
   // --- Vehicles (topmost) ---
+  // Beams first, so every marker and arrow draws over them.
+  //
+  // These exist for the zoomed-out view, where a vehicle is a four-pixel dot
+  // that is genuinely hard to find. They fade out entirely as you zoom in:
+  // once a vehicle is big enough to read, the shaft is just clutter over the
+  // thing you came to look at.
+  map.addLayer({
+    id: 'vehicles-beam',
+    type: 'symbol',
+    source: 'vehicles',
+    layout: {
+      'icon-image': 'vehicle-beam',
+      // Anchored at its foot, so the shaft rises from the vehicle.
+      'icon-anchor': 'bottom',
+      // Shrinks as you zoom in, not grows. The beam is a finding aid for the
+      // wide view; letting it scale up with the map would make it loudest
+      // exactly when the vehicle it points at no longer needs pointing at.
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.95, 11, 0.7, 13, 0.42, 14, 0.3],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: {
+      'icon-color': ['get', 'color'],
+      // Gone well before the zoom at which you would inspect a single vehicle,
+      // so the marker is never competing with its own beam.
+      'icon-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8,
+        0.5,
+        10.5,
+        0.38,
+        12,
+        0.18,
+        13.5,
+        0,
+      ],
+    },
+  });
+
   // Selection halo, beneath the marker it belongs to.
   map.addLayer({
     id: 'vehicles-selected',
