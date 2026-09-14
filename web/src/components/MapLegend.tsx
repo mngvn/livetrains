@@ -66,6 +66,13 @@ export function MapLegend({ routes }: { routes: RouteSummary[] }) {
                 </span>
               </li>
               <li className="legend__item">
+                <Swatch kind="beam" />
+                <span>
+                  Beam
+                  <em>spots vehicles when zoomed out</em>
+                </span>
+              </li>
+              <li className="legend__item">
                 <Swatch kind="network" />
                 <span>
                   Route path
@@ -156,7 +163,17 @@ export function MapLegend({ routes }: { routes: RouteSummary[] }) {
 function Swatch({
   kind,
 }: {
-  kind: 'rail' | 'bus' | 'heading' | 'network' | 'stop' | 'ride' | 'walk' | 'origin' | 'destination';
+  kind:
+    | 'rail'
+    | 'bus'
+    | 'heading'
+    | 'beam'
+    | 'network'
+    | 'stop'
+    | 'ride'
+    | 'walk'
+    | 'origin'
+    | 'destination';
 }) {
   switch (kind) {
     // Rail markers are rounded squares and buses discs — shape, not a glyph,
@@ -185,6 +202,14 @@ function Swatch({
             strokeWidth="1"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case 'beam':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          {/* The shaft tapers rather than fading, which is what the map does. */}
+          <path d="M10.4 13 L11.7 1.5 L12.3 1.5 L13.6 13 Z" fill="#0b5fa5" opacity="0.45" />
+          <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
         </svg>
       );
     case 'network':
