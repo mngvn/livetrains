@@ -50,6 +50,8 @@ interface Props {
   onSelectStop: (stopId: string) => void;
   onMapClick: (lat: number, lon: number) => void;
   onViewportChange: (bbox: [number, number, number, number]) => void;
+  /** Whether vehicles throw their colour beams. */
+  showBeams: boolean;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -71,6 +73,7 @@ export function TransitMap({
   onSelectStop,
   onMapClick,
   onViewportChange,
+  showBeams,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -87,6 +90,16 @@ export function TransitMap({
   const [styleEpoch, setStyleEpoch] = useState(0);
   /** Guards against a fallback loop if the fallback style itself errors. */
   const usedFallback = useRef(false);
+  /**
+   * The beam preference, readable from the map's own listeners.
+   *
+   * Layers are (re)created from `load` and `styledata`, which are attached once
+   * and never see later props. Reading the current value here means a rebuilt
+   * beam layer is born with the right visibility rather than flashing on and
+   * being switched off a frame later.
+   */
+  const beamsWanted = useRef(showBeams);
+  beamsWanted.current = showBeams;
   // Handlers change on every render; hold them in a ref so the map's own
   // listeners can stay attached for the life of the component.
   const handlers = useRef({ onSelectVehicle, onSelectStop, onMapClick, onViewportChange });
@@ -139,7 +152,7 @@ export function TransitMap({
 
     instance.on('load', () => {
       registerVehicleIcons(instance);
-      if (ensureLayers(instance)) setStyleEpoch((epoch) => epoch + 1);
+      if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
       ready.current = true;
       emitViewport();
     });
@@ -150,7 +163,7 @@ export function TransitMap({
       if (!instance.isStyleLoaded()) return;
       // A style swap drops registered images along with the layers.
       registerVehicleIcons(instance);
-      if (ensureLayers(instance)) setStyleEpoch((epoch) => epoch + 1);
+      if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
       ready.current = true;
       // `load` never fires when the first style fails, so this is also the only
       // chance to report the initial viewport — without it the nearby-stops and
@@ -241,6 +254,16 @@ export function TransitMap({
       selectedVehicleId ?? NO_SELECTION,
     ]);
   }, [selectedVehicleId, styleEpoch]);
+
+  // --- Beams on or off ------------------------------------------------------
+  // `styleEpoch` is in the deps because a style swap rebuilds the layer, and
+  // the rebuilt one needs the preference applied to it rather than to the
+  // layer object that has just been discarded.
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready.current || !instance?.getLayer('vehicles-beam')) return;
+    instance.setLayoutProperty('vehicles-beam', 'visibility', showBeams ? 'visible' : 'none');
+  }, [showBeams, styleEpoch]);
 
   // --- Stops ----------------------------------------------------------------
   useEffect(() => {
@@ -367,7 +390,7 @@ function fitTo(map: maplibregl.Map | null, coordinates: [number, number][]): voi
  * Order matters: the planned route sits above the basemap but below stops, and
  * vehicles sit on top of everything so a bus is never hidden behind a stop dot.
  */
-function ensureLayers(map: maplibregl.Map): boolean {
+function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
   // Idempotent: called on every style load, and a style swap wipes what was
   // added before. Returns true when it created the layers, which tells the
   // caller the sources are empty and need refilling.
@@ -527,6 +550,7 @@ function ensureLayers(map: maplibregl.Map): boolean {
     source: 'vehicles',
     layout: {
       'icon-image': 'vehicle-beam',
+      visibility: showBeams ? 'visible' : 'none',
       // Anchored at its foot, so the shaft rises from the vehicle.
       'icon-anchor': 'bottom',
       // Shrinks as you zoom in, not grows. The beam is a finding aid for the

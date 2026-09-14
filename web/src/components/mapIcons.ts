@@ -19,7 +19,7 @@ import type maplibregl from 'maplibre-gl';
 const ICON_SIZE = 40;
 /** The beam is tall and narrow, so it gets its own canvas shape. */
 const BEAM_WIDTH = 26;
-const BEAM_HEIGHT = 104;
+const BEAM_HEIGHT = 176;
 /** Supersampled so the distance field has sub-pixel accuracy. */
 const PIXEL_RATIO = 2;
 /**

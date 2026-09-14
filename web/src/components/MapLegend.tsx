@@ -16,7 +16,13 @@ import { splitBrandedLines } from '../lib/legend.ts';
  * other city the app is pointed at.
  */
 
-export function MapLegend({ routes }: { routes: RouteSummary[] }) {
+interface Props {
+  routes: RouteSummary[];
+  beams: boolean;
+  onToggleBeams: () => void;
+}
+
+export function MapLegend({ routes, beams, onToggleBeams }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -65,12 +71,25 @@ export function MapLegend({ routes }: { routes: RouteSummary[] }) {
                   <em>arrow leads the vehicle</em>
                 </span>
               </li>
-              <li className="legend__item">
+              {/* The one legend row that does something. The legend is where
+                  you come to ask what the beams are, so it is also the most
+                  obvious place to turn them off once you know. */}
+              <li className={`legend__item${beams ? '' : ' is-off'}`}>
                 <Swatch kind="beam" />
                 <span>
                   Beam
-                  <em>spots vehicles when zoomed out</em>
+                  <em>{beams ? 'spots vehicles when zoomed out' : 'hidden'}</em>
                 </span>
+                <button
+                  type="button"
+                  className="legend__switch"
+                  role="switch"
+                  aria-checked={beams}
+                  aria-label="Show vehicle beams"
+                  onClick={onToggleBeams}
+                >
+                  <span className="legend__switch-knob" aria-hidden="true" />
+                </button>
               </li>
               <li className="legend__item">
                 <Swatch kind="network" />
