@@ -21,6 +21,7 @@ import { VehiclePanel } from './components/VehiclePanel.tsx';
 import { StatusBar } from './components/StatusBar.tsx';
 import { RouteBadge } from './components/RouteBadge.tsx';
 import { MapLegend } from './components/MapLegend.tsx';
+import { usePersistedFlag } from './lib/persistedFlag.ts';
 import { modeLabel } from './lib/format.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes';
@@ -75,25 +76,16 @@ export function App() {
    * Remembered, because someone who wants the map uncovered usually wants it
    * uncovered every time, not once per visit.
    */
-  const [panelHidden, setPanelHidden] = useState(() => {
-    try {
-      return window.localStorage.getItem('livetrains.panelHidden') === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [panelHidden, togglePanel] = usePersistedFlag('livetrains.panelHidden');
 
-  const togglePanel = useCallback(() => {
-    setPanelHidden((hidden) => {
-      const next = !hidden;
-      try {
-        window.localStorage.setItem('livetrains.panelHidden', next ? '1' : '0');
-      } catch {
-        // A preference that cannot be saved is not worth failing over.
-      }
-      return next;
-    });
-  }, []);
+  /**
+   * Whether vehicles throw their colour beams.
+   *
+   * On by default, because the beams are what makes the wide view readable —
+   * but they are a deliberate piece of visual noise, and someone studying one
+   * corridor may well want the map bare. Remembered like the panel is.
+   */
+  const [beamsVisible, toggleBeams] = usePersistedFlag('livetrains.beams', true);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // --- Boot -----------------------------------------------------------------
@@ -398,9 +390,10 @@ export function App() {
         }}
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
+        showBeams={beamsVisible}
       />
 
-      <MapLegend routes={routes} />
+      <MapLegend routes={routes} beams={beamsVisible} onToggleBeams={toggleBeams} />
 
       {panelHidden && (
         <button

@@ -20,7 +20,8 @@ worldwide — adding another city is a config entry rather than a rewrite.
   lines rather than drifting. Zoomed out to the whole metro, each vehicle also
   throws a tapering beam of its route colour upward, so a four-pixel dot becomes
   something the eye can catch and busy corridors pool into a visible wash; the
-  beams fade away entirely as you zoom in on one, leaving just the marker.
+  beams fade away entirely as you zoom in on one, leaving just the marker, and
+  the legend carries a switch to turn them off for good.
 - **Door-to-door trip planning.** Enter a destination and get ranked itineraries
   — walk, ride, transfer, walk — with realtime delays folded into the times.
 - **Departure boards.** Tap any stop for the next departures, counting down in
