@@ -4,6 +4,7 @@ import type { AgencyInfo, Itinerary, StopSummary } from '../lib/api.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { RouteNetwork } from '../lib/api.ts';
 import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
+import { BASEMAPS, FALLBACK_STYLE, VECTOR_SOURCE_ID, type BasemapId } from './basemaps.ts';
 
 /**
  * The live map.
@@ -14,25 +15,6 @@ import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
  * around the map, never the map contents, because the vehicle layer updates on
  * every animation frame.
  */
-
-/** Basemap style: free, no key required. */
-const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
-
-/**
- * A style that needs no network at all.
- *
- * MapLibre only fires `load` once a style resolves, and every custom source and
- * layer hangs off that event — so a failed basemap fetch would otherwise leave
- * the map permanently empty, with no vehicles, stops or routes. Falling back to
- * a plain background keeps the transit data visible and the app usable on a
- * flaky connection or behind a restrictive network; only the street imagery is
- * lost.
- */
-const FALLBACK_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#e9edf2' } }],
-};
 
 interface Props {
   agency: AgencyInfo;
@@ -52,9 +34,25 @@ interface Props {
   onViewportChange: (bbox: [number, number, number, number]) => void;
   /** Whether vehicles throw their colour beams. */
   showBeams: boolean;
+  /** Which background the map wears. */
+  basemap: BasemapId;
+  /** Tilt the camera and extrude buildings. */
+  three: boolean;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+/**
+ * Camera tilt in 3D mode.
+ *
+ * Far enough over to read building height and give the vehicle beams
+ * somewhere to stand, short of the angle where the far half of the screen is
+ * horizon and the near half is one intersection.
+ */
+const PITCH_3D = 55;
+
+/** The extruded-buildings layer, added and removed as 3D is toggled. */
+const BUILDINGS_LAYER = 'buildings-3d';
 
 /** A vehicle id no feed can produce, so the selection filter matches nothing. */
 const NO_SELECTION = '\u0000no-selection';
@@ -74,6 +72,8 @@ export function TransitMap({
   onMapClick,
   onViewportChange,
   showBeams,
+  basemap,
+  three,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -100,6 +100,11 @@ export function TransitMap({
    */
   const beamsWanted = useRef(showBeams);
   beamsWanted.current = showBeams;
+  /** The view mode at construction, so the first frame is already right. */
+  const initial = useRef({ basemap, three });
+  /** Read from the map's own listeners, which never see later props. */
+  const threeWanted = useRef(three);
+  threeWanted.current = three;
   // Handlers change on every render; hold them in a ref so the map's own
   // listeners can stay attached for the life of the component.
   const handlers = useRef({ onSelectVehicle, onSelectStop, onMapClick, onViewportChange });
@@ -116,13 +121,15 @@ export function TransitMap({
 
     const instance = new maplibregl.Map({
       container: container.current,
-      style: STYLE_URL,
+      style: BASEMAPS[initial.current.basemap].style,
       bounds: agency.bbox as LngLatBoundsLike,
       fitBoundsOptions: { padding: 40 },
       attributionControl: false,
-      // Keep the interaction budget on the vehicles rather than on tilt.
-      pitchWithRotate: false,
-      dragRotate: false,
+      pitch: initial.current.three ? PITCH_3D : 0,
+      // 2D is north-up and flat; rotation is enabled only in 3D, where being
+      // able to turn the city round is the whole point of the tilt.
+      pitchWithRotate: initial.current.three,
+      dragRotate: initial.current.three,
     });
     map.current = instance;
 
@@ -153,6 +160,7 @@ export function TransitMap({
     instance.on('load', () => {
       registerVehicleIcons(instance);
       if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+      syncBuildings(instance, threeWanted.current);
       ready.current = true;
       emitViewport();
     });
@@ -164,6 +172,7 @@ export function TransitMap({
       // A style swap drops registered images along with the layers.
       registerVehicleIcons(instance);
       if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+      syncBuildings(instance, threeWanted.current);
       ready.current = true;
       // `load` never fires when the first style fails, so this is also the only
       // chance to report the initial viewport — without it the nearby-stops and
@@ -172,9 +181,15 @@ export function TransitMap({
     });
 
     instance.on('error', (event) => {
-      const message = String((event as { error?: Error }).error?.message ?? '');
-      // A style that cannot be fetched is the one error worth recovering from;
-      // everything else (a single missing tile, say) is transient noise.
+      const failure = event as { error?: Error; sourceId?: string };
+      // MapLibre tags source and tile failures with the source they came from.
+      // Those are local and transient — one aerial tile that will not load, a
+      // vector source that has no buildings here — and recovering from them by
+      // throwing the whole style away would turn a missing tile into a missing
+      // map. Only a style document that cannot be fetched leaves nothing to
+      // draw, and that is the one worth falling back from.
+      if (failure.sourceId !== undefined) return;
+      const message = String(failure.error?.message ?? '');
       if (!usedFallback.current && /style|positron|Failed to fetch/i.test(message)) {
         usedFallback.current = true;
         console.warn('livetrains: basemap unavailable, falling back to a plain background');
@@ -254,6 +269,45 @@ export function TransitMap({
       selectedVehicleId ?? NO_SELECTION,
     ]);
   }, [selectedVehicleId, styleEpoch]);
+
+  // --- Basemap --------------------------------------------------------------
+  // setStyle drops every custom source and layer; the `styledata` listener
+  // above puts them all back, which is why nothing else is needed here.
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready.current) return;
+    // An explicit choice is always attempted, even if an earlier style failed
+    // and left the plain background in place: imagery may be reachable where
+    // vector tiles were not. Clearing the guard lets this style fall back on
+    // its own merits rather than inheriting the previous one's verdict.
+    usedFallback.current = false;
+    instance.setStyle(BASEMAPS[basemap].style);
+  }, [basemap]);
+
+  // --- 2D / 3D --------------------------------------------------------------
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready.current) return;
+
+    // Rotation is a 3D affordance: in a flat north-up map a rotated compass is
+    // just a way to get lost.
+    if (three) {
+      instance.dragRotate.enable();
+      instance.touchZoomRotate.enableRotation();
+    } else {
+      instance.dragRotate.disable();
+      instance.touchZoomRotate.disableRotation();
+    }
+
+    instance.easeTo({
+      pitch: three ? PITCH_3D : 0,
+      // Coming back to 2D also squares the map up, so "2D" always means the
+      // same thing rather than whatever heading you happened to leave behind.
+      bearing: three ? instance.getBearing() : 0,
+      duration: 600,
+    });
+    syncBuildings(instance, three);
+  }, [three, styleEpoch]);
 
   // --- Beams on or off ------------------------------------------------------
   // `styleEpoch` is in the deps because a style swap rebuilds the layer, and
@@ -382,6 +436,66 @@ function fitTo(map: maplibregl.Map | null, coordinates: [number, number][]): voi
     maxZoom: 15,
     duration: 800,
   });
+}
+
+/**
+ * Adds or removes the extruded-buildings layer.
+ *
+ * Buildings come from vector tiles, which imagery cannot replace: an aerial
+ * photo shows you roofs, not how far they are off the ground. Both styles
+ * therefore carry a vector source, and this layer reads `building` from
+ * whichever one is present — the app's own in satellite mode, the hosted
+ * style's in street mode, where the convention is to call it `openmaptiles`.
+ *
+ * If no vector source has a `building` layer, nothing draws and nothing
+ * breaks; that is simply what 3D looks like where there are no footprints.
+ */
+function syncBuildings(map: maplibregl.Map, three: boolean): void {
+  const existing = map.getLayer(BUILDINGS_LAYER);
+  if (!three) {
+    if (existing) map.removeLayer(BUILDINGS_LAYER);
+    return;
+  }
+  if (existing) return;
+
+  const source = vectorSourceId(map);
+  if (!source) return;
+
+  try {
+    map.addLayer(
+      {
+        id: BUILDINGS_LAYER,
+        type: 'fill-extrusion',
+        source,
+        'source-layer': 'building',
+        // Below this the footprints are smaller than their own outlines.
+        minzoom: 14,
+        paint: {
+          'fill-extrusion-color': '#c8cfd8',
+          // OpenMapTiles pre-computes render_height; height is the raw tag.
+          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 8],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+          // Translucent so the route network underneath stays readable, and
+          // faded in over a zoom level so buildings do not pop into being.
+          'fill-extrusion-opacity': 0.65,
+        },
+      },
+      // Under everything this app draws, so a bus is never inside a building.
+      map.getLayer('network-line') ? 'network-line' : undefined,
+    );
+  } catch (err) {
+    console.warn('livetrains: could not add 3D buildings', err);
+  }
+}
+
+/** The id of a vector source that might carry building footprints. */
+function vectorSourceId(map: maplibregl.Map): string | null {
+  const sources = map.getStyle()?.sources ?? {};
+  if (sources[VECTOR_SOURCE_ID]?.type === 'vector') return VECTOR_SOURCE_ID;
+  for (const [id, source] of Object.entries(sources)) {
+    if (source.type === 'vector') return id;
+  }
+  return null;
 }
 
 /**

@@ -22,11 +22,26 @@ import { StatusBar } from './components/StatusBar.tsx';
 import { RouteBadge } from './components/RouteBadge.tsx';
 import { MapLegend } from './components/MapLegend.tsx';
 import { usePersistedFlag } from './lib/persistedFlag.ts';
+import { MapControls } from './components/MapControls.tsx';
+import type { BasemapId } from './components/basemaps.ts';
 import { modeLabel } from './lib/format.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes';
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
+
+const BASEMAP_KEY = 'livetrains.basemap';
+
+/** The remembered basemap, tolerating storage being unavailable or stale. */
+function readBasemap(): BasemapId {
+  try {
+    const stored = window.localStorage.getItem(BASEMAP_KEY);
+    if (stored === 'streets' || stored === 'satellite') return stored;
+  } catch {
+    // Private browsing; fall through to the default.
+  }
+  return 'streets';
+}
 
 export function App() {
   const [agency, setAgency] = useState<AgencyInfo | null>(null);
@@ -86,6 +101,23 @@ export function App() {
    * corridor may well want the map bare. Remembered like the panel is.
    */
   const [beamsVisible, toggleBeams] = usePersistedFlag('livetrains.beams', true);
+
+  /**
+   * How the map looks: which background, and whether it is tilted.
+   *
+   * Remembered for the same reason the other view preferences are — someone
+   * who wants the satellite view wants it every time, not once per visit.
+   */
+  const [basemap, setBasemap] = useState<BasemapId>(() => readBasemap());
+  const chooseBasemap = useCallback((id: BasemapId) => {
+    setBasemap(id);
+    try {
+      window.localStorage.setItem(BASEMAP_KEY, id);
+    } catch {
+      // A preference that cannot be saved is not worth failing over.
+    }
+  }, []);
+  const [three, toggleThree] = usePersistedFlag('livetrains.three');
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // --- Boot -----------------------------------------------------------------
@@ -391,6 +423,17 @@ export function App() {
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
         showBeams={beamsVisible}
+        basemap={basemap}
+        three={three}
+      />
+
+      <MapControls
+        basemap={basemap}
+        onBasemap={chooseBasemap}
+        three={three}
+        onThree={(next) => {
+          if (next !== three) toggleThree();
+        }}
       />
 
       <MapLegend routes={routes} beams={beamsVisible} onToggleBeams={toggleBeams} />
