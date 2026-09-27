@@ -24,6 +24,19 @@ worldwide — adding another city is a config entry rather than a rewrite.
   the legend carries a switch to turn them off for good.
 - **Door-to-door trip planning.** Enter a destination and get ranked itineraries
   — walk, ride, transfer, walk — with realtime delays folded into the times.
+  Walking is modelled as walking rather than as flight: straight-line distances
+  are corrected by a street-circuity factor, and the feed's own `transfers.txt`
+  overrides geometry, so a connection the agency says is impossible is not
+  offered however close the two stops look on a map.
+- **Watch the trip.** Pick an itinerary and play it back: a traveller walks to
+  the stop, waits on the platform for as long as the timetable says they will,
+  rides, changes, and walks to the door, with the clock running and the camera
+  following. The waits are the point — they are most of what makes a trip feel
+  long, and a list of legs hides them.
+- **Satellite or street, flat or tilted.** Two switches in the corner. The
+  aerial basemap is Esri's World Imagery with a place-name overlay; 3D pitches
+  the camera, frees up rotation, and extrudes building footprints from vector
+  tiles. Both basemaps are keyless.
 - **Departure boards.** Tap any stop for the next departures, counting down in
   realtime, with both directions of a stop merged the way a rider thinks of it.
 - **Route browsing.** Every route, its shape, and only its vehicles on the map.
@@ -237,8 +250,9 @@ Remove those keys to go back to browser mode.
 | `AGENCY_ID` | `metro-transit` | Which registered agency to serve |
 | `REALTIME_POLL_SECONDS` | `15` | GTFS-Realtime polling interval |
 | `GTFS_MAX_AGE_HOURS` | `24` | How long the cached GTFS archive is reused |
-| `PLANNER_MAX_WALK_METERS` | `1200` | Longest access/egress walk |
+| `PLANNER_MAX_WALK_METERS` | `1200` | Longest access/egress walk, measured as walking distance |
 | `PLANNER_WALK_SPEED` | `1.33` | Walking speed, m/s (~3 mph) |
+| `PLANNER_WALK_CIRCUITY` | `1.35` | Real walking distance ÷ straight-line distance. `1` disables the correction |
 | `PLANNER_MAX_TRANSFERS` | `3` | Transfer ceiling |
 | `NOMINATIM_URL` | unset | Optional address search; local stop and landmark search always works |
 | `LOG_LEVEL` | `warn` | Fastify log level |

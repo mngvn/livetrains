@@ -5,6 +5,8 @@ import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { RouteNetwork } from '../lib/api.ts';
 import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
 import { BASEMAPS, FALLBACK_STYLE, VECTOR_SOURCE_ID, type BasemapId } from './basemaps.ts';
+import type { JourneyPlayback } from '../lib/journeyPlayback.ts';
+import { trailAt } from '../lib/journey.ts';
 
 /**
  * The live map.
@@ -38,6 +40,8 @@ interface Props {
   basemap: BasemapId;
   /** Tilt the camera and extrude buildings. */
   three: boolean;
+  /** Drives the animated traveller, when a journey is being played. */
+  playback: JourneyPlayback;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -50,6 +54,14 @@ const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: 
  * horizon and the near half is one intersection.
  */
 const PITCH_3D = 55;
+
+/**
+ * How often the camera re-centres on a travelling journey.
+ *
+ * Each follow is an ease lasting exactly this long, so they butt up against
+ * one another and read as a single continuous glide.
+ */
+const FOLLOW_INTERVAL_MS = 400;
 
 /** The extruded-buildings layer, added and removed as 3D is toggled. */
 const BUILDINGS_LAYER = 'buildings-3d';
@@ -74,6 +86,7 @@ export function TransitMap({
   showBeams,
   basemap,
   three,
+  playback,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -269,6 +282,60 @@ export function TransitMap({
       selectedVehicleId ?? NO_SELECTION,
     ]);
   }, [selectedVehicleId, styleEpoch]);
+
+  // --- The animated journey -------------------------------------------------
+  // Driven straight from the playback clock rather than through React: the
+  // traveller moves every animation frame, and re-rendering the component tree
+  // sixty times a second to move one dot would cost far more than the
+  // animation. This is the same imperative path the live vehicle layer uses.
+  useEffect(() => {
+    let lastFollow = 0;
+    return playback.subscribe(({ journey, position, playing, time }) => {
+      const instance = map.current;
+      if (!instance || !ready.current || !instance.getLayer('journey-traveller')) return;
+
+      if (!journey || !position) {
+        setData('journey-traveller', EMPTY);
+        setData('journey-trail', EMPTY);
+        return;
+      }
+
+      setData('journey-traveller', {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [position.lon, position.lat] },
+            properties: { color: position.step.color },
+          },
+        ],
+      });
+
+      setData('journey-trail', {
+        type: 'FeatureCollection',
+        features: trailAt(journey, time).map((segment) => ({
+          type: 'Feature' as const,
+          geometry: { type: 'LineString' as const, coordinates: segment.path },
+          properties: { color: segment.color },
+        })),
+      });
+
+      // Follow only while playing, so a paused map can be panned and inspected
+      // without the camera dragging it back. Throttled because `easeTo` on
+      // every frame fights its own previous animation and the map judders.
+      if (!playing) return;
+      const now = performance.now();
+      if (now - lastFollow < FOLLOW_INTERVAL_MS) return;
+      lastFollow = now;
+      instance.easeTo({
+        center: [position.lon, position.lat],
+        duration: FOLLOW_INTERVAL_MS,
+        // Linear, so consecutive follows join into one continuous glide rather
+        // than a series of little eases.
+        easing: (t) => t,
+      });
+    });
+  }, [playback, setData, styleEpoch]);
 
   // --- Basemap --------------------------------------------------------------
   // setStyle drops every custom source and layer; the `styledata` listener
@@ -509,7 +576,10 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
   // added before. Returns true when it created the layers, which tells the
   // caller the sources are empty and need refilling.
   if (map.getLayer('vehicles-hit')) return false;
-  for (const id of ['network', 'route-shape', 'itinerary', 'itinerary-points', 'stops', 'vehicles', 'endpoints']) {
+  for (const id of [
+    'network', 'route-shape', 'itinerary', 'itinerary-points', 'stops', 'vehicles', 'endpoints',
+    'journey-trail', 'journey-traveller',
+  ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
 
@@ -774,6 +844,45 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     type: 'circle',
     source: 'vehicles',
     paint: { 'circle-radius': 16, 'circle-opacity': 0 },
+  });
+
+  // --- The animated journey, above everything -------------------------------
+  // Playback is a deliberate focus on one trip, so while it runs the traveller
+  // and their trail outrank even the live fleet.
+  map.addLayer({
+    id: 'journey-trail',
+    type: 'line',
+    source: 'journey-trail',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 11, 4, 15, 7],
+      'line-opacity': 0.9,
+    },
+  });
+
+  // A halo that reads as movement rather than as another vehicle.
+  map.addLayer({
+    id: 'journey-halo',
+    type: 'circle',
+    source: 'journey-traveller',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 12, 16, 22],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.22,
+    },
+  });
+
+  map.addLayer({
+    id: 'journey-traveller',
+    type: 'circle',
+    source: 'journey-traveller',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 10],
+      'circle-color': ['get', 'color'],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2.5,
+    },
   });
 
   return true;

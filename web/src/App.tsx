@@ -23,6 +23,9 @@ import { RouteBadge } from './components/RouteBadge.tsx';
 import { MapLegend } from './components/MapLegend.tsx';
 import { usePersistedFlag } from './lib/persistedFlag.ts';
 import { MapControls } from './components/MapControls.tsx';
+import { JourneyPlayer } from './components/JourneyPlayer.tsx';
+import { JourneyPlayback } from './lib/journeyPlayback.ts';
+import { buildJourney } from './lib/journey.ts';
 import type { BasemapId } from './components/basemaps.ts';
 import { modeLabel } from './lib/format.ts';
 
@@ -118,6 +121,43 @@ export function App() {
     }
   }, []);
   const [three, toggleThree] = usePersistedFlag('livetrains.three');
+
+  /**
+   * The journey playback clock.
+   *
+   * One per session, reused as trips are chosen; it owns its own animation
+   * frame loop, so it is created once and never recreated by a render.
+   */
+  const playback = useMemo(() => new JourneyPlayback(), []);
+  const [playingJourney, setPlayingJourney] = useState(false);
+  useEffect(() => () => playback.dispose(), [playback]);
+
+  /** The itinerary the rider is looking at, and the one playback animates. */
+  const chosen = selectedItinerary !== null ? (itineraries[selectedItinerary] ?? null) : null;
+
+  // A journey that is no longer on screen must not keep animating over the
+  // map, so choosing a different trip — or clearing the plan — ends playback.
+  useEffect(() => {
+    if (!chosen) {
+      playback.load(null);
+      setPlayingJourney(false);
+    }
+  }, [chosen, playback]);
+
+  const startJourney = useCallback(() => {
+    if (!chosen) return;
+    const journey = buildJourney(chosen);
+    if (!journey) return;
+    playback.load(journey);
+    setPlayingJourney(true);
+    playback.play();
+  }, [chosen, playback]);
+
+  const endJourney = useCallback(() => {
+    playback.load(null);
+    setPlayingJourney(false);
+  }, [playback]);
+
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // --- Boot -----------------------------------------------------------------
@@ -401,7 +441,6 @@ export function App() {
     );
   }
 
-  const chosen = selectedItinerary !== null ? (itineraries[selectedItinerary] ?? null) : null;
 
   return (
     <div className={`app${mapPickTarget ? ' is-picking' : ''}`}>
@@ -425,7 +464,12 @@ export function App() {
         showBeams={beamsVisible}
         basemap={basemap}
         three={three}
+        playback={playback}
       />
+
+      {playingJourney && (
+        <JourneyPlayer playback={playback} onClose={endJourney} panelHidden={panelHidden} />
+      )}
 
       <MapControls
         basemap={basemap}
@@ -587,12 +631,18 @@ export function App() {
                       </ul>
 
                       {chosen && (
-                        <ItineraryDetail
-                          itinerary={chosen}
-                          now={now}
-                          onShowVehicle={setSelectedVehicleId}
-                          onShowStop={setSelectedStopId}
-                        />
+                        <>
+                          <button type="button" className="journey-start" onClick={startJourney}>
+                            <span aria-hidden="true">▶</span>
+                            Watch this trip
+                          </button>
+                          <ItineraryDetail
+                            itinerary={chosen}
+                            now={now}
+                            onShowVehicle={setSelectedVehicleId}
+                            onShowStop={setSelectedStopId}
+                          />
+                        </>
                       )}
                     </>
                   )}
