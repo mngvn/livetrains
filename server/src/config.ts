@@ -1,5 +1,6 @@
 import { DEFAULT_AGENCY_ID, getAgency, registerAgency, type AgencyDefinition } from './agencies/index.js';
 import { log } from './log.js';
+import { DEFAULT_CIRCUITY } from './planner/walk.js';
 
 function num(value: string | undefined, fallback: number): number {
   const n = Number(value);
@@ -65,6 +66,8 @@ export interface ServerConfig {
     maxTransfers: number;
     /** Cap on footpaths generated per stop, to bound transfer-graph size. */
     maxTransfersPerStop: number;
+    /** Ratio of real walking distance to straight-line distance. */
+    walkCircuity: number;
   };
 }
 
@@ -87,6 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       walkSpeed: num(env.PLANNER_WALK_SPEED, 1.33),
       maxTransfers: num(env.PLANNER_MAX_TRANSFERS, 3),
       maxTransfersPerStop: num(env.PLANNER_MAX_TRANSFERS_PER_STOP, 12),
+      walkCircuity: num(env.PLANNER_WALK_CIRCUITY, DEFAULT_CIRCUITY),
     },
   };
 }

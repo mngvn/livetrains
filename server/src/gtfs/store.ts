@@ -84,6 +84,26 @@ interface ServiceWindow {
 }
 
 /**
+ * A transfer rule stated by the feed, from transfers.txt.
+ *
+ * `type` follows GTFS: 0 recommended, 1 timed (the vehicle waits), 2 requires
+ * at least `minSeconds`, 3 not possible.
+ */
+export interface TransferRule {
+  type: 0 | 1 | 2 | 3;
+  minSeconds: number | null;
+}
+
+/**
+ * Stride for packing a stop pair into one numeric key.
+ *
+ * Comfortably above any real feed's stop count, and small enough that the
+ * largest key stays an exact integer in a double. Exported because unpacking
+ * `transferRules` requires the same number that packed it.
+ */
+export const TRANSFER_KEY_STRIDE = 1_000_000;
+
+/**
  * The parsed static feed.
  *
  * Stops and routes stay as objects (there are only thousands of them), while
@@ -123,6 +143,17 @@ export class GtfsStore {
   /** serviceIdx -> date -> true (added) / false (removed), from calendar_dates. */
   private readonly serviceExceptions = new Map<number, Map<ServiceDate, boolean>>();
   private readonly activeServiceCache = new Map<ServiceDate, Set<number>>();
+
+  /**
+   * Stop-to-stop transfer rules from transfers.txt, keyed `from * stops + to`.
+   *
+   * The agency knows things the coordinates do not: that two platforms are
+   * joined by a tunnel, that a pair of stops facing each other across eight
+   * lanes cannot actually be walked between, that a particular connection is
+   * held for two minutes. Where the feed says so, it outranks anything
+   * computed from latitude and longitude.
+   */
+  readonly transferRules = new Map<number, TransferRule>();
 
   shapes = new Map<string, [number, number][]>();
   feedVersion: string | undefined;
@@ -177,6 +208,7 @@ export class GtfsStore {
     store.loadFeedInfo(take('feed_info.txt'));
     // Shapes before stop_times: they are the two largest files in the feed, and
     // parsing them in this order means both are never held as text at once.
+    store.loadTransfers(take('transfers.txt'));
     store.loadShapes(take('shapes.txt'));
     store.loadStopTimes(take('stop_times.txt', true)!);
 
@@ -202,6 +234,42 @@ export class GtfsStore {
     if (!text) return;
     const rows = parseCsv(text);
     this.feedVersion = rows[0]?.feed_version?.trim() || undefined;
+  }
+
+  /**
+   * Reads transfers.txt.
+   *
+   * Rules qualified by route or trip are skipped: they constrain a particular
+   * connection rather than the pair of stops, and applying them to every
+   * transfer between those stops would forbid or force connections the feed
+   * never spoke about. Stop-level rules are the ones that describe walking.
+   */
+  private loadTransfers(text: string | undefined): void {
+    if (!text) return;
+    let kept = 0;
+    forEachRow(text, (row) => {
+      if (row.from_route_id || row.to_route_id || row.from_trip_id || row.to_trip_id) return;
+      const from = this.stopIndexById.get(row.from_stop_id ?? '');
+      const to = this.stopIndexById.get(row.to_stop_id ?? '');
+      if (from === undefined || to === undefined || from === to) return;
+
+      // An absent transfer_type means 0, "recommended point", per the spec.
+      const type = Number(row.transfer_type ?? '0');
+      if (!Number.isInteger(type) || type < 0 || type > 3) return;
+      const min = Number(row.min_transfer_time);
+
+      this.transferRules.set(from * TRANSFER_KEY_STRIDE + to, {
+        type: type as TransferRule['type'],
+        minSeconds: Number.isFinite(min) && min >= 0 ? Math.round(min) : null,
+      });
+      kept++;
+    });
+    if (kept > 0) log.info(`gtfs: read ${kept} stop-level transfer rules`);
+  }
+
+  /** The transfer rule for a stop pair, if the feed states one. */
+  transferRule(from: number, to: number): TransferRule | undefined {
+    return this.transferRules.get(from * TRANSFER_KEY_STRIDE + to);
   }
 
   private loadStops(text: string): void {
@@ -612,4 +680,5 @@ export const GTFS_FILES = [
   'calendar_dates.txt',
   'shapes.txt',
   'feed_info.txt',
+  'transfers.txt',
 ] as const;

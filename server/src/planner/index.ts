@@ -16,6 +16,7 @@ import { epochFor } from '../gtfs/time.js';
 import { PatternSet } from './patterns.js';
 import { runRaptor, type Label, type RealtimeOverlay } from './raptor.js';
 import { TransferGraph } from './transfers.js';
+import { DEFAULT_CIRCUITY, estimateWalk, searchRadiusFor, type WalkEstimate } from './walk.js';
 
 /** Seconds of slack when connecting between two vehicles. */
 const TRANSFER_SLACK = 45;
@@ -23,12 +24,28 @@ const TRANSFER_SLACK = 45;
 const SEARCH_WINDOW_SECONDS = 6 * 3600;
 /** Longest walk we will suggest instead of taking transit at all. */
 const MAX_DIRECT_WALK_METERS = 2_000;
+/**
+ * Longest walk between two rides.
+ *
+ * Riders tolerate a longer walk at the ends of a trip than in the middle, and
+ * this is now a walking distance rather than a straight line — 800m of
+ * pavement, not 800m of crow flight that turns out to be 1,080m on foot.
+ */
+const MAX_TRANSFER_WALK_METERS = 800;
 
 export interface PlannerOptions {
   maxWalkMeters: number;
   walkSpeed: number;
   maxTransfers: number;
   maxTransfersPerStop: number;
+  /**
+   * Ratio of real walking distance to straight-line distance; see `walk.ts`.
+   *
+   * Optional so that callers with nothing to say about it — the browser
+   * engine, tests — get the researched default rather than having to repeat
+   * the number, which is how two copies of a constant start to drift.
+   */
+  walkCircuity?: number;
 }
 
 export class Planner {
@@ -40,21 +57,24 @@ export class Planner {
    */
   readonly patterns: PatternSet;
   private readonly transfers: TransferGraph;
+  private readonly circuity: number;
 
   constructor(
     private readonly store: GtfsStore,
     private readonly realtime: RealtimeState,
     private readonly options: PlannerOptions,
   ) {
+    this.circuity = options.walkCircuity ?? DEFAULT_CIRCUITY;
     this.patterns = PatternSet.build(store);
     this.transfers = TransferGraph.build(
       store,
       // Transfers between stops are capped tighter than the access/egress walk:
       // riders tolerate a longer walk at the ends of a trip than in the middle.
-      Math.min(options.maxWalkMeters, 800),
+      Math.min(options.maxWalkMeters, MAX_TRANSFER_WALK_METERS),
       options.walkSpeed,
       TRANSFER_SLACK,
       options.maxTransfersPerStop,
+      this.circuity,
     );
   }
 
@@ -67,7 +87,11 @@ export class Planner {
     const from = toPlace(request.fromLat, request.fromLon, 'Origin');
     const to = toPlace(request.toLat, request.toLon, 'Destination');
 
-    const directWalkMeters = haversineMeters(from.lat, from.lon, to.lat, to.lon);
+    const directWalk = estimateWalk(
+      haversineMeters(from.lat, from.lon, to.lat, to.lon),
+      walkSpeed,
+      this.circuity,
+    );
     const itineraries: Itinerary[] = [];
 
     if (request.arriveBy && request.departAt) {
@@ -84,11 +108,11 @@ export class Planner {
 
     // A short enough trip does not need transit at all; offer the walk, but
     // only as an extra option rather than in place of the transit results.
-    if (directWalkMeters <= MAX_DIRECT_WALK_METERS) {
+    if (directWalk.meters <= MAX_DIRECT_WALK_METERS) {
       const departAt = request.arriveBy && request.departAt
-        ? request.departAt - Math.round(directWalkMeters / walkSpeed)
+        ? request.departAt - directWalk.seconds
         : request.departAt ?? now;
-      itineraries.push(walkOnlyItinerary(from, to, directWalkMeters, walkSpeed, departAt));
+      itineraries.push(walkOnlyItinerary(from, to, directWalk, departAt));
     }
 
     const ranked = rankItineraries(itineraries);
@@ -175,7 +199,12 @@ export class Planner {
     return itineraries;
   }
 
-  /** Stops within walking range of a point, with their walking times. */
+  /**
+   * Stops within walking range of a point, with their walking times.
+   *
+   * `maxMeters` is how far the rider is willing to walk, so the geometric
+   * search covers the smaller circle whose paths are that long.
+   */
   private walkableStops(
     lat: number,
     lon: number,
@@ -183,12 +212,13 @@ export class Planner {
     walkSpeed: number,
   ): Map<number, { seconds: number; meters: number }> {
     const out = new Map<number, { seconds: number; meters: number }>();
-    let near = this.store.nearbyStops(lat, lon, maxMeters, 80);
+    const radius = searchRadiusFor(maxMeters, this.circuity);
+    let near = this.store.nearbyStops(lat, lon, radius, 80);
     // A point outside the service area still deserves an answer; widen once
     // rather than returning "no route" for a stop 50m past the limit.
-    if (near.length === 0) near = this.store.nearbyStops(lat, lon, maxMeters * 2.5, 20);
+    if (near.length === 0) near = this.store.nearbyStops(lat, lon, radius * 2.5, 20);
     for (const { index, distance } of near) {
-      out.set(index, { seconds: Math.round(distance / walkSpeed), meters: Math.round(distance) });
+      out.set(index, estimateWalk(distance, walkSpeed, this.circuity));
     }
     return out;
   }
@@ -470,21 +500,14 @@ function walkLeg(
   };
 }
 
-function walkOnlyItinerary(
-  from: Place,
-  to: Place,
-  meters: number,
-  walkSpeed: number,
-  departAt: number,
-): Itinerary {
-  const seconds = Math.round(meters / walkSpeed);
-  const leg = walkLeg(from, to, meters, seconds, departAt);
+function walkOnlyItinerary(from: Place, to: Place, walk: WalkEstimate, departAt: number): Itinerary {
+  const leg = walkLeg(from, to, walk.meters, walk.seconds, departAt);
   return {
     departureTime: departAt,
-    arrivalTime: departAt + seconds,
-    durationSeconds: seconds,
-    walkDistanceMeters: Math.round(meters),
-    walkDurationSeconds: seconds,
+    arrivalTime: departAt + walk.seconds,
+    durationSeconds: walk.seconds,
+    walkDistanceMeters: walk.meters,
+    walkDurationSeconds: walk.seconds,
     transfers: 0,
     hasRealtime: false,
     legs: [leg],
