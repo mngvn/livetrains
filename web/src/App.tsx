@@ -33,6 +33,14 @@ type Tab = 'plan' | 'nearby' | 'routes';
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
 
+/**
+ * How long the welcome screen stays up at minimum.
+ *
+ * Matches the animation: the last of twenty-one letters starts at 900ms and
+ * takes 620ms, and the underline finishes at 1,600ms.
+ */
+const WELCOME_MS = 1_800;
+
 const BASEMAP_KEY = 'livetrains.basemap';
 
 /** The remembered basemap, tolerating storage being unavailable or stale. */
@@ -131,6 +139,19 @@ export function App() {
   const playback = useMemo(() => new JourneyPlayback(), []);
   const [playingJourney, setPlayingJourney] = useState(false);
   useEffect(() => () => playback.dispose(), [playback]);
+
+  /**
+   * Holds the welcome on screen long enough to finish playing.
+   *
+   * A first load takes many seconds and this costs nothing, but a returning
+   * visitor has the timetable cached and would otherwise get a single frame of
+   * half-risen letters, which looks like a glitch rather than a greeting.
+   */
+  const [welcomeDone, setWelcomeDone] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWelcomeDone(true), WELCOME_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   /** The itinerary the rider is looking at, and the one playback animates. */
   const chosen = selectedItinerary !== null ? (itineraries[selectedItinerary] ?? null) : null;
@@ -431,7 +452,7 @@ export function App() {
 
   // Browser mode has a real first-load cost — a 19MB timetable to fetch and
   // parse — so show what is actually happening rather than a bare spinner.
-  if (engine.state !== 'ready' || !agency) {
+  if (engine.state !== 'ready' || !agency || !welcomeDone) {
     return (
       <LoadingScreen
         status={engine}
@@ -465,6 +486,7 @@ export function App() {
         basemap={basemap}
         three={three}
         playback={playback}
+        focusJourney={playingJourney}
       />
 
       {playingJourney && (

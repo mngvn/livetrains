@@ -36,17 +36,50 @@ export const STREETS_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
  * Esri's World Imagery, the standard keyless aerial basemap.
  *
  * Esri publishes it for use with attribution, which the map carries in its
- * attribution control. Imagery alone is disorienting for transit — you cannot
- * read a street name off a roof — so a transparent reference layer of
- * boundaries and place labels goes over the top.
+ * attribution control.
  */
 const ESRI_IMAGERY =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-const ESRI_REFERENCE =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
 
 export const ESRI_ATTRIBUTION =
   'Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+
+/**
+ * Deepest zoom with real imagery behind it.
+ *
+ * Past a raster source's `maxzoom`, MapLibre stops asking for tiles and
+ * stretches the last ones it has, so the number is a resolution ceiling rather
+ * than a limit on how far you can zoom. Esri's World Imagery carries level 20
+ * across US metros — the Twin Cities included — so capping at 19, as this did
+ * at first, threw away a whole level of detail and made every close-up look
+ * like an upscale, because it was one.
+ */
+const IMAGERY_MAX_ZOOM = 20;
+
+/**
+ * The font stack labels are drawn in.
+ *
+ * OpenFreeMap serves Noto Sans from the glyph endpoint above. A stack that a
+ * server cannot supply means no labels rather than a broken map, so the
+ * imagery and the transit data are never at risk from this line.
+ */
+const LABEL_FONT = ['Noto Sans Regular'];
+
+/**
+ * The tile size to *declare* for the imagery, which is not its actual size.
+ *
+ * Esri's tiles are 256px images. Declaring that size asks MapLibre to fit one
+ * tile to one map tile, so on a 2x display each image pixel is drawn across
+ * four screen pixels and the photo looks soft — the single biggest reason
+ * aerial imagery reads as low resolution on a modern laptop.
+ *
+ * Declaring half the true size instead tells MapLibre each tile covers half a
+ * tile's worth of ground, so it fetches one zoom level deeper and draws the
+ * same 256px image into a 128px slot: real detail at the display's own
+ * resolution. It costs four times the requests, which is why it is only done
+ * where the screen can actually show the difference.
+ */
+const IMAGERY_TILE_SIZE = typeof window !== 'undefined' && window.devicePixelRatio > 1.5 ? 128 : 256;
 
 /**
  * A style that needs no network at all.
@@ -64,7 +97,17 @@ export const FALLBACK_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#e9edf2' } }],
 };
 
-/** The satellite style, assembled here rather than fetched. */
+/**
+ * The satellite style, assembled here rather than fetched.
+ *
+ * Labels are drawn from vector tiles rather than from Esri's raster reference
+ * overlay. That overlay is a picture of text: it softens the moment you zoom
+ * between its levels, and on a high-density screen it is visibly a photograph
+ * of lettering sitting on a photograph of a city. Vector labels are redrawn
+ * crisply at whatever the display can show, carry a halo that keeps them
+ * readable over both a parking lot and a lake, and cost one request per tile
+ * instead of a second full raster pyramid.
+ */
 export const SATELLITE_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
@@ -72,30 +115,94 @@ export const SATELLITE_STYLE: maplibregl.StyleSpecification = {
     'esri-imagery': {
       type: 'raster',
       tiles: [ESRI_IMAGERY],
-      tileSize: 256,
-      maxzoom: 19,
+      tileSize: IMAGERY_TILE_SIZE,
+      maxzoom: IMAGERY_MAX_ZOOM,
       attribution: ESRI_ATTRIBUTION,
     },
-    'esri-reference': {
-      type: 'raster',
-      tiles: [ESRI_REFERENCE],
-      tileSize: 256,
-      maxzoom: 19,
-    },
-    // Present only so 3D mode has building footprints to extrude. If it fails
-    // to load, imagery and transit data are unaffected — there are simply no
-    // buildings, which is exactly what plain satellite mode looks like.
+    // Labels, and the building footprints 3D mode extrudes. If it fails to
+    // load, imagery and transit data are unaffected.
     [VECTOR_SOURCE_ID]: { type: 'vector', url: OPENFREEMAP_TILES },
   },
   layers: [
     { id: 'background', type: 'background', paint: { 'background-color': '#0b1220' } },
-    { id: 'esri-imagery', type: 'raster', source: 'esri-imagery' },
     {
-      id: 'esri-reference',
+      id: 'esri-imagery',
       type: 'raster',
-      source: 'esri-reference',
-      // Labels read as a caption over the photo rather than part of it.
-      paint: { 'raster-opacity': 0.85 },
+      source: 'esri-imagery',
+      paint: {
+        // Aerial imagery is hazy by nature — it is photographed through a few
+        // kilometres of atmosphere. A little contrast and saturation puts the
+        // snap back, and smooth resampling keeps the last level from going
+        // blocky when you push past it.
+        'raster-contrast': 0.12,
+        'raster-saturation': 0.12,
+        'raster-resampling': 'linear',
+        'raster-fade-duration': 200,
+      },
+    },
+    // Water first, so a lake name never lands on top of a street name.
+    {
+      id: 'label-water',
+      type: 'symbol',
+      source: VECTOR_SOURCE_ID,
+      'source-layer': 'water_name',
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+        'text-font': LABEL_FONT,
+        'text-size': 12,
+        'text-letter-spacing': 0.1,
+      },
+      paint: {
+        'text-color': '#cfe8ff',
+        'text-halo-color': 'rgba(4, 16, 32, 0.85)',
+        'text-halo-width': 1.3,
+      },
+    },
+    {
+      id: 'label-street',
+      type: 'symbol',
+      source: VECTOR_SOURCE_ID,
+      'source-layer': 'transportation_name',
+      // Street names are noise until you are close enough to walk them.
+      minzoom: 14,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+        'text-font': LABEL_FONT,
+        'text-size': 11,
+        'symbol-placement': 'line',
+        'text-rotation-alignment': 'map',
+      },
+      paint: {
+        'text-color': '#f2f5f8',
+        'text-halo-color': 'rgba(4, 16, 32, 0.9)',
+        'text-halo-width': 1.4,
+      },
+    },
+    {
+      id: 'label-place',
+      type: 'symbol',
+      source: VECTOR_SOURCE_ID,
+      'source-layer': 'place',
+      filter: ['in', ['get', 'class'], ['literal', ['city', 'town', 'village', 'suburb', 'neighbourhood']]],
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:en'], ['get', 'name']],
+        'text-font': LABEL_FONT,
+        // Cities read as headings, neighbourhoods as captions.
+        'text-size': [
+          'match',
+          ['get', 'class'],
+          'city', 16,
+          'town', 13,
+          11,
+        ],
+        'text-letter-spacing': 0.06,
+        'text-max-width': 8,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(4, 16, 32, 0.9)',
+        'text-halo-width': 1.6,
+      },
     },
   ],
 };

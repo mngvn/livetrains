@@ -1100,6 +1100,75 @@ button {
   letter-spacing: -0.02em;
 }
 
+/* The welcome. Letters rise into place one after another, which is the whole
+   reason each is its own span. */
+.boot-loading__welcome {
+  margin: 0 0 4px;
+  font-size: clamp(22px, 6vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: center;
+  /* Keeps the descenders and the blur headroom from being clipped. */
+  padding: 0 2px 6px;
+}
+
+.boot-loading__letter {
+  display: inline-block;
+  opacity: 0;
+  animation: boot-letter 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes boot-letter {
+  from {
+    opacity: 0;
+    /* Rises and resolves, as though settling out of motion. */
+    transform: translate3d(0, 0.5em, 0);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+/* A line that draws itself under the words once they have landed. */
+.boot-loading__welcome::after {
+  content: '';
+  display: block;
+  height: 2px;
+  /* The resting state, which `backwards` fill returns to once the draw ends. */
+  width: 70%;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: boot-underline 900ms cubic-bezier(0.22, 1, 0.36, 1) 700ms backwards;
+}
+
+@keyframes boot-underline {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: 70%;
+    opacity: 1;
+  }
+}
+
+/* Motion is decoration here: the progress bar already says it is working. */
+@media (prefers-reduced-motion: reduce) {
+  .boot-loading__letter {
+    opacity: 1;
+    animation: none;
+  }
+
+  .boot-loading__welcome::after {
+    width: 70%;
+    animation: none;
+  }
+}
+
 .boot-loading__bar {
   position: relative;
   width: min(340px, 80vw);
@@ -1625,7 +1694,9 @@ button {
    sheet on a phone, because it is watched rather than read. */
 .journey {
   position: absolute;
-  top: 12px;
+  /* Along the bottom, where transport controls live and where it is clear of
+     the legend and map switches in the opposite corner. */
+  bottom: 12px;
   /* Centred over the map rather than over the window, so the side panel does
      not sit under it. When the panel is hidden the map is the window, and the
      offset drops away. */
@@ -1804,8 +1875,8 @@ button {
 @media (max-width: 720px) {
   .journey,
   .journey.is-wide {
-    top: auto;
     left: 50%;
+    /* Clear of the sheet's collapsed handle. */
     bottom: calc(66px + env(safe-area-inset-bottom));
     width: calc(100vw - 20px);
   }

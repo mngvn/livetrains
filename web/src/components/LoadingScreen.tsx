@@ -22,6 +22,34 @@ function megabytes(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
+/**
+ * The welcome, one letter at a time.
+ *
+ * Split so each glyph can be given its own delay — a single animated element
+ * would rise as a block, which reads as a slide transition rather than as
+ * something arriving. Spaces are kept as their own spans so the rhythm of the
+ * words survives, and the whole thing is exposed to a screen reader as one
+ * string rather than as thirteen separate letters.
+ */
+function AnimatedWelcome({ text }: { text: string }) {
+  return (
+    <h1 className="boot-loading__welcome" aria-label={text}>
+      {[...text].map((character, index) => (
+        <span
+          key={`${character}-${index}`}
+          className="boot-loading__letter"
+          aria-hidden="true"
+          // Each letter follows the one before it by a fixed beat, so the line
+          // reads left to right at the speed someone would say it.
+          style={{ animationDelay: `${index * 45}ms` }}
+        >
+          {character === ' ' ? '\u00a0' : character}
+        </span>
+      ))}
+    </h1>
+  );
+}
+
 export function LoadingScreen({
   status,
   mode,
@@ -69,7 +97,7 @@ export function LoadingScreen({
 
   return (
     <div className="boot-loading">
-      <h1 className="boot-loading__brand">livetrains</h1>
+      <AnimatedWelcome text="Welcome to livetrains" />
 
       <div className="boot-loading__bar" role="progressbar" aria-label={label}>
         <div

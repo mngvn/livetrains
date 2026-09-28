@@ -42,6 +42,8 @@ interface Props {
   three: boolean;
   /** Drives the animated traveller, when a journey is being played. */
   playback: JourneyPlayback;
+  /** Dim everything that is not the journey being played. */
+  focusJourney: boolean;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -87,6 +89,7 @@ export function TransitMap({
   basemap,
   three,
   playback,
+  focusJourney,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -170,28 +173,40 @@ export function TransitMap({
       ]);
     };
 
-    instance.on('load', () => {
-      registerVehicleIcons(instance);
-      if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
-      syncBuildings(instance, threeWanted.current);
-      ready.current = true;
-      emitViewport();
-    });
-
-    // setStyle drops every custom source and layer, so re-add them whenever a
-    // style finishes loading, not only on the first one.
-    instance.on('styledata', () => {
-      if (!instance.isStyleLoaded()) return;
-      // A style swap drops registered images along with the layers.
-      registerVehicleIcons(instance);
-      if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
-      syncBuildings(instance, threeWanted.current);
+    /**
+     * Puts this app's sources, layers and images back on the map.
+     *
+     * `setStyle` drops every one of them, so this runs after each style as
+     * well as after the first.
+     */
+    const rebuild = () => {
+      // Nothing can be added until the style spec has been applied. Note the
+      // test is *not* `isStyleLoaded()`: that also waits for every source's
+      // tiles, so on a slow basemap — aerial imagery especially — it can stay
+      // false for many seconds after the style itself is ready, and a source
+      // that never loads holds it false forever. Rebuilding on that signal is
+      // what left the map with no trains until the page was reloaded.
+      // `getStyle()` starts answering as soon as the spec is in place, which
+      // is exactly when layers can be added.
+      if (!instance.getStyle()) return;
+      try {
+        registerVehicleIcons(instance);
+        if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+        syncBuildings(instance, threeWanted.current);
+      } catch (err) {
+        // The style was not as ready as it looked; `styledata` fires again.
+        console.warn('livetrains: deferring layer rebuild', err);
+        return;
+      }
       ready.current = true;
       // `load` never fires when the first style fails, so this is also the only
       // chance to report the initial viewport — without it the nearby-stops and
       // stops-in-view queries would never run.
       emitViewport();
-    });
+    };
+
+    instance.on('load', rebuild);
+    instance.on('styledata', rebuild);
 
     instance.on('error', (event) => {
       const failure = event as { error?: Error; sourceId?: string };
@@ -336,6 +351,16 @@ export function TransitMap({
       });
     });
   }, [playback, setData, styleEpoch]);
+
+  // --- Focus on the journey -------------------------------------------------
+  // The cleanup is the restore, so a style swap mid-playback (which bumps
+  // `styleEpoch`) tears this down and sets it up again against the new layers
+  // rather than trying to write remembered values onto layers that are gone.
+  useEffect(() => {
+    const instance = map.current;
+    if (!focusJourney || !instance || !ready.current || !instance.getLayer('network-line')) return;
+    return applyFocus(instance, showBeams);
+  }, [focusJourney, showBeams, styleEpoch]);
 
   // --- Basemap --------------------------------------------------------------
   // setStyle drops every custom source and layer; the `styledata` listener
@@ -503,6 +528,82 @@ function fitTo(map: maplibregl.Map | null, coordinates: [number, number][]): voi
     maxZoom: 15,
     duration: 800,
   });
+}
+
+/**
+ * What playback fades, and how far.
+ *
+ * Journey playback is an argument about one trip, so everything that is not
+ * that trip steps back: the rest of the network, every other vehicle, the
+ * stops you are not using. They are dimmed rather than hidden, because a route
+ * floating in a void reads as a diagram, and the point of playing it on a map
+ * is that it is a real place.
+ *
+ * (Not literally blurred: the map is one canvas, so a blur applied to it would
+ * take the journey with it. Dimming the surroundings and darkening the
+ * basemap buys the same separation with none of that problem.)
+ */
+const FOCUS_DIMMING: { layer: string; property: string; value: number }[] = [
+  { layer: 'network-line', property: 'line-opacity', value: 0.05 },
+  { layer: 'route-shape-casing', property: 'line-opacity', value: 0 },
+  { layer: 'route-shape-line', property: 'line-opacity', value: 0.08 },
+  { layer: 'stops-circle', property: 'circle-opacity', value: 0.1 },
+  { layer: 'stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
+  { layer: 'stops-label', property: 'text-opacity', value: 0 },
+  { layer: 'vehicles-beam', property: 'icon-opacity', value: 0 },
+  { layer: 'vehicles-selected', property: 'circle-opacity', value: 0 },
+  { layer: 'vehicles-heading', property: 'icon-opacity', value: 0.1 },
+  { layer: 'vehicles-dot', property: 'icon-opacity', value: 0.16 },
+  { layer: 'vehicles-label', property: 'text-opacity', value: 0 },
+];
+
+/** The scrim that pushes the basemap back behind the journey. */
+const FOCUS_SCRIM = 'journey-focus-scrim';
+
+/**
+ * Dims everything except the journey, and returns a function that puts it back.
+ *
+ * Previous values are read off the map rather than assumed, so the restore is
+ * exact even though most of these are zoom expressions rather than numbers.
+ */
+function applyFocus(map: maplibregl.Map, showBeams: boolean): () => void {
+  const saved: { layer: string; property: string; value: unknown }[] = [];
+
+  for (const { layer, property, value } of FOCUS_DIMMING) {
+    if (!map.getLayer(layer)) continue;
+    saved.push({ layer, property, value: map.getPaintProperty(layer, property) });
+    map.setPaintProperty(layer, property, value);
+  }
+
+  if (!map.getLayer(FOCUS_SCRIM)) {
+    try {
+      map.addLayer(
+        {
+          id: FOCUS_SCRIM,
+          type: 'background',
+          paint: { 'background-color': '#04101f', 'background-opacity': 0.55 },
+        },
+        // Above the basemap and its buildings, below everything this app draws.
+        map.getLayer('network-line') ? 'network-line' : undefined,
+      );
+    } catch (err) {
+      console.warn('livetrains: could not dim the map for playback', err);
+    }
+  }
+
+  return () => {
+    for (const { layer, property, value } of saved) {
+      // A style swap during playback drops the layers; there is nothing to
+      // restore, and the rebuilt style already carries the original values.
+      if (!map.getLayer(layer)) continue;
+      map.setPaintProperty(layer, property, value);
+    }
+    // The beams answer to their own switch, which focus mode must not override.
+    if (map.getLayer('vehicles-beam')) {
+      map.setLayoutProperty('vehicles-beam', 'visibility', showBeams ? 'visible' : 'none');
+    }
+    if (map.getLayer(FOCUS_SCRIM)) map.removeLayer(FOCUS_SCRIM);
+  };
 }
 
 /**
