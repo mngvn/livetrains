@@ -31,12 +31,15 @@ worldwide — adding another city is a config entry rather than a rewrite.
 - **Watch the trip.** Pick an itinerary and play it back: a traveller walks to
   the stop, waits on the platform for as long as the timetable says they will,
   rides, changes, and walks to the door, with the clock running and the camera
-  following. The waits are the point — they are most of what makes a trip feel
+  following, while the rest of the network, every other vehicle and the stops
+  you are not using fade back so the route you are on is the only bright thing
+  on screen. The waits are the point — they are most of what makes a trip feel
   long, and a list of legs hides them.
 - **Satellite or street, flat or tilted.** Two switches in the corner. The
-  aerial basemap is Esri's World Imagery with a place-name overlay; 3D pitches
-  the camera, frees up rotation, and extrudes building footprints from vector
-  tiles. Both basemaps are keyless.
+  aerial basemap is Esri's World Imagery, oversampled on high-density screens
+  and labelled from vector tiles so the type stays crisp instead of being a
+  photograph of lettering; 3D pitches the camera, frees up rotation, and
+  extrudes building footprints. Both basemaps are keyless.
 - **Departure boards.** Tap any stop for the next departures, counting down in
   realtime, with both directions of a stop merged the way a rider thinks of it.
 - **Route browsing.** Every route, its shape, and only its vehicles on the map.
