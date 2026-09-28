@@ -24,10 +24,13 @@ worldwide — adding another city is a config entry rather than a rewrite.
   the legend carries a switch to turn them off for good.
 - **Door-to-door trip planning.** Enter a destination and get ranked itineraries
   — walk, ride, transfer, walk — with realtime delays folded into the times.
-  Walking is modelled as walking rather than as flight: straight-line distances
-  are corrected by a street-circuity factor, and the feed's own `transfers.txt`
-  overrides geometry, so a connection the agency says is impossible is not
-  offered however close the two stops look on a map.
+  Walking is real walking. Candidate trips are weighed with a fast geometric
+  estimate — a straight line corrected for street circuity — and then the ones
+  actually shown get their walking legs routed over the street network, so a
+  path follows pavements and crossings instead of cutting through a building
+  or over the river. The feed's own `transfers.txt` overrides geometry too, so
+  a connection the agency says is impossible is never offered, however close
+  the two stops look on a map.
 - **Watch the trip.** Pick an itinerary and play it back: a traveller walks to
   the stop, waits on the platform for as long as the timetable says they will,
   rides, changes, and walks to the door, with the clock running and the camera
@@ -255,7 +258,26 @@ Remove those keys to go back to browser mode.
 | `GTFS_MAX_AGE_HOURS` | `24` | How long the cached GTFS archive is reused |
 | `PLANNER_MAX_WALK_METERS` | `1200` | Longest access/egress walk, measured as walking distance |
 | `PLANNER_WALK_SPEED` | `1.33` | Walking speed, m/s (~3 mph) |
-| `PLANNER_WALK_CIRCUITY` | `1.35` | Real walking distance ÷ straight-line distance. `1` disables the correction |
+| `PLANNER_WALK_CIRCUITY` | `1.35` | Real walking distance ÷ straight-line distance, used to weigh candidate trips. `1` disables the correction |
+
+### Walking directions
+
+The legs of a shown itinerary are re-routed over the real street network, so
+they follow pavements rather than cutting across blocks. This is a client-side
+setting:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VITE_WALK_ROUTER_URL` | FOSSGIS's public Valhalla | A Valhalla `/route` endpoint. Empty disables re-routing and keeps straight lines |
+
+The default is [FOSSGIS's community Valhalla](https://valhalla1.openstreetmap.de/),
+which is keyless and CORS-enabled — that is what makes real walking directions
+possible from a static site with no server and no sign-up. **It is a demo
+endpoint.** It is fine for one person's map and the wrong thing to point real
+traffic at; if this gets an audience, run your own Valhalla and set the
+variable. Results are cached for the life of the page, walks over 5km are not
+routed, and anything that fails falls back to the straight line, so the app
+works unchanged with no router at all.
 | `PLANNER_MAX_TRANSFERS` | `3` | Transfer ceiling |
 | `NOMINATIM_URL` | unset | Optional address search; local stop and landmark search always works |
 | `LOG_LEVEL` | `warn` | Fastify log level |
