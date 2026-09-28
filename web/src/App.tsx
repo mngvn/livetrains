@@ -26,6 +26,8 @@ import { MapControls } from './components/MapControls.tsx';
 import { JourneyPlayer } from './components/JourneyPlayer.tsx';
 import { JourneyPlayback } from './lib/journeyPlayback.ts';
 import { buildJourney } from './lib/journey.ts';
+import { WalkRouter } from './lib/walkRouter.ts';
+import { refineWalks } from './lib/refineWalks.ts';
 import type { BasemapId } from './components/basemaps.ts';
 import { modeLabel } from './lib/format.ts';
 
@@ -68,6 +70,8 @@ export function App() {
   const [selectedItinerary, setSelectedItinerary] = useState<number | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
+  /** Identifies the newest plan, so stale walk routing can be discarded. */
+  const planRun = useRef(0);
 
   const [stops, setStops] = useState<StopSummary[]>([]);
   const [nearbyStops, setNearbyStops] = useState<StopSummary[]>([]);
@@ -137,6 +141,14 @@ export function App() {
    * frame loop, so it is created once and never recreated by a render.
    */
   const playback = useMemo(() => new JourneyPlayback(), []);
+
+  /**
+   * Real walking directions for the trips that get shown.
+   *
+   * One per session so its cache survives re-planning; transfers repeat
+   * heavily, so after the first few trips most legs are answered locally.
+   */
+  const walkRouter = useMemo(() => new WalkRouter(), []);
   const [playingJourney, setPlayingJourney] = useState(false);
   useEffect(() => () => playback.dispose(), [playback]);
 
@@ -312,12 +324,32 @@ export function App() {
     (from: Place, to: Place) => {
       setPlanning(true);
       setPlanMessage(null);
+      // Each plan cancels the previous one's walk routing, so a fast typist
+      // does not get the paths from a trip they have already moved on from.
+      planRun.current += 1;
+      const run = planRun.current;
+
       source
         .plan({ fromLat: from.lat, fromLon: from.lon, toLat: to.lat, toLon: to.lon })
         .then((result) => {
+          // Show the plan immediately with its estimated walks. Real walking
+          // directions are a network round trip per leg, and making the whole
+          // trip wait on them would trade a visible answer for a spinner.
           setItineraries(result.itineraries);
           setSelectedItinerary(result.itineraries.length > 0 ? 0 : null);
           setPlanMessage(result.message ?? null);
+
+          void Promise.all(
+            result.itineraries.map((itinerary) => refineWalks(itinerary, walkRouter)),
+          ).then((refined) => {
+            // A later plan has already replaced this one; its walks are not
+            // wanted and would overwrite the newer result.
+            if (run !== planRun.current) return;
+            // Identity is the signal that nothing was routed, so an unreachable
+            // router costs no render.
+            if (refined.every((itinerary, i) => itinerary === result.itineraries[i])) return;
+            setItineraries(refined);
+          });
         })
         .catch((err: unknown) => {
           setItineraries([]);
@@ -326,7 +358,7 @@ export function App() {
         })
         .finally(() => setPlanning(false));
     },
-    [source],
+    [source, walkRouter],
   );
 
   // Plan automatically once both ends are known — the rider has already said
