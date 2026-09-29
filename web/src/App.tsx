@@ -36,6 +36,7 @@ import { isActive } from './lib/alerts.ts';
 import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
+import { useTheme } from './lib/theme.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -160,6 +161,7 @@ export function App() {
     }
   }, []);
   const [three, toggleThree] = usePersistedFlag('livetrains.three');
+  const theme = useTheme();
 
   /**
    * The journey playback clock.
@@ -578,6 +580,7 @@ export function App() {
         showBeams={beamsVisible}
         groupVehicles={groupVehicles}
         basemap={basemap}
+        dark={theme.resolved === 'dark'}
         three={three}
         playback={playback}
         focusJourney={playingJourney}
@@ -598,6 +601,8 @@ export function App() {
         onThree={(next) => {
           if (next !== three) toggleThree();
         }}
+        theme={theme.choice}
+        onTheme={theme.setChoice}
       />
 
       <MapLegend

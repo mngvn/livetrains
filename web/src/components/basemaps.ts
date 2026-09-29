@@ -33,6 +33,13 @@ export const VECTOR_SOURCE_ID = 'livetrains-vector';
 export const STREETS_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 
 /**
+ * The street basemap after dark: OpenFreeMap's near-black style, from the
+ * same tiles and glyphs as positron, so switching theme costs one style
+ * document and no new tile downloads.
+ */
+export const DARK_STREETS_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
+
+/**
  * Esri's World Imagery, the standard keyless aerial basemap.
  *
  * Esri publishes it for use with attribution, which the map carries in its
@@ -97,6 +104,12 @@ export const FALLBACK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},
   layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#e9edf2' } }],
+};
+
+export const DARK_FALLBACK_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0f1624' } }],
 };
 
 /**
@@ -220,3 +233,19 @@ export const BASEMAPS: Record<BasemapId, Basemap> = {
   streets: { id: 'streets', label: 'Map', style: STREETS_STYLE_URL },
   satellite: { id: 'satellite', label: 'Satellite', style: SATELLITE_STYLE },
 };
+
+/**
+ * The style to load for a basemap in a theme.
+ *
+ * Only the street map changes with the theme. Satellite imagery is the same
+ * photograph at any hour, and already sits on a dark background.
+ */
+export function styleFor(basemap: BasemapId, dark: boolean): string | maplibregl.StyleSpecification {
+  if (basemap === 'streets' && dark) return DARK_STREETS_STYLE_URL;
+  return BASEMAPS[basemap].style;
+}
+
+/** Whether a basemap in a theme is a dark map, for the overlays drawn on it. */
+export function isDarkMap(basemap: BasemapId, dark: boolean): boolean {
+  return basemap === 'streets' && dark;
+}

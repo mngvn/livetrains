@@ -5,7 +5,15 @@ import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { RouteNetwork } from '../lib/api.ts';
 import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
-import { BASEMAPS, FALLBACK_STYLE, LABEL_FONT, VECTOR_SOURCE_ID, type BasemapId } from './basemaps.ts';
+import {
+  DARK_FALLBACK_STYLE,
+  FALLBACK_STYLE,
+  LABEL_FONT,
+  VECTOR_SOURCE_ID,
+  isDarkMap,
+  styleFor,
+  type BasemapId,
+} from './basemaps.ts';
 import type { JourneyPlayback } from '../lib/journeyPlayback.ts';
 import { trailAt } from '../lib/journey.ts';
 
@@ -41,6 +49,8 @@ interface Props {
   groupVehicles: boolean;
   /** Which background the map wears. */
   basemap: BasemapId;
+  /** Whether the app is in its dark theme; the street map follows it. */
+  dark: boolean;
   /** Tilt the camera and extrude buildings. */
   three: boolean;
   /** Drives the animated traveller, when a journey is being played. */
@@ -138,6 +148,7 @@ export function TransitMap({
   showBeams,
   groupVehicles,
   basemap,
+  dark,
   three,
   playback,
   focusJourney,
@@ -175,7 +186,14 @@ export function TransitMap({
   const groupWanted = useRef(groupVehicles);
   groupWanted.current = groupVehicles;
   /** The view mode at construction, so the first frame is already right. */
-  const initial = useRef({ basemap, three });
+  const initial = useRef({ basemap, three, dark });
+  /** The style last handed to MapLibre, so an unchanged one is not reloaded. */
+  const appliedStyle = useRef(styleFor(basemap, dark));
+  /** Read from the map's own listeners, which never see later props. */
+  const darkWanted = useRef(dark);
+  darkWanted.current = dark;
+  const basemapWanted = useRef(basemap);
+  basemapWanted.current = basemap;
   /** Read from the map's own listeners, which never see later props. */
   const threeWanted = useRef(three);
   threeWanted.current = three;
@@ -195,7 +213,7 @@ export function TransitMap({
 
     const instance = new maplibregl.Map({
       container: container.current,
-      style: BASEMAPS[initial.current.basemap].style,
+      style: styleFor(initial.current.basemap, initial.current.dark),
       bounds: agency.bbox as LngLatBoundsLike,
       fitBoundsOptions: { padding: 40 },
       attributionControl: false,
@@ -252,6 +270,7 @@ export function TransitMap({
         if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
         syncGrouping(instance, groupWanted.current);
         syncBuildings(instance, threeWanted.current);
+        syncMapTheme(instance, isDarkMap(basemapWanted.current, darkWanted.current));
       } catch (err) {
         // The style was not as ready as it looked; `styledata` fires again.
         console.warn('livetrains: deferring layer rebuild', err);
@@ -280,7 +299,7 @@ export function TransitMap({
       if (!usedFallback.current && /style|positron|Failed to fetch/i.test(message)) {
         usedFallback.current = true;
         console.warn('livetrains: basemap unavailable, falling back to a plain background');
-        instance.setStyle(FALLBACK_STYLE);
+        instance.setStyle(darkWanted.current ? DARK_FALLBACK_STYLE : FALLBACK_STYLE);
       }
     });
 
@@ -443,6 +462,15 @@ export function TransitMap({
     });
   }, [playback, setData, styleEpoch]);
 
+  // --- Overlay colours for a dark map ---------------------------------------
+  // Declared before the journey focus below, which dims some of the same
+  // properties: effects run in order, so the dimming lands on top.
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready.current) return;
+    syncMapTheme(instance, isDarkMap(basemap, dark));
+  }, [basemap, dark, styleEpoch]);
+
   // --- Focus on the journey -------------------------------------------------
   // The cleanup is the restore, so a style swap mid-playback (which bumps
   // `styleEpoch`) tears this down and sets it up again against the new layers
@@ -451,7 +479,9 @@ export function TransitMap({
     const instance = map.current;
     if (!focusJourney || !instance || !ready.current || !instance.getLayer('network-line')) return;
     return applyFocus(instance, showBeams);
-  }, [focusJourney, showBeams, styleEpoch]);
+    // `dark` too: a theme change recolours the map, and the focus must be
+    // re-applied over the new colours rather than restored to the old ones.
+  }, [focusJourney, showBeams, styleEpoch, dark]);
 
   // --- Basemap --------------------------------------------------------------
   // setStyle drops every custom source and layer; the `styledata` listener
@@ -463,9 +493,15 @@ export function TransitMap({
     // and left the plain background in place: imagery may be reachable where
     // vector tiles were not. Clearing the guard lets this style fall back on
     // its own merits rather than inheriting the previous one's verdict.
+    // Satellite looks the same in either theme, so a theme change while on
+    // satellite must not reload it.
+    const style = styleFor(basemap, dark);
+    if (style === appliedStyle.current && !usedFallback.current) return;
+    appliedStyle.current = style;
     usedFallback.current = false;
-    instance.setStyle(BASEMAPS[basemap].style);
-  }, [basemap]);
+    instance.setStyle(style);
+  }, [basemap, dark]);
+
 
   // --- 2D / 3D --------------------------------------------------------------
   useEffect(() => {
@@ -760,6 +796,54 @@ function applyFocus(map: maplibregl.Map, showBeams: boolean): () => void {
 }
 
 /**
+ * The few overlay colours that must change on a dark map.
+ *
+ * Route and vehicle colours come from the agency and work on either ground.
+ * What does not is this app's own furniture: white casings meant to lift a
+ * line off a pale map glow on a black one, and slate stop names vanish into
+ * it. Everything else keeps its colour.
+ */
+const NETWORK_OPACITY: Record<'light' | 'dark', maplibregl.ExpressionSpecification> = {
+  light: ['interpolate', ['linear'], ['zoom'], 8, 0.12, 11, ['case', ['get', 'rail'], 0.36, 0.2], 15, ['case', ['get', 'rail'], 0.42, 0.26]],
+  // Agency colours are mostly mid-to-dark; on a near-black map the faint
+  // wash that reads on a pale one all but disappears, so it is lifted.
+  dark: ['interpolate', ['linear'], ['zoom'], 8, 0.22, 11, ['case', ['get', 'rail'], 0.55, 0.34], 15, ['case', ['get', 'rail'], 0.62, 0.4]],
+};
+
+const MAP_THEME: Record<'light' | 'dark', { layer: string; property: string; value: unknown }[]> = {
+  light: [
+    { layer: 'network-line', property: 'line-opacity', value: NETWORK_OPACITY.light },
+    { layer: 'stops-circle', property: 'circle-color', value: '#ffffff' },
+    { layer: 'stops-circle', property: 'circle-stroke-color', value: '#334155' },
+    { layer: 'stops-label', property: 'text-color', value: '#334155' },
+    { layer: 'stops-label', property: 'text-halo-color', value: '#ffffff' },
+    { layer: 'route-shape-casing', property: 'line-color', value: '#ffffff' },
+    { layer: 'vehicle-trip-casing', property: 'line-color', value: '#ffffff' },
+    { layer: 'vehicle-trip-stops', property: 'circle-color', value: '#ffffff' },
+    { layer: 'itinerary-casing', property: 'line-color', value: '#ffffff' },
+    { layer: 'itinerary-stops', property: 'circle-color', value: '#ffffff' },
+  ],
+  dark: [
+    { layer: 'network-line', property: 'line-opacity', value: NETWORK_OPACITY.dark },
+    { layer: 'stops-circle', property: 'circle-color', value: '#0f1624' },
+    { layer: 'stops-circle', property: 'circle-stroke-color', value: '#cbd5e1' },
+    { layer: 'stops-label', property: 'text-color', value: '#e2e8f0' },
+    { layer: 'stops-label', property: 'text-halo-color', value: '#0b1220' },
+    { layer: 'route-shape-casing', property: 'line-color', value: '#0b1220' },
+    { layer: 'vehicle-trip-casing', property: 'line-color', value: '#0b1220' },
+    { layer: 'vehicle-trip-stops', property: 'circle-color', value: '#0f1624' },
+    { layer: 'itinerary-casing', property: 'line-color', value: '#0b1220' },
+    { layer: 'itinerary-stops', property: 'circle-color', value: '#0f1624' },
+  ],
+};
+
+function syncMapTheme(map: maplibregl.Map, dark: boolean): void {
+  for (const { layer, property, value } of MAP_THEME[dark ? 'dark' : 'light']) {
+    if (map.getLayer(layer)) map.setPaintProperty(layer, property, value);
+  }
+}
+
+/**
  * Switches between grouped and individual vehicles at low zoom.
  *
  * Grouped: the live per-vehicle layers only start at GROUP_BELOW_ZOOM and the
@@ -896,17 +980,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
         16,
         ['case', ['get', 'rail'], 5, 2.6],
       ],
-      'line-opacity': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        8,
-        0.12,
-        11,
-        ['case', ['get', 'rail'], 0.36, 0.2],
-        15,
-        ['case', ['get', 'rail'], 0.42, 0.26],
-      ],
+      'line-opacity': NETWORK_OPACITY.light,
     },
   });
 

@@ -1987,6 +1987,9 @@ button {
 }
 
 .segmented__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 5px 11px;
   font-size: 12px;
   font-weight: 600;
@@ -1997,6 +2000,40 @@ button {
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* Icon-only segments (the theme switch) are squarer than worded ones. */
+.segmented__option:has(> svg:only-child) {
+  padding: 5px 8px;
+}
+
+/* The map's own controls follow the theme. They carry their icons as dark
+   background images, so dark mode inverts the icon rather than recolouring. */
+[data-scheme='dark'] .maplibregl-ctrl-group {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+[data-scheme='dark'] .maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+
+[data-scheme='dark'] .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+[data-scheme='dark'] .maplibregl-ctrl-attrib,
+[data-scheme='dark'] .maplibregl-ctrl-attrib.maplibregl-compact {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+}
+
+[data-scheme='dark'] .maplibregl-ctrl-attrib a {
+  color: var(--text-muted);
+}
+
+[data-scheme='dark'] .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
 }
 
 .segmented__option:hover {
@@ -2231,63 +2268,7 @@ button {
 /* On a phone the bottom sheet owns the lower half, so the legend stays small
    and its panel is capped to what is left above it. */
 @media (max-width: 720px) {
-  /* Sits under the legend button, sharing its right edge and pill language so
-   the top-right corner reads as one set of map controls. */
-.map-controls {
-  position: absolute;
-  top: 56px;
-  right: 12px;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-}
-
-.segmented {
-  display: flex;
-  padding: 3px;
-  gap: 2px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-}
-
-.segmented__option {
-  padding: 5px 11px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.segmented__option:hover {
-  color: var(--text);
-}
-
-.segmented__option[aria-pressed='true'] {
-  color: var(--accent-contrast);
-  background: var(--accent);
-}
-
-.segmented__option:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .segmented__option {
-    transition: none;
-  }
-}
-
-.legend {
+  .legend {
     top: 10px;
     right: 10px;
     max-width: calc(100vw - 20px);
