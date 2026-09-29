@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl, { type LngLatBoundsLike, type MapGeoJSONFeature } from 'maplibre-gl';
-import type { AgencyInfo, Itinerary, StopSummary } from '../lib/api.ts';
+import type { AgencyInfo, Itinerary, StopSummary, VehicleTrip } from '../lib/api.ts';
+import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { RouteNetwork } from '../lib/api.ts';
 import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
@@ -44,6 +45,24 @@ interface Props {
   playback: JourneyPlayback;
   /** Dim everything that is not the journey being played. */
   focusJourney: boolean;
+  /** Lines to light up — every route through the selected stop. */
+  highlightRouteIds: string[] | null;
+  /** The selected vehicle's trip, outlined with the road ahead in bold. */
+  vehicleTrip: VehicleTrip | null;
+  /** Where that vehicle last reported, to split behind from ahead. */
+  vehiclePosition: [number, number] | null;
+  /**
+   * Somewhere to take the camera: a stop found by search, a shared link.
+   * A new object is a new request, so asking for the same place twice works.
+   */
+  cameraTarget: CameraTarget | null;
+}
+
+export interface CameraTarget {
+  lon: number;
+  lat: number;
+  /** The least zoom to arrive at; a closer view is kept. */
+  zoom: number;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -90,6 +109,10 @@ export function TransitMap({
   three,
   playback,
   focusJourney,
+  highlightRouteIds,
+  vehicleTrip,
+  vehiclePosition,
+  cameraTarget,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -401,6 +424,62 @@ export function TransitMap({
     syncBuildings(instance, three);
   }, [three, styleEpoch]);
 
+  // --- Lines through the selected stop -------------------------------------
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready.current || !instance?.getLayer('network-highlight')) return;
+    instance.setFilter('network-highlight', ['in', ['get', 'routeId'], ['literal', highlightRouteIds ?? []]]);
+  }, [highlightRouteIds, styleEpoch]);
+
+  // --- The selected vehicle's trip -----------------------------------------
+  useEffect(() => {
+    if (!ready.current) return;
+    if (!vehicleTrip || vehicleTrip.geometry.length < 2) {
+      setData('vehicle-trip', EMPTY);
+      setData('vehicle-trip-stops', EMPTY);
+      return;
+    }
+    const color = `#${vehicleTrip.route.color}`;
+    const { behind, ahead } = vehiclePosition
+      ? splitLineAt(vehicleTrip.geometry, vehiclePosition)
+      : { behind: [], ahead: vehicleTrip.geometry };
+    const line = (coordinates: [number, number][], part: 'behind' | 'ahead') => ({
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates },
+      properties: { color, part },
+    });
+    setData('vehicle-trip', {
+      type: 'FeatureCollection',
+      features: [
+        ...(behind.length >= 2 ? [line(behind, 'behind')] : []),
+        ...(ahead.length >= 2 ? [line(ahead, 'ahead')] : []),
+      ],
+    });
+    setData('vehicle-trip-stops', {
+      type: 'FeatureCollection',
+      features: vehicleTrip.stops.slice(vehicleTrip.nextStopIndex).map((stop) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [stop.stop.lon, stop.stop.lat] },
+        properties: { color, id: stop.stop.id },
+      })),
+    });
+  }, [vehicleTrip, vehiclePosition, setData, styleEpoch]);
+
+  // --- Camera requests ------------------------------------------------------
+  // Deliberately not keyed on `styleEpoch`: a basemap swap must not replay the
+  // last flight.
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !cameraTarget) return;
+    instance.flyTo({
+      center: [cameraTarget.lon, cameraTarget.lat],
+      zoom: Math.max(instance.getZoom(), cameraTarget.zoom),
+      // Not `essential`, so someone who has asked for reduced motion gets a cut
+      // rather than a swoop.
+      duration: 900,
+    });
+  }, [cameraTarget]);
+
   // --- Beams on or off ------------------------------------------------------
   // `styleEpoch` is in the deps because a style swap rebuilds the layer, and
   // the rebuilt one needs the preference applied to it rather than to the
@@ -679,7 +758,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
   if (map.getLayer('vehicles-hit')) return false;
   for (const id of [
     'network', 'route-shape', 'itinerary', 'itinerary-points', 'stops', 'vehicles', 'endpoints',
-    'journey-trail', 'journey-traveller',
+    'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
@@ -722,6 +801,21 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     },
   });
 
+  // Lines through the selected stop, lifted out of the faint network. Same
+  // source, filtered, so it costs nothing to switch between stops.
+  map.addLayer({
+    id: 'network-highlight',
+    type: 'line',
+    source: 'network',
+    filter: ['in', ['get', 'routeId'], ['literal', []]],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 4.5, 16, 6],
+      'line-opacity': 0.9,
+    },
+  });
+
   // --- Route shape (browsing a route) ---
   map.addLayer({
     id: 'route-shape-casing',
@@ -736,6 +830,41 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     source: 'route-shape',
     paint: { 'line-color': ['get', 'color'], 'line-width': 4.5 },
     layout: { 'line-cap': 'round', 'line-join': 'round' },
+  });
+
+  // --- The selected vehicle's trip ---
+  // The road already travelled is faded and the road ahead drawn bold, so the
+  // outline answers "where is it going" rather than just "where does it go".
+  map.addLayer({
+    id: 'vehicle-trip-casing',
+    type: 'line',
+    source: 'vehicle-trip',
+    filter: ['==', ['get', 'part'], 'ahead'],
+    paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.85 },
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+  });
+  map.addLayer({
+    id: 'vehicle-trip-line',
+    type: 'line',
+    source: 'vehicle-trip',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['case', ['==', ['get', 'part'], 'ahead'], 4.5, 3],
+      'line-opacity': ['case', ['==', ['get', 'part'], 'ahead'], 1, 0.35],
+    },
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+  });
+  map.addLayer({
+    id: 'vehicle-trip-stops',
+    type: 'circle',
+    source: 'vehicle-trip-stops',
+    minzoom: 11,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.5, 15, 4.5],
+      'circle-color': '#ffffff',
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 2,
+    },
   });
 
   // --- Planned itinerary ---

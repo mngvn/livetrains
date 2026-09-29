@@ -249,8 +249,9 @@ export function searchTransit(store: GtfsStore, rawQuery: string, limit = 12): T
   }
   routes.sort((a, b) => b.score - a.score);
 
-  const stops: { score: number; result: TransitSearchResult }[] = [];
-  const kept: { name: string; lat: number; lon: number }[] = [];
+  // Scored first and summarised last: a two-letter query can match thousands
+  // of stops, and only the handful shown are worth building routes lists for.
+  const matched: { score: number; index: number }[] = [];
   for (let i = 0; i < store.stops.length; i++) {
     const stop = store.stops[i];
     let score = 0;
@@ -267,14 +268,22 @@ export function searchTransit(store: GtfsStore, rawQuery: string, limit = 12): T
     // Stations first: a rider typing "Nicollet Mall" wants the station, not
     // one of its platforms.
     if (stop.parent < 0 && store.stationPathways.has(i)) score += 5;
+    matched.push({ score, index: i });
+  }
+  matched.sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const stops: { score: number; result: TransitSearchResult }[] = [];
+  const kept: { name: string; lat: number; lon: number }[] = [];
+  for (const { score, index } of matched) {
+    if (stops.length >= limit) break;
+    const stop = store.stops[index];
     const duplicate = kept.some(
       (k) => k.name === stop.name && Math.abs(k.lat - stop.lat) < 0.002 && Math.abs(k.lon - stop.lon) < 0.003,
     );
     if (duplicate) continue;
     kept.push({ name: stop.name, lat: stop.lat, lon: stop.lon });
-    stops.push({ score, result: { kind: 'stop', stop: stopWithRoutes(store, i) } });
+    stops.push({ score, result: { kind: 'stop', stop: stopWithRoutes(store, index) } });
   }
-  stops.sort((a, b) => b.score - a.score);
 
   // Routes lead when the query looks like a route; stops lead otherwise.
   const routeFirst = routes.length > 0 && routes[0].score >= 90;

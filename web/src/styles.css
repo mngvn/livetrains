@@ -25,8 +25,13 @@
   color-scheme: light;
 }
 
+/* Dark tokens apply in two cases: the rider chose dark explicitly, or they
+   left it on "system" and the system is dark. An explicit "light" wins over a
+   dark system, which is the whole point of offering the choice. The values
+   are repeated because plain CSS has no way to share a block between a media
+   query and an attribute selector. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #0b1220;
     --surface: #151c2b;
     --surface-2: #1d2637;
@@ -42,6 +47,23 @@
     --shadow: 0 8px 30px rgb(0 0 0 / 45%);
     color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0b1220;
+  --surface: #151c2b;
+  --surface-2: #1d2637;
+  --text: #eef2f8;
+  --text-muted: #9aa7b8;
+  --border: #2a3447;
+  --accent: #6f9bff;
+  --accent-contrast: #0b1220;
+  --live: #35d08a;
+  --late: #fb923c;
+  --early: #c4b5fd;
+  --danger: #fb7185;
+  --shadow: 0 8px 30px rgb(0 0 0 / 45%);
+  color-scheme: dark;
 }
 
 * {
@@ -470,6 +492,131 @@ button {
 
 .place-search__kind--address {
   background: var(--early);
+}
+
+/* --- Stop and route search, in the panel header --- */
+
+.transit-search {
+  position: relative;
+  margin-top: 10px;
+}
+
+.transit-search__icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  margin-top: -7px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.transit-search__input {
+  width: 100%;
+  padding: 8px 12px 8px 31px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.transit-search__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.transit-search__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.transit-search__results {
+  max-height: min(360px, 50vh);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.transit-search__result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 9px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+
+.transit-search__result.is-active,
+.transit-search__result:hover {
+  background: var(--surface-2);
+}
+
+.transit-search__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.transit-search__name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transit-search__detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A stop, drawn the way the map draws one. */
+.transit-search__stop-icon {
+  width: 12px;
+  height: 12px;
+  margin: 0 7px;
+  flex: none;
+  background: var(--surface);
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+}
+
+.transit-search__routes {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+
+.transit-search__more {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.transit-search__empty {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 
 .place-search__empty,
@@ -934,23 +1081,102 @@ button {
   margin: 10px 0;
 }
 
-.alert {
-  padding: 9px 11px;
+/* An alert: effect chip and header always visible, detail on tap. The tone
+   is carried by a coloured edge and the chip, so a list of them reads as a
+   scale from "closed" to "note" at a glance. */
+.alert-card {
+  --tone: var(--accent);
   font-size: 12.5px;
-  background: color-mix(in srgb, var(--late) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--late) 30%, transparent);
+  background: color-mix(in srgb, var(--tone) 7%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border));
+  border-left: 3px solid var(--tone);
   border-radius: 9px;
 }
 
-.alert summary {
+.alert-card--severe {
+  --tone: var(--danger);
+}
+
+.alert-card--warning {
+  --tone: var(--late);
+}
+
+.alert-card.is-upcoming {
+  opacity: 0.75;
+}
+
+.alert-card__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.alert-card__summary::-webkit-details-marker {
+  display: none;
+}
+
+.alert-card__effect {
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  border-radius: 999px;
+  flex: none;
+}
+
+.alert-card__header {
+  flex: 1 1 12em;
   font-weight: 600;
+  line-height: 1.35;
+}
+
+.alert-card__when {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.alert-card__body {
+  padding: 0 10px 10px;
+}
+
+.alert-card__description {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.alert-card__routes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.alert-card__route {
+  padding: 0;
+  background: none;
+  border: none;
   cursor: pointer;
 }
 
-.alert p {
-  margin: 7px 0 0;
+.alert-card__more,
+.alert-card__link {
+  font-size: 11px;
   color: var(--text-muted);
-  line-height: 1.5;
+}
+
+.alert-card__link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent);
 }
 
 /* --------------------------------------------------------------------------
@@ -1013,6 +1239,397 @@ button {
   display: flex;
   gap: 3px;
   flex: none;
+}
+
+/* A warning mark on a route with a route-wide alert: detours, reduced
+   service. Single-stop closures deliberately do not earn one. */
+.route-list__alert {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent-contrast);
+  background: var(--late);
+  border-radius: 999px;
+}
+
+.route-group + .route-group {
+  margin-top: 14px;
+}
+
+.route-group .route-list {
+  margin-top: 4px;
+}
+
+.route-group__count {
+  margin-left: 4px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* The route being looked at, above the list. */
+.route-card {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.route-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.route-card__contact,
+.route-card__directions {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.route-card__contact a {
+  color: var(--accent);
+}
+
+.route-card .chip {
+  margin-top: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   Panel sections, tags
+   -------------------------------------------------------------------------- */
+
+.panel-header__text {
+  min-width: 0;
+}
+
+.panel-section {
+  margin-top: 16px;
+}
+
+.panel-section__title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stop-panel__tags,
+.vehicle-panel__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.stop-panel__tags:empty {
+  display: none;
+}
+
+.fact-tag {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.fact-tag--muted {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Step-free access. Stated in words as well as colour, since the people who
+   most need it are not guaranteed to see the difference between the two. */
+.access-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.access-tag--yes {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.access-tag--no {
+  color: var(--late);
+  background: color-mix(in srgb, var(--late) 14%, transparent);
+}
+
+.access-tag--compact {
+  gap: 2px;
+  padding: 1px 5px;
+  font-size: 10px;
+}
+
+.stop-panel__routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.stop-panel__route {
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+
+.stop-panel__route:hover {
+  filter: brightness(1.1);
+}
+
+.stop-panel__route:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.stop-panel__operators {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.stop-panel__access-warning {
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--late);
+  background: color-mix(in srgb, var(--late) 10%, transparent);
+  border-radius: 8px;
+}
+
+.pathways {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pathway {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.pathway__mode {
+  flex: none;
+  min-width: 7.5em;
+  font-weight: 700;
+}
+
+.pathway--elevator .pathway__mode,
+.pathway--moving-sidewalk .pathway__mode {
+  color: var(--accent);
+}
+
+.pathway__description {
+  color: var(--text-muted);
+}
+
+.text-button {
+  margin-top: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+}
+
+.text-button:hover {
+  text-decoration: underline;
+}
+
+/* --- A vehicle's stops ahead --- */
+
+.vehicle-panel__where {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.trip-stops {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-stop__button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 6px 0 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+
+.trip-stop__button:hover {
+  background: var(--surface-2);
+}
+
+/* The rail: a dot per stop, joined by a line that stops at the last one. */
+.trip-stop__dot {
+  position: relative;
+  align-self: stretch;
+  width: 18px;
+  flex: none;
+}
+
+.trip-stop__dot::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+
+.trip-stop:first-child .trip-stop__dot::before {
+  top: 50%;
+}
+
+.trip-stop:last-child .trip-stop__dot::before {
+  bottom: 50%;
+}
+
+.trip-stop__dot::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 2px solid var(--text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.trip-stop.is-next .trip-stop__dot::after {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.trip-stop.is-skipped .trip-stop__dot::after {
+  border-style: dashed;
+  border-color: var(--late);
+}
+
+.trip-stop__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.trip-stop__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trip-stop.is-skipped .trip-stop__name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.trip-stop__countdown {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.trip-stop.is-next .trip-stop__countdown {
+  color: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+   Alerts view
+   -------------------------------------------------------------------------- */
+
+.alerts-view__summary {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.alerts-view__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+.alerts-view__search {
+  display: block;
+  margin-top: 10px;
+}
+
+.alerts-view__search input {
+  width: 100%;
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.alerts-view__search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tab__count {
+  display: inline-block;
+  min-width: 17px;
+  margin-left: 5px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  line-height: 17px;
+  color: var(--accent-contrast);
+  background: var(--late);
+  border-radius: 999px;
 }
 
 /* --------------------------------------------------------------------------

@@ -1,29 +1,70 @@
-import type { Vehicle } from '../lib/api.ts';
-import { delayText, modeLabel, occupancyLabel, relativeAge } from '../lib/format.ts';
+import { useState } from 'react';
+import type { RouteSummary, TripStop, Vehicle, VehicleTrip } from '../lib/api.ts';
+import { sortAlerts } from '../lib/alerts.ts';
+import { countdown, delayText, modeLabel, occupancyLabel, relativeAge } from '../lib/format.ts';
+import { AccessibilityTag } from './AccessibilityTag.tsx';
+import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
+import { ScheduleTime } from './ScheduleTime.tsx';
 
-/** Details for the vehicle currently selected on the map. */
-export function VehiclePanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+/** How many stops ahead to show before "show all". */
+const STOPS_AHEAD = 8;
+
+/**
+ * The selected vehicle: who runs it, how late it is, and where it goes next.
+ *
+ * The position alone says little — a dot, a colour, a heading. The trip is
+ * what makes it useful: the stops ahead with their scheduled and predicted
+ * times, so a rider watching a bus crawl toward them can see when it will
+ * actually arrive at *their* stop, not just that it is late somewhere.
+ */
+export function VehiclePanel({
+  vehicle,
+  trip,
+  tripLoading,
+  now,
+  routes,
+  onShowStop,
+  onShowRoute,
+  onClose,
+}: {
+  vehicle: Vehicle;
+  trip: VehicleTrip | null;
+  tripLoading: boolean;
+  now: number;
+  routes: Map<string, RouteSummary>;
+  onShowStop: (stopId: string) => void;
+  onShowRoute: (routeId: string) => void;
+  onClose: () => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
   const delay = delayText(vehicle.delaySeconds);
   const occupancy = occupancyLabel(vehicle.occupancy);
+  const route: RouteSummary = trip?.route ?? {
+    id: vehicle.routeId ?? '',
+    shortName: vehicle.routeShortName ?? '—',
+    longName: '',
+    mode: vehicle.mode,
+    color: vehicle.color,
+    textColor: 'FFFFFF',
+  };
+
+  const next = trip ? trip.stops[trip.nextStopIndex] : undefined;
+  const ahead = trip ? trip.stops.slice(trip.nextStopIndex) : [];
+  const shown = showAll ? ahead : ahead.slice(0, STOPS_AHEAD);
+  const alerts = trip ? sortAlerts(trip.alerts, now) : [];
 
   return (
     <div className="vehicle-panel">
       <header className="panel-header">
         <div className="vehicle-panel__title">
-          <RouteBadge
-            route={{
-              id: vehicle.routeId ?? '',
-              shortName: vehicle.routeShortName ?? '—',
-              longName: '',
-              mode: vehicle.mode,
-              color: vehicle.color,
-              textColor: 'FFFFFF',
-            }}
-          />
+          <RouteBadge route={route} />
           <div>
-            <h2 className="panel-title">{vehicle.headsign ?? modeLabel(vehicle.mode)}</h2>
-            <p className="panel-subtitle">Vehicle {vehicle.id}</p>
+            <h2 className="panel-title">{trip?.headsign ?? vehicle.headsign ?? modeLabel(vehicle.mode)}</h2>
+            <p className="panel-subtitle">
+              {modeLabel(vehicle.mode)} {vehicle.id}
+              {route.operator && <> · Operated by {route.operator.name}</>}
+            </p>
           </div>
         </div>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
@@ -31,30 +72,108 @@ export function VehiclePanel({ vehicle, onClose }: { vehicle: Vehicle; onClose: 
         </button>
       </header>
 
-      <dl className="vehicle-facts">
+      {next && <p className="vehicle-panel__where">{whereNow(vehicle, next)}</p>}
+
+      <div className="vehicle-panel__tags">
         {vehicle.delaySeconds !== undefined && (
-          <div className="vehicle-fact">
-            <dt>Status</dt>
-            <dd className={`delay-tag delay-tag--${delay.tone}`}>{delay.label}</dd>
-          </div>
+          <span className={`delay-tag delay-tag--${delay.tone}`}>{delay.label}</span>
         )}
-        {occupancy && (
-          <div className="vehicle-fact">
-            <dt>Occupancy</dt>
-            <dd>{occupancy}</dd>
-          </div>
+        <AccessibilityTag value={vehicle.wheelchair} subject="trip" />
+        {occupancy && <span className="fact-tag">{occupancy}</span>}
+        {vehicle.speed !== undefined && vehicle.speed > 0.5 && (
+          <span className="fact-tag">{Math.round(vehicle.speed * 2.237)} mph</span>
         )}
-        {vehicle.speed !== undefined && (
-          <div className="vehicle-fact">
-            <dt>Speed</dt>
-            <dd>{Math.round(vehicle.speed * 2.237)} mph</dd>
-          </div>
-        )}
-        <div className="vehicle-fact">
-          <dt>Reported</dt>
-          <dd>{relativeAge(vehicle.timestamp)}</dd>
+        <span className="fact-tag fact-tag--muted">Position {relativeAge(vehicle.timestamp)}</span>
+      </div>
+
+      {route.id && (
+        <div className="panel-actions">
+          <button type="button" className="chip" onClick={() => onShowRoute(route.id)}>
+            Whole route {route.shortName}
+          </button>
         </div>
-      </dl>
+      )}
+
+      {alerts.length > 0 && (
+        <section className="panel-section" aria-label="Alerts for this route">
+          <div className="alerts">
+            {alerts.slice(0, 3).map((alert) => (
+              <AlertCard key={alert.id} alert={alert} now={now} routes={routes} onShowRoute={onShowRoute} />
+            ))}
+          </div>
+          {alerts.length > 3 && (
+            <button type="button" className="text-button" onClick={() => onShowRoute(route.id)}>
+              {alerts.length - 3} more alerts on this route
+            </button>
+          )}
+        </section>
+      )}
+
+      <section className="panel-section">
+        <h3 className="panel-section__title">Stops ahead</h3>
+        {!trip && tripLoading && <p className="panel-loading">Loading its stops…</p>}
+        {!trip && !tripLoading && (
+          <p className="panel-empty">This vehicle is not reporting a trip, so its stops are not known.</p>
+        )}
+        {trip && (
+          <ol className="trip-stops">
+            {shown.map((stop, index) => (
+              <TripStopRow
+                key={`${stop.stop.id}-${stop.scheduledTime}`}
+                stop={stop}
+                isNext={index === 0}
+                now={now}
+                onShow={() => onShowStop(stop.stop.id)}
+              />
+            ))}
+          </ol>
+        )}
+        {trip && ahead.length > STOPS_AHEAD && (
+          <button type="button" className="text-button" onClick={() => setShowAll((value) => !value)}>
+            {showAll ? 'Show fewer stops' : `Show all ${ahead.length} stops ahead`}
+          </button>
+        )}
+      </section>
     </div>
   );
+}
+
+function TripStopRow({
+  stop,
+  isNext,
+  now,
+  onShow,
+}: {
+  stop: TripStop;
+  isNext: boolean;
+  now: number;
+  onShow: () => void;
+}) {
+  const at = stop.predictedTime ?? stop.scheduledTime;
+  return (
+    <li className={`trip-stop${isNext ? ' is-next' : ''}${stop.skipped ? ' is-skipped' : ''}`}>
+      <button type="button" className="trip-stop__button" onClick={onShow}>
+        <span className="trip-stop__dot" aria-hidden="true" />
+        <span className="trip-stop__text">
+          <span className="trip-stop__name">{stop.stop.name}</span>
+          <ScheduleTime
+            scheduled={stop.scheduledTime}
+            predicted={at}
+            delaySeconds={stop.delaySeconds}
+            isRealtime={stop.predictedTime !== null}
+            skipped={stop.skipped}
+          />
+        </span>
+        {!stop.skipped && <span className="trip-stop__countdown">{countdown(at, now)}</span>}
+      </button>
+    </li>
+  );
+}
+
+/** "Stopped at Lake St", "Arriving at Lake St", "Next stop Lake St". */
+function whereNow(vehicle: Vehicle, next: TripStop): string {
+  const reported = vehicle.stopId === next.stop.id;
+  if (reported && vehicle.currentStatus === 'stopped') return `Stopped at ${next.stop.name}`;
+  if (reported && vehicle.currentStatus === 'incoming') return `Arriving at ${next.stop.name}`;
+  return `Next stop: ${next.stop.name}`;
 }

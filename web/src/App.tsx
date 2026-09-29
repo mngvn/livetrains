@@ -4,6 +4,7 @@ import {
   type FeedStatus,
   type Itinerary,
   type Place,
+  type RouteDetail,
   type RouteNetwork,
   type RouteSummary,
   type StopDetail,
@@ -13,7 +14,8 @@ import {
 import { VehicleTracker, type StreamStatus } from './lib/vehicleTracker.ts';
 import { createDataSource, type EngineStatus } from './lib/dataSource.ts';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
-import { TransitMap } from './components/TransitMap.tsx';
+import { TransitMap, type CameraTarget } from './components/TransitMap.tsx';
+import { TransitSearch } from './components/TransitSearch.tsx';
 import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
 import { StopPanel } from './components/StopPanel.tsx';
@@ -28,10 +30,21 @@ import { JourneyPlayback } from './lib/journeyPlayback.ts';
 import { buildJourney } from './lib/journey.ts';
 import { WalkRouter } from './lib/walkRouter.ts';
 import { refineWalks } from './lib/refineWalks.ts';
+import { useVehicleTrip } from './lib/useVehicleTrip.ts';
+import { routeWideAlertCounts, useAlerts } from './lib/useAlerts.ts';
+import { isActive } from './lib/alerts.ts';
+import { RoutesTab } from './components/RoutesTab.tsx';
+import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
-import { modeLabel } from './lib/format.ts';
 
-type Tab = 'plan' | 'nearby' | 'routes';
+type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
+
+const TAB_LABELS: Record<Tab, string> = {
+  plan: 'Plan a trip',
+  nearby: 'Nearby',
+  routes: 'Routes',
+  alerts: 'Alerts',
+};
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
 
@@ -78,6 +91,10 @@ export function App() {
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [activeRoute, setActiveRoute] = useState<{ geometry: [number, number][]; color: string } | null>(null);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
+  /** The active route's full detail, for its alerts and operator. */
+  const [activeRouteDetail, setActiveRouteDetail] = useState<RouteDetail | null>(null);
+  /** Every route through the selected stop, lit up on the map. */
+  const [highlightRouteIds, setHighlightRouteIds] = useState<string[] | null>(null);
   /** Every route's drawn shape, for the faint underlay beneath the vehicles. */
   const [network, setNetwork] = useState<RouteNetwork | null>(null);
 
@@ -86,6 +103,8 @@ export function App() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
 
   const [viewport, setViewport] = useState<[number, number, number, number] | null>(null);
+  /** Where the camera has been asked to go, by search or a shared link. */
+  const [cameraTarget, setCameraTarget] = useState<CameraTarget | null>(null);
   const [stream, setStream] = useState<StreamStatus>({
     connected: false,
     vehicleCount: 0,
@@ -423,27 +442,61 @@ export function App() {
     [mapPickTarget],
   );
 
+  const clearRoute = useCallback(() => {
+    setActiveRouteId(null);
+    setActiveRoute(null);
+    setActiveRouteDetail(null);
+    tracker.setFilter({});
+  }, [tracker]);
+
   const showRoute = useCallback(
     (route: RouteSummary) => {
       if (activeRouteId === route.id) {
-        setActiveRouteId(null);
-        setActiveRoute(null);
-        tracker.setFilter({});
+        clearRoute();
         return;
       }
       setActiveRouteId(route.id);
+      setActiveRouteDetail(null);
       // Narrow the live stream to this route so the map shows only its vehicles.
       tracker.setFilter({ routeId: route.id });
       source
         .route(route.id)
         .then((detail) => {
+          setActiveRouteDetail(detail);
           const direction = detail.directions[0];
           if (direction) setActiveRoute({ geometry: direction.geometry, color: detail.route.color });
         })
         .catch(() => undefined);
     },
-    [activeRouteId, tracker, source],
+    [activeRouteId, tracker, source, clearRoute],
   );
+
+  /** Routes by id, for drawing badges wherever only an id is at hand. */
+  const routesById = useMemo(() => new Map(routes.map((route) => [route.id, route])), [routes]);
+
+  /**
+   * Opens a route from anywhere — a stop's lines, an alert, a vehicle.
+   *
+   * Unlike tapping it in the route list, this never toggles it off: arriving
+   * at a route from somewhere else should always show it.
+   */
+  const openRoute = useCallback(
+    (routeId: string) => {
+      const route = routesById.get(routeId);
+      if (!route) return;
+      setSelectedStopId(null);
+      setSelectedVehicleId(null);
+      setTab('routes');
+      if (activeRouteId !== routeId) showRoute(route);
+    },
+    [routesById, activeRouteId, showRoute],
+  );
+
+  const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
+
+  const alerts = useAlerts(source.alerts, engine.state === 'ready');
+  const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
+  const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
 
   const planFromStop = useCallback((detail: StopDetail, target: 'origin' | 'destination') => {
     const place: Place = {
@@ -519,6 +572,10 @@ export function App() {
         three={three}
         playback={playback}
         focusJourney={playingJourney}
+        highlightRouteIds={selectedStopId ? highlightRouteIds : null}
+        vehicleTrip={selectedVehicleId ? vehicleTrip : null}
+        vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
+        cameraTarget={cameraTarget}
       />
 
       {playingJourney && (
@@ -596,23 +653,47 @@ export function App() {
             </button>
           </div>
           <StatusBar status={status} stream={stream} />
+          <TransitSearch
+            search={source.search}
+            onRoute={(route) => openRoute(route.id)}
+            onStop={(stop) => {
+              setSelectedVehicleId(null);
+              setSelectedStopId(stop.id);
+              setCameraTarget({ lon: stop.lon, lat: stop.lat, zoom: 16 });
+            }}
+          />
         </header>
 
         {selectedVehicle ? (
-          <VehiclePanel vehicle={selectedVehicle} onClose={() => setSelectedVehicleId(null)} />
+          <VehiclePanel
+            vehicle={selectedVehicle}
+            trip={vehicleTrip}
+            tripLoading={vehicleTripLoading}
+            now={now}
+            routes={routesById}
+            onShowStop={(stopId) => {
+              setSelectedVehicleId(null);
+              setSelectedStopId(stopId);
+            }}
+            onShowRoute={openRoute}
+            onClose={() => setSelectedVehicleId(null)}
+          />
         ) : selectedStopId ? (
           <StopPanel
             stopId={selectedStopId}
             now={now}
             load={source.stop}
+            routes={routesById}
             onPlanFromHere={(detail) => planFromStop(detail, 'origin')}
             onPlanToHere={(detail) => planFromStop(detail, 'destination')}
+            onShowRoute={openRoute}
+            onRoutesLoaded={setHighlightRouteIds}
             onClose={() => setSelectedStopId(null)}
           />
         ) : (
           <>
             <nav className="tabs" role="tablist">
-              {(['plan', 'nearby', 'routes'] as Tab[]).map((id) => (
+              {(Object.keys(TAB_LABELS) as Tab[]).map((id) => (
                 <button
                   key={id}
                   role="tab"
@@ -620,7 +701,12 @@ export function App() {
                   className={`tab${tab === id ? ' is-active' : ''}`}
                   onClick={() => setTab(id)}
                 >
-                  {id === 'plan' ? 'Plan a trip' : id === 'nearby' ? 'Nearby' : 'Routes'}
+                  {TAB_LABELS[id]}
+                  {id === 'alerts' && activeAlertCount > 0 && (
+                    <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
+                      {activeAlertCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -746,38 +832,21 @@ export function App() {
               )}
 
               {tab === 'routes' && (
-                <div className="routes-tab">
-                  {activeRouteId && (
-                    <button
-                      type="button"
-                      className="chip chip--primary"
-                      onClick={() => {
-                        setActiveRouteId(null);
-                        setActiveRoute(null);
-                        tracker.setFilter({});
-                      }}
-                    >
-                      Show all routes again
-                    </button>
-                  )}
-                  <ul className="route-list">
-                    {routes.map((route) => (
-                      <li key={route.id}>
-                        <button
-                          type="button"
-                          className={`route-list__item${activeRouteId === route.id ? ' is-active' : ''}`}
-                          onClick={() => showRoute(route)}
-                        >
-                          <RouteBadge route={route} />
-                          <span className="route-list__text">
-                            <span className="route-list__name">{route.longName || route.shortName}</span>
-                            <span className="route-list__mode">{modeLabel(route.mode)}</span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <RoutesTab
+                  routes={routes}
+                  activeRouteId={activeRouteId}
+                  activeDetail={activeRouteDetail}
+                  alertCounts={alertCounts}
+                  now={now}
+                  routesById={routesById}
+                  onSelect={showRoute}
+                  onClear={clearRoute}
+                  onShowRoute={openRoute}
+                />
+              )}
+
+              {tab === 'alerts' && (
+                <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
               )}
             </div>
           </>
