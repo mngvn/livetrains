@@ -158,7 +158,9 @@ async function staleWhileRevalidate(name, request) {
   }
   const response = await refresh;
   if (response) return response;
-  return new Response('', { status: 504, statusText: 'Offline' });
+  // Fail exactly as the network would have, so the map's own handling of an
+  // unreachable basemap (falling back to a plain background) still applies.
+  return Response.error();
 }
 
 /** Drops the oldest entries past a cap; keys come back in insertion order. */

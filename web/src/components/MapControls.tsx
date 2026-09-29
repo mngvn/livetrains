@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ThemeChoice } from '../lib/theme.ts';
 import type { BasemapId } from './basemaps.ts';
 
@@ -25,36 +25,70 @@ export function MapControls({
   theme: ThemeChoice;
   onTheme: (theme: ThemeChoice) => void;
 }) {
+  // On a phone the three switches fold behind one button: stacked down the
+  // side of a small screen they covered more of the map than they controlled.
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
   return (
-    <div className="map-controls">
-      <Segmented
-        label="Basemap"
-        options={[
-          { value: 'streets' as const, label: 'Map' },
-          { value: 'satellite' as const, label: 'Satellite' },
-        ]}
-        value={basemap}
-        onChange={onBasemap}
-      />
-      <Segmented
-        label="Dimension"
-        options={[
-          { value: false, label: '2D' },
-          { value: true, label: '3D' },
-        ]}
-        value={three}
-        onChange={onThree}
-      />
-      <Segmented
-        label="Theme"
-        options={[
-          { value: 'light' as const, label: <SunIcon />, name: 'Light theme' },
-          { value: 'system' as const, label: <AutoIcon />, name: 'Match this device' },
-          { value: 'dark' as const, label: <MoonIcon />, name: 'Dark theme' },
-        ]}
-        value={theme}
-        onChange={onTheme}
-      />
+    <div className={`map-controls${open ? ' is-open' : ''}`} ref={rootRef}>
+      <button
+        type="button"
+        className="map-controls__toggle"
+        aria-expanded={open}
+        aria-controls="map-view-options"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path d="M8 1.8 14.2 5 8 8.2 1.8 5Z" fill="currentColor" />
+          <path
+            d="m1.8 8 6.2 3.2L14.2 8M1.8 11l6.2 3.2 6.2-3.2"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinejoin="round"
+          />
+        </svg>
+        View
+      </button>
+      <div className="map-controls__panel" id="map-view-options">
+        <Segmented
+          label="Basemap"
+          options={[
+            { value: 'streets' as const, label: 'Map' },
+            { value: 'satellite' as const, label: 'Satellite' },
+          ]}
+          value={basemap}
+          onChange={onBasemap}
+        />
+        <Segmented
+          label="Dimension"
+          options={[
+            { value: false, label: '2D' },
+            { value: true, label: '3D' },
+          ]}
+          value={three}
+          onChange={onThree}
+        />
+        <Segmented
+          label="Theme"
+          options={[
+            { value: 'light' as const, label: <SunIcon />, name: 'Light theme' },
+            { value: 'system' as const, label: <AutoIcon />, name: 'Match this device' },
+            { value: 'dark' as const, label: <MoonIcon />, name: 'Dark theme' },
+          ]}
+          value={theme}
+          onChange={onTheme}
+        />
+      </div>
     </div>
   );
 }

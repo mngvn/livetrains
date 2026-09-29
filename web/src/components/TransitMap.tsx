@@ -68,6 +68,19 @@ interface Props {
    * A new object is a new request, so asking for the same place twice works.
    */
   cameraTarget: CameraTarget | null;
+  /**
+   * How much of the map the app's own panels cover, in pixels. The camera
+   * centres, flies and fits within what is left, so a stop found by search
+   * lands where it can be seen rather than behind the bottom sheet.
+   */
+  padding: MapPadding;
+}
+
+export interface MapPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
 export interface CameraTarget {
@@ -168,6 +181,7 @@ export function TransitMap({
   vehicleTrip,
   vehiclePosition,
   cameraTarget,
+  padding,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -617,6 +631,15 @@ export function TransitMap({
       })),
     });
   }, [vehicleTrip, vehiclePosition, setData, styleEpoch]);
+
+  // --- The part of the map not covered by panels ---------------------------
+  const { top: padTop, right: padRight, bottom: padBottom, left: padLeft } = padding;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance) return;
+    // Eased, so opening the panel slides the view over rather than jumping it.
+    instance.easeTo({ padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, duration: 300 });
+  }, [padTop, padRight, padBottom, padLeft]);
 
   // --- Camera requests ------------------------------------------------------
   // Deliberately not keyed on `styleEpoch`: a basemap swap must not replay the

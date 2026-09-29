@@ -2035,6 +2035,33 @@ button {
   gap: 6px;
 }
 
+.map-controls__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* The phone-only "View" button; on a desktop the switches are always out. */
+.map-controls__toggle {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.map-controls.is-open .map-controls__toggle {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .segmented {
   display: flex;
   padding: 3px;
@@ -2340,6 +2367,18 @@ button {
   .map-controls {
     top: 52px;
     right: 10px;
+  }
+
+  .map-controls__toggle {
+    display: inline-flex;
+  }
+
+  .map-controls__panel {
+    display: none;
+  }
+
+  .map-controls.is-open .map-controls__panel {
+    display: flex;
   }
 
   .sheet.is-hidden {

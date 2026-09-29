@@ -14,7 +14,7 @@ import {
 import { VehicleTracker, type StreamStatus } from './lib/vehicleTracker.ts';
 import { createDataSource, type EngineStatus } from './lib/dataSource.ts';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
-import { TransitMap, type CameraTarget } from './components/TransitMap.tsx';
+import { TransitMap, type CameraTarget, type MapPadding } from './components/TransitMap.tsx';
 import { TransitSearch } from './components/TransitSearch.tsx';
 import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
@@ -250,6 +250,9 @@ export function App() {
     }
   }, [chosen, playback]);
 
+  /** Set when playback tucked the phone's bottom sheet away, to bring it back after. */
+  const hidPanelForJourney = useRef(false);
+
   const startJourney = useCallback(() => {
     if (!chosen) return;
     const journey = buildJourney(chosen);
@@ -257,7 +260,13 @@ export function App() {
     playback.load(journey);
     setPlayingJourney(true);
     playback.play();
-  }, [chosen, playback]);
+    // On a phone the sheet would cover most of the trip; tuck it away for
+    // the length of the playback.
+    if (!panelHidden && window.matchMedia('(max-width: 720px)').matches) {
+      hidPanelForJourney.current = true;
+      togglePanel();
+    }
+  }, [chosen, playback, panelHidden, togglePanel]);
 
   // The tour's sample trip, played the moment its plan is in.
   useEffect(() => {
@@ -269,9 +278,47 @@ export function App() {
   const endJourney = useCallback(() => {
     playback.load(null);
     setPlayingJourney(false);
-  }, [playback]);
+    if (hidPanelForJourney.current) {
+      hidPanelForJourney.current = false;
+      if (panelHidden) togglePanel();
+    }
+  }, [playback, panelHidden, togglePanel]);
 
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * How much of the map the panel covers: its right edge on a desktop, its
+   * top edge on a phone, nothing when it is tucked away. Measured rather than
+   * assumed, because the bottom sheet's height follows its content.
+   */
+  const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
+  const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!shellReady || !sheet) return;
+    const phone = window.matchMedia('(max-width: 720px)');
+    const measure = () => {
+      const rect = sheet.getBoundingClientRect();
+      const next: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+      if (!panelHidden) {
+        if (phone.matches) next.bottom = Math.max(0, Math.round(window.innerHeight - rect.top));
+        else next.left = Math.max(0, Math.round(rect.right));
+      }
+      setMapPadding((current) =>
+        Math.abs(current.bottom - next.bottom) < 8 && Math.abs(current.left - next.left) < 8 ? current : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(sheet);
+    window.addEventListener('resize', measure);
+    phone.addEventListener('change', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      phone.removeEventListener('change', measure);
+    };
+  }, [shellReady, panelHidden]);
 
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
@@ -756,6 +803,7 @@ export function App() {
         vehicleTrip={selectedVehicleId ? vehicleTrip : null}
         vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
         cameraTarget={cameraTarget}
+        padding={mapPadding}
       />
 
       <LeaveBanner
