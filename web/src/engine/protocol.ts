@@ -19,6 +19,8 @@ export type EngineMethod =
   | 'nearbyStops'
   | 'stopsWithin'
   | 'stop'
+  | 'vehicleTrip'
+  | 'search'
   | 'vehicles'
   | 'geocode'
   | 'reverseGeocode'

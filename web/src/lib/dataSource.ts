@@ -1,4 +1,12 @@
-import { api, getApiBase, type StopDetail, type RouteDetail, type RouteNetwork } from './api.ts';
+import {
+  api,
+  getApiBase,
+  type StopDetail,
+  type RouteDetail,
+  type RouteNetwork,
+  type TransitSearchResult,
+  type VehicleTrip,
+} from './api.ts';
 import { TransitEngine, type EngineStatus } from '../engine/client.ts';
 import { resolveAgency } from '../engine/agency.ts';
 import type {
@@ -78,6 +86,8 @@ export interface DataSource {
   nearbyStops(lat: number, lon: number, radius?: number, limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stopsWithin(bbox: [number, number, number, number], limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stop(stopId: string, limit?: number, signal?: AbortSignal): Promise<StopDetail>;
+  vehicleTrip(vehicleId: string, signal?: AbortSignal): Promise<VehicleTrip | null>;
+  search(q: string, limit?: number, signal?: AbortSignal): Promise<TransitSearchResult[]>;
   geocode(q: string, near?: { lat: number; lon: number }, signal?: AbortSignal): Promise<Place[]>;
   reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<Place>;
   plan(params: Parameters<typeof api.plan>[0], signal?: AbortSignal): Promise<PlanResponse>;
@@ -120,6 +130,8 @@ class BrowserSource implements DataSource {
   stopsWithin = (bbox: [number, number, number, number], limit = 300) =>
     this.engine.request<StopSummary[]>('stopsWithin', { bbox: bbox.join(','), limit });
   stop = (stopId: string, limit = 15) => this.engine.request<StopDetail>('stop', { stopId, limit });
+  vehicleTrip = (vehicleId: string) => this.engine.request<VehicleTrip | null>('vehicleTrip', { vehicleId });
+  search = (q: string, limit = 12) => this.engine.request<TransitSearchResult[]>('search', { q, limit });
   geocode = (q: string, near?: { lat: number; lon: number }) =>
     this.engine.request<Place[]>('geocode', { q, lat: near?.lat, lon: near?.lon });
   reverseGeocode = (lat: number, lon: number) => this.engine.request<Place>('reverseGeocode', { lat, lon });
@@ -166,6 +178,8 @@ class ServerSource implements DataSource {
   nearbyStops = api.nearbyStops;
   stopsWithin = api.stopsWithin;
   stop = api.stop;
+  vehicleTrip = api.vehicleTrip;
+  search = api.search;
   geocode = api.geocode;
   reverseGeocode = api.reverseGeocode;
   plan = api.plan;

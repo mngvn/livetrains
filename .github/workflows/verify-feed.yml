@@ -34,7 +34,13 @@ jobs:
             "https://svc.metrotransit.org/mtgtfs/alerts.pb"; do
             headers=$(curl -sS -o /dev/null -D - --max-time 60 -r 0-512 \
               -H 'Origin: https://example.com' "$url" || true)
-            if printf '%s' "$headers" | grep -qi '^access-control-allow-origin:'; then
+            # The status matters as much as the header: an error page can carry
+            # CORS headers too, and this check once passed a feed that was 404.
+            status=$(printf '%s' "$headers" | head -1 | awk '{print $2}')
+            if ! printf '%s' "$status" | grep -q '^2'; then
+              echo "FAIL $url answered HTTP $status"
+              fail=1
+            elif printf '%s' "$headers" | grep -qi '^access-control-allow-origin:'; then
               echo "ok   $url"
             else
               echo "FAIL $url is no longer readable from a browser"

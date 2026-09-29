@@ -62,6 +62,14 @@ export interface RealtimeOverlay {
   delay: Int32Array;
   /** 1 when the trip is cancelled and must not be boarded. */
   cancelled: Uint8Array;
+  /**
+   * Stops a trip will not call at after all, by trip index.
+   *
+   * A detour or a closed station: the timetable says the bus stops there, the
+   * feed says it will not. Boarding or alighting there would plan a trip
+   * around a stop nobody can use.
+   */
+  skipped?: Map<number, Set<number>>;
 }
 
 const UNREACHED = Number.POSITIVE_INFINITY;
@@ -172,7 +180,7 @@ export function runRaptor(
       for (let position = startPosition; position < stops.length; position++) {
         const stop = stops[position];
 
-        if (trip >= 0 && patterns.canAlight(trip, position)) {
+        if (trip >= 0 && patterns.canAlight(trip, position) && !overlay.skipped?.get(trip)?.has(stop)) {
           const arrival = tripMidnight + patterns.arrivalAt(trip, position) + tripDelay;
           // Prune against both the best known arrival here and at the target:
           // a label that cannot beat either can never be part of an answer.
@@ -277,6 +285,7 @@ function earliestTrip(
   earliest: number,
   windowEnd: number,
 ): { trip: number; dayIndex: number; departure: number; delay: number } | null {
+  const boardStop = patterns.patterns[patternIndex].stops[position];
   let bestTrip = -1;
   let bestDay = -1;
   let bestDeparture = UNREACHED;
@@ -312,6 +321,7 @@ function earliestTrip(
       const trip = trips[i];
       if (overlay.cancelled[trip] === 1) continue;
       if (!patterns.canBoard(trip, position)) continue;
+      if (overlay.skipped?.get(trip)?.has(boardStop)) continue;
       const delay = overlay.delay[trip];
       const departure = midnight + patterns.departureAt(trip, position) + delay;
       if (departure < earliest) continue;

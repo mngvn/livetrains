@@ -4,18 +4,19 @@ import type {
   Place,
   PlanRequest,
   PlanResponse,
-  RouteSummary,
   StopSummary,
   TransitLeg,
   WalkLeg,
 } from '../shared/api.js';
-import type { GtfsStore, Route, Stop } from '../gtfs/store.js';
+import type { GtfsStore, Stop } from '../gtfs/store.js';
+import { routeSummary, stopSummary } from '../summaries.js';
 import type { RealtimeState } from '../realtime/state.js';
 import { haversineMeters } from '../geo.js';
 import { epochFor } from '../gtfs/time.js';
 import { PatternSet } from './patterns.js';
 import { runRaptor, type Label, type RealtimeOverlay } from './raptor.js';
 import { TransferGraph } from './transfers.js';
+import { scheduledTimeAt } from '../realtime/vehicleDelay.js';
 import { DEFAULT_CIRCUITY, estimateWalk, searchRadiusFor, type WalkEstimate } from './walk.js';
 
 /** Seconds of slack when connecting between two vehicles. */
@@ -58,6 +59,9 @@ export class Planner {
   readonly patterns: PatternSet;
   private readonly transfers: TransferGraph;
   private readonly circuity: number;
+  private overlay: RealtimeOverlay | null = null;
+  /** `tripUpdateVersion` the cached overlay was built from. */
+  private overlayStamp = -1;
 
   constructor(
     private readonly store: GtfsStore,
@@ -231,10 +235,21 @@ export class Planner {
    * finer per-stop predictions are applied later, during reconstruction, where
    * the cost is paid once per leg instead.
    */
+  /**
+   * Projects the realtime feed onto per-trip arrays for the routing inner loop.
+   *
+   * Rebuilt only when the trip updates change, not per query: the arrays are
+   * sized to the whole timetable, and a rider tapping through suggestions
+   * plans several times a second against the same predictions.
+   */
   private buildOverlay(): RealtimeOverlay {
+    const stamp = this.realtime.tripUpdateVersion;
+    if (this.overlay && this.overlayStamp === stamp) return this.overlay;
+
     const tripCount = this.store.tripIds.length;
     const delay = new Int32Array(tripCount);
     const cancelled = new Uint8Array(tripCount);
+    const skipped = new Map<number, Set<number>>();
 
     for (const [tripId, update] of this.realtime.tripUpdates) {
       const index = this.store.tripIndexById.get(tripId);
@@ -243,20 +258,50 @@ export class Planner {
         cancelled[index] = 1;
         continue;
       }
+
+      for (const [stopId, prediction] of update.stops) {
+        if (!prediction.skipped) continue;
+        const stop = this.store.stopIndexById.get(stopId);
+        if (stop === undefined) continue;
+        let set = skipped.get(index);
+        if (!set) skipped.set(index, (set = new Set()));
+        set.add(stop);
+      }
+
       if (update.tripDelaySeconds != null) {
         delay[index] = update.tripDelaySeconds;
         continue;
       }
-      // No trip-level delay: use the median-ish first per-stop prediction, which
-      // is a better estimate for the whole trip than assuming it is on time.
-      for (const prediction of update.stops.values()) {
+      // No trip-level delay: take the first stop that says anything. An
+      // absolute time is preferred to a stated delay — it is what the
+      // producer believes — and without this a feed that only sends times
+      // would have every trip planned as though it were exactly on time.
+      for (const [stopId, prediction] of update.stops) {
+        if (prediction.skipped) continue;
+        const predicted = prediction.departureTime ?? prediction.arrivalTime;
+        if (predicted !== null) {
+          const scheduled = scheduledTimeAt(
+            this.store,
+            tripId,
+            stopId,
+            predicted,
+            prediction.departureTime !== null,
+          );
+          if (scheduled !== null) {
+            delay[index] = predicted - scheduled;
+            break;
+          }
+        }
         if (prediction.delaySeconds != null) {
           delay[index] = prediction.delaySeconds;
           break;
         }
       }
     }
-    return { delay, cancelled };
+
+    this.overlay = { delay, cancelled, skipped };
+    this.overlayStamp = stamp;
+    return this.overlay;
   }
 
   /** Walks the RAPTOR labels backward to produce rider-facing legs. */
@@ -380,7 +425,7 @@ export class Planner {
 
     return {
       type: 'transit',
-      route: routeSummary(route),
+      route: routeSummary(store, route),
       tripId,
       headsign: store.tripHeadsigns[tripIndex] || route.longName || route.shortName,
       directionId: store.tripDirection[tripIndex],
@@ -390,7 +435,9 @@ export class Planner {
       arrivalTime,
       scheduledDepartureTime: scheduledDeparture,
       scheduledArrivalTime: scheduledArrival,
-      delaySeconds: delay,
+      // From the absolute prediction when there is one, for the same reason
+      // the departure time is.
+      delaySeconds: predictedDeparture !== null ? predictedDeparture - scheduledDeparture : delay,
       isRealtime: predictedDeparture !== null || delay !== null,
       numStops: label.alightPosition - label.boardPosition,
       intermediateStops: intermediate,
@@ -460,22 +507,6 @@ function toPlace(lat: number, lon: number, name: string): Place {
 
 function stopPlace(stop: Stop): Place {
   return { id: stop.id, name: stop.name, detail: `Stop ${stop.code}`, lat: stop.lat, lon: stop.lon, kind: 'stop' };
-}
-
-export function stopSummary(stop: Stop): StopSummary {
-  return { id: stop.id, code: stop.code, name: stop.name, lat: stop.lat, lon: stop.lon };
-}
-
-export function routeSummary(route: Route): RouteSummary {
-  return {
-    id: route.id,
-    shortName: route.shortName,
-    longName: route.longName,
-    mode: route.mode,
-    color: route.color,
-    textColor: route.textColor,
-    description: route.description || undefined,
-  };
 }
 
 function walkLeg(

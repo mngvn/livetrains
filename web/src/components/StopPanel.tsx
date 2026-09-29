@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { Departure, RouteSummary, StopDetail } from '../lib/api.ts';
-import { clockTime, countdown, delayText, modeLabel } from '../lib/format.ts';
+import { countdown, modeLabel } from '../lib/format.ts';
 import { RouteBadge } from './RouteBadge.tsx';
+import { ScheduleTime } from './ScheduleTime.tsx';
 
 /** A departure carries its route's display fields inline; rebuild the badge's view of it. */
 function routeOf(departure: Departure): RouteSummary {
@@ -117,27 +118,33 @@ export function StopPanel({
         </p>
       ) : (
         <ul className="departures">
-          {detail.departures.map((departure) => {
-            const delay = delayText(departure.delaySeconds);
-            return (
-              <li key={`${departure.tripId}-${departure.scheduledTime}`} className="departure">
-                <RouteBadge route={routeOf(departure)} />
-                <div className="departure__text">
-                  <span className="departure__headsign">{departure.headsign}</span>
-                  <span className="departure__meta">
-                    {modeLabel(departure.mode)} · {clockTime(departure.scheduledTime)}
-                    {departure.isRealtime && (
-                      <span className={`delay-tag delay-tag--${delay.tone}`}>{delay.label}</span>
-                    )}
-                  </span>
-                </div>
-                <div className={`departure__countdown${departure.isRealtime ? ' is-live' : ''}`}>
-                  {countdown(departure.expectedTime, now)}
-                  {departure.isRealtime && <span className="live-dot" title="Live prediction" />}
-                </div>
-              </li>
-            );
-          })}
+          {detail.departures.map((departure) => (
+            <li
+              key={`${departure.tripId}-${departure.scheduledTime}`}
+              className={`departure${departure.skipped ? ' is-skipped' : ''}`}
+            >
+              <RouteBadge route={routeOf(departure)} />
+              <div className="departure__text">
+                <span className="departure__headsign">{departure.headsign}</span>
+                <span className="departure__meta">
+                  {modeLabel(departure.mode)}
+                  <ScheduleTime
+                    scheduled={departure.scheduledTime}
+                    predicted={departure.expectedTime}
+                    delaySeconds={departure.delaySeconds}
+                    isRealtime={departure.isRealtime}
+                    skipped={departure.skipped}
+                  />
+                </span>
+              </div>
+              <div className={`departure__countdown${departure.isRealtime ? ' is-live' : ''}`}>
+                {departure.skipped ? '—' : countdown(departure.expectedTime, now)}
+                {departure.isRealtime && !departure.skipped && (
+                  <span className="live-dot" title="Live prediction" />
+                )}
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>

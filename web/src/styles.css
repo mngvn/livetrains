@@ -764,6 +764,33 @@ button {
   color: var(--early);
 }
 
+/* A stop the vehicle will not call at. Louder than "late": standing at this
+   stop, it means the bus is not coming at all. */
+.delay-tag--skipped {
+  background: color-mix(in srgb, var(--late) 22%, transparent);
+  color: var(--late);
+}
+
+/* Scheduled against predicted: the timetable time struck through, the
+   predicted one beside it in the live colour. */
+.schedule-time {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-time__scheduled {
+  color: var(--text-muted);
+  text-decoration-thickness: 1.5px;
+}
+
+.schedule-time__predicted {
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* --------------------------------------------------------------------------
    Panels: stop, vehicle
    -------------------------------------------------------------------------- */
@@ -874,8 +901,13 @@ button {
 .departure__meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   font-size: 11px;
+  color: var(--text-muted);
+}
+
+.departure.is-skipped .departure__headsign {
   color: var(--text-muted);
 }
 

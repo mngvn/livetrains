@@ -45,16 +45,18 @@ export const ESRI_ATTRIBUTION =
   'Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community';
 
 /**
- * Deepest zoom with real imagery behind it.
+ * Deepest zoom with real imagery behind it, over the Twin Cities.
  *
  * Past a raster source's `maxzoom`, MapLibre stops asking for tiles and
- * stretches the last ones it has, so the number is a resolution ceiling rather
- * than a limit on how far you can zoom. Esri's World Imagery carries level 20
- * across US metros — the Twin Cities included — so capping at 19, as this did
- * at first, threw away a whole level of detail and made every close-up look
- * like an upscale, because it was one.
+ * stretches the last ones it has — which is exactly what is wanted here,
+ * because asking deeper is worse than stretching. Esri's service advertises
+ * levels to 23, but over Minneapolis and St Paul every tile past 19 is the
+ * same 2.5KB "map data not yet available" placeholder (checked from CI:
+ * identical bytes downtown, in Uptown and in St Paul). This was briefly 20,
+ * on the assumption that US metros carry level 20; here they do not, and the
+ * result was a grey placeholder wherever you zoomed in closest.
  */
-const IMAGERY_MAX_ZOOM = 20;
+const IMAGERY_MAX_ZOOM = 19;
 
 /**
  * The font stack labels are drawn in.

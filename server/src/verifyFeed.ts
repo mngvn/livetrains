@@ -61,14 +61,56 @@ async function main(): Promise<void> {
       `${best.transfers} transfer(s): ${legs}`,
   );
 
-  const realtime = service.status().realtime;
+  // Realtime. This used to log whatever the counts happened to be — before
+  // the first poll had even returned — and pass regardless, which is how a
+  // run reporting "0 vehicles, 0 trip updates, 0 alerts" could still say OK.
+  // Now it waits for a complete poll and requires every configured feed to
+  // have produced something.
+  const feeds = service.config.agency.realtime;
+  const realtime = await firstCompletePoll(service, feeds, 45_000);
   log.info(
     `verify: realtime has ${realtime.vehicles} vehicles, ` +
-      `${realtime.tripUpdates} trip updates, ${realtime.alerts} alerts`,
+      `${realtime.tripUpdates} trip updates, ${realtime.alerts} alerts` +
+      (realtime.lastError ? ` (errors: ${realtime.lastError})` : ''),
   );
 
+  const problems: string[] = [];
+  if (realtime.lastError) problems.push(realtime.lastError);
+  // Vehicles and trip updates are never legitimately empty for a metro system
+  // in service; alerts can be, so they only have to have loaded.
+  if (feeds.vehiclePositions && realtime.vehicles === 0) problems.push('the vehicle feed has no vehicles');
+  if (feeds.tripUpdates && realtime.tripUpdates === 0) problems.push('the trip update feed has no updates');
+
+  if (realtime.vehicles > 0) {
+    const withDelay = [...service.realtime.vehicles.values()].filter((v) => v.delaySeconds !== undefined).length;
+    log.info(`verify: ${withDelay} of ${realtime.vehicles} vehicles have a delay worked out`);
+  }
+
   service.stop();
+  if (problems.length > 0) throw new Error(`realtime: ${problems.join('; ')}`);
   log.info('verify: OK');
+}
+
+/**
+ * Resolves once every configured realtime feed has answered at least once —
+ * successfully or not — or when the deadline passes.
+ */
+async function firstCompletePoll(
+  service: TransitService,
+  feeds: { vehiclePositions?: string; tripUpdates?: string; alerts?: string },
+  timeoutMs: number,
+): Promise<ReturnType<TransitService['status']>['realtime']> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = service.realtime;
+    const vehiclesDone = !feeds.vehiclePositions || state.lastVehicleUpdate !== null;
+    const tripsDone = !feeds.tripUpdates || state.lastTripUpdate !== null;
+    const alertsDone = !feeds.alerts || state.lastAlertUpdate !== null;
+    if ((vehiclesDone && tripsDone && alertsDone) || state.lastError || Date.now() > deadline) {
+      return service.status().realtime;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
 }
 
 main().catch((err: unknown) => {

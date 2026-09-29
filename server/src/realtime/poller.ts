@@ -80,7 +80,7 @@ export class RealtimePoller {
       tasks.push(
         this.fetchFeed(vehiclePositions)
           .then((buf) => {
-            this.state.setVehicles(decodeVehiclePositions(buf, store));
+            this.state.setVehicles(decodeVehiclePositions(buf, store), store);
             for (const listener of this.vehicleListeners) listener();
           })
           .catch((err: unknown) => {
@@ -92,7 +92,7 @@ export class RealtimePoller {
     if (tripUpdates) {
       tasks.push(
         this.fetchFeed(tripUpdates)
-          .then((buf) => this.state.setTripUpdates(decodeTripUpdates(buf)))
+          .then((buf) => this.state.setTripUpdates(decodeTripUpdates(buf), store))
           .catch((err: unknown) => {
             errors.push(`trip updates (${describe(err)})`);
           }),

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { PlanRequest, RouteSummary, Vehicle } from '../shared/api.js';
-import { departuresForStops, groupedStopIndices, stopWithRoutes } from '../departures.js';
-import { routeSummary } from '../planner/index.js';
+import type { PlanRequest, Vehicle } from '../shared/api.js';
+import { stopWithRoutes } from '../departures.js';
+import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
@@ -57,49 +57,15 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
 
   app.get('/api/routes', async () => {
     requireReady(service);
-    const routes: RouteSummary[] = service.store.routes.map(routeSummary);
-    // Rail first, then buses by number — how riders scan a route list.
-    const modeRank: Record<string, number> = { rail: 0, metro: 0, tram: 0, ferry: 1, bus: 2 };
-    return routes.sort((a, b) => {
-      const rank = (modeRank[a.mode] ?? 3) - (modeRank[b.mode] ?? 3);
-      if (rank !== 0) return rank;
-      const numeric = Number(a.shortName) - Number(b.shortName);
-      if (!Number.isNaN(numeric) && numeric !== 0) return numeric;
-      return a.shortName.localeCompare(b.shortName, undefined, { numeric: true });
-    });
+    return sortedRoutes(service.store);
   });
 
   /** A route's stops and drawn shape, for the route detail panel. */
   app.get('/api/routes/:routeId', async (request: FastifyRequest<{ Params: { routeId: string } }>) => {
     requireReady(service);
-    const { store, patterns } = service;
-    const routeIndex = store.routeIndexById.get(request.params.routeId);
-    if (routeIndex === undefined) throw new BadRequest(`Unknown route "${request.params.routeId}"`);
-
-    const route = store.routes[routeIndex];
-    const directions = [0, 1].map((directionId) => {
-      // A route has many patterns (short turns, branches); the one with the
-      // most stops is the best single representation of the line.
-      const candidates = patterns.patterns.filter(
-        (p) => p.routeIndex === routeIndex && p.directionId === directionId,
-      );
-      if (candidates.length === 0) return null;
-      const longest = candidates.reduce((a, b) => (b.stops.length > a.stops.length ? b : a));
-      const representativeTrip = longest.trips[0];
-
-      return {
-        directionId,
-        headsign: store.tripHeadsigns[representativeTrip] || route.longName,
-        stops: [...longest.stops].map((stopIndex) => stopWithRoutes(store, stopIndex)),
-        geometry: store.tripGeometry(representativeTrip),
-      };
-    });
-
-    return {
-      route: routeSummary(route),
-      directions: directions.filter((d) => d !== null),
-      alerts: service.realtime.alertsFor([route.id], []),
-    };
+    const detail = routeDetail(service.store, service.patterns, service.realtime, request.params.routeId);
+    if (!detail) throw new BadRequest(`Unknown route "${request.params.routeId}"`);
+    return detail;
   });
 
   // ---------------------------------------------------------------------
@@ -145,26 +111,12 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
 
   app.get(
     '/api/stops/:stopId',
-    async (request: FastifyRequest<{ Params: { stopId: string }; Querystring: { limit?: string; grouped?: string } }>) => {
+    async (request: FastifyRequest<{ Params: { stopId: string }; Querystring: { limit?: string } }>) => {
       requireReady(service);
-      const { store, patterns } = service;
-      const stopIndex = store.stopIndexById.get(request.params.stopId);
-      if (stopIndex === undefined) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
-
-      const grouped = request.query.grouped !== 'false';
-      const indices = grouped ? groupedStopIndices(store, stopIndex) : [stopIndex];
       const limit = Math.min(numberParam(request.query.limit, 15), 50);
-
-      return {
-        stop: stopWithRoutes(store, stopIndex),
-        // Which GTFS stops were merged, so the UI can say "both directions".
-        groupedStopIds: indices.map((i) => store.stops[i].id),
-        departures: departuresForStops(store, patterns, service.realtime, indices, { limit }),
-        alerts: service.realtime.alertsFor(
-          store.routesAtStop[stopIndex].map((r) => store.routes[r].id),
-          indices.map((i) => store.stops[i].id),
-        ),
-      };
+      const detail = stopDetail(service.store, service.patterns, service.realtime, request.params.stopId, limit);
+      if (!detail) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
+      return detail;
     },
   );
 
@@ -178,6 +130,19 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       const all = [...service.realtime.vehicles.values()];
       const filtered = filterVehicles(all, request.query.routeId, request.query.bbox);
       return { vehicles: filtered, timestamp: service.realtime.lastVehicleUpdate };
+    },
+  );
+
+  /** A live vehicle's trip: its path, and every stop scheduled against predicted. */
+  app.get(
+    '/api/vehicles/:vehicleId/trip',
+    async (request: FastifyRequest<{ Params: { vehicleId: string } }>, reply: FastifyReply) => {
+      requireReady(service);
+      const trip = vehicleTrip(service.store, service.realtime, request.params.vehicleId, Math.floor(Date.now() / 1000));
+      // Not an error: plenty of vehicles report no trip, or one this timetable
+      // does not contain. The client shows what it has from the position alone.
+      if (!trip) return reply.status(404).send({ error: 'No trip is known for that vehicle right now.' });
+      return trip;
     },
   );
 
@@ -249,6 +214,12 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       });
     },
   );
+
+  /** Routes and stops by name, number or stop code. */
+  app.get('/api/search', async (request: FastifyRequest<{ Querystring: { q?: string; limit?: string } }>) => {
+    requireReady(service);
+    return searchTransit(service.store, request.query.q ?? '', Math.min(numberParam(request.query.limit, 12), 30));
+  });
 
   app.get(
     '/api/reverse-geocode',

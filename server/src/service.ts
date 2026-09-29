@@ -111,8 +111,8 @@ export class TransitService {
 
     const tick = () => {
       if (!this.simulator) return;
-      this.realtime.setVehicles(this.simulator.vehicles());
-      this.realtime.setTripUpdates(this.simulator.tripUpdates());
+      this.realtime.setVehicles(this.simulator.vehicles(), this.store);
+      this.realtime.setTripUpdates(this.simulator.tripUpdates(), this.store);
       for (const listener of this.mockListeners) listener();
     };
 

@@ -24,6 +24,19 @@ export interface AgencyInfo {
  */
 export type Mode = 'tram' | 'metro' | 'rail' | 'bus' | 'ferry' | 'cable' | 'funicular' | 'other';
 
+/**
+ * An operator named in the feed's agency.txt.
+ *
+ * Distinct from `AgencyInfo`, which describes the deployment — the feed this
+ * app was pointed at. One regional feed can carry many operators.
+ */
+export interface Operator {
+  id: string;
+  name: string;
+  url?: string;
+  phone?: string;
+}
+
 export interface RouteSummary {
   id: string;
   /** Short public-facing designator, e.g. "Blue", "10", "921". */
@@ -34,7 +47,15 @@ export interface RouteSummary {
   color: string;
   textColor: string;
   description?: string;
+  /** Who runs it. Absent only for feeds with no agency.txt. */
+  operator?: Operator;
 }
+
+/**
+ * Step-free access, from GTFS wheelchair_boarding / wheelchair_accessible.
+ * Omitted when the feed does not say, which is not the same as "no".
+ */
+export type Accessibility = 'accessible' | 'not-accessible';
 
 export interface StopSummary {
   id: string;
@@ -47,6 +68,18 @@ export interface StopSummary {
   distance?: number;
   /** Distinct routes serving this stop, for the stop list badges. */
   routes?: RouteSummary[];
+  wheelchair?: Accessibility;
+  /** Bay or platform letter shown on signs, e.g. "B". */
+  platformCode?: string;
+  /** Free-text location detail from the feed, e.g. "Nicollet Mall & 5th St". */
+  description?: string;
+}
+
+/** A way through a station — an elevator, a stair — from pathways.txt. */
+export interface PathwaySummary {
+  mode: 'walkway' | 'stairs' | 'moving-sidewalk' | 'escalator' | 'elevator' | 'fare-gate' | 'exit-gate';
+  description: string;
+  stairCount?: number;
 }
 
 /** One upcoming departure from a stop. */
@@ -69,6 +102,10 @@ export interface Departure {
   isRealtime: boolean;
   /** Live vehicle serving this trip, when we can match one. */
   vehicleId?: string;
+  /** The feed says this trip will not stop here after all. */
+  skipped?: boolean;
+  /** Whether this particular trip is run with an accessible vehicle. */
+  wheelchair?: Accessibility;
 }
 
 /** A vehicle's current position, as broadcast on the SSE stream. */
@@ -89,22 +126,60 @@ export interface Vehicle {
   directionId?: number;
   /** Unix seconds when the vehicle reported this position. */
   timestamp: number;
+  /**
+   * Seconds behind (positive) or ahead of (negative) the timetable, at the
+   * stop the vehicle is at or heading for. Absent when there is no prediction
+   * for its trip — which is not the same as being on time.
+   */
   delaySeconds?: number;
+  /** The stop the vehicle is at or approaching, when the feed says. */
+  stopId?: string;
+  /** Whether it is at `stopId`, about to reach it, or between stops. */
+  currentStatus?: 'incoming' | 'stopped' | 'in-transit';
   occupancy?: string;
+  /**
+   * Whether the trip it is running is scheduled with an accessible vehicle.
+   * (Who operates it lives on the trip detail, `VehicleTrip.route.operator`,
+   * rather than here: this object is broadcast for every vehicle on every
+   * poll, and only the selected one needs it.)
+   */
+  wheelchair?: Accessibility;
+}
+
+/**
+ * One thing an alert is about, as the feed stated it.
+ *
+ * Kept whole rather than flattened, because the combinations carry meaning:
+ * {route 156, stop 53316} is "this stop is closed for the 156", which is news
+ * at that stop — not, as a flattened list of routes and stops would have it,
+ * at every stop the 156 serves.
+ */
+export interface InformedEntity {
+  agencyId?: string;
+  routeId?: string;
+  stopId?: string;
+  tripId?: string;
 }
 
 export interface ServiceAlert {
   id: string;
   header: string;
   description: string;
+  /** GTFS-RT Cause enum name, e.g. "CONSTRUCTION". */
   cause?: string;
+  /** GTFS-RT Effect enum name, e.g. "NO_SERVICE", "DETOUR", "ACCESSIBILITY_ISSUE". */
   effect?: string;
   url?: string;
-  /** Route ids this alert applies to. Empty means agency-wide. */
+  /** Every route mentioned, for badges. Empty for agency-wide alerts. */
   routeIds: string[];
+  /** Every stop mentioned. */
   stopIds: string[];
+  informed: InformedEntity[];
+  /** First active period, kept for simple display. */
   activeFrom?: number;
   activeUntil?: number;
+  /** Every active period; an alert can recur, e.g. nightly closures. */
+  periods: { start?: number; end?: number }[];
 }
 
 /** A geocoded place the rider can plan to or from. */
@@ -191,6 +266,60 @@ export interface PlanResponse {
   /** Populated when no itinerary was found, explaining why. */
   message?: string;
 }
+
+/** Everything the stop sidebar shows. */
+export interface StopDetail {
+  stop: StopSummary;
+  /** Which GTFS stops were merged — both sides of the street, every platform. */
+  groupedStopIds: string[];
+  departures: Departure[];
+  alerts: ServiceAlert[];
+  /** Every route calling at any of the grouped stops. */
+  routes: RouteSummary[];
+  /** For a stop inside a station: the station, and its ways in and out. */
+  station?: { id: string; name: string; pathways: PathwaySummary[] };
+}
+
+export interface RouteDetail {
+  route: RouteSummary;
+  directions: {
+    directionId: number;
+    headsign: string;
+    stops: StopSummary[];
+    geometry: [number, number][];
+  }[];
+  alerts: ServiceAlert[];
+}
+
+/** One stop along a vehicle's current trip. */
+export interface TripStop {
+  stop: StopSummary;
+  /** Unix seconds, from the timetable. */
+  scheduledTime: number;
+  /** Unix seconds, from the realtime feed when it has a prediction. */
+  predictedTime: number | null;
+  delaySeconds: number | null;
+  skipped: boolean;
+}
+
+/** A vehicle's whole trip: where it has been, where it is going, and when. */
+export interface VehicleTrip {
+  vehicleId: string;
+  tripId: string;
+  route: RouteSummary;
+  headsign: string;
+  /** The trip's drawn path, from shapes.txt when the feed has one. */
+  geometry: [number, number][];
+  stops: TripStop[];
+  /** Index into `stops` of the stop the vehicle is at or heading for. */
+  nextStopIndex: number;
+  alerts: ServiceAlert[];
+}
+
+/** One result from searching routes and stops by name or number. */
+export type TransitSearchResult =
+  | { kind: 'route'; route: RouteSummary }
+  | { kind: 'stop'; stop: StopSummary };
 
 export interface FeedStatus {
   agency: AgencyInfo;
