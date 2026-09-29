@@ -5,6 +5,16 @@ import type { ServiceAlert } from './api.ts';
 const REFRESH_MS = 60_000;
 
 /**
+ * How soon to look again while the list is still empty.
+ *
+ * The engine reports ready once the timetable is loaded, which is usually a
+ * moment before the first realtime poll lands. Waiting a full minute after
+ * that first empty answer would leave the alerts tab blank for no reason.
+ */
+const EMPTY_RETRY_MS = 4_000;
+const EMPTY_RETRIES = 8;
+
+/**
  * Every service alert the agency is publishing, kept fresh.
  *
  * Held at the top of the app because several places need the same list: the
@@ -22,10 +32,18 @@ export function useAlerts(
     if (!enabled) return;
     let cancelled = false;
     const controller = new AbortController();
+    let retries = 0;
+    let retryTimer: number | undefined;
     const refresh = () => {
       load(controller.signal)
         .then((result) => {
-          if (!cancelled) setAlerts(result.alerts);
+          if (cancelled) return;
+          setAlerts(result.alerts);
+          if (result.alerts.length === 0 && retries < EMPTY_RETRIES) {
+            retries += 1;
+            window.clearTimeout(retryTimer);
+            retryTimer = window.setTimeout(refresh, EMPTY_RETRY_MS);
+          }
         })
         // Keep showing the last good list; alerts going briefly stale is far
         // better than them vanishing because one request failed.
@@ -37,6 +55,7 @@ export function useAlerts(
       cancelled = true;
       controller.abort();
       window.clearInterval(timer);
+      window.clearTimeout(retryTimer);
     };
   }, [load, enabled]);
 

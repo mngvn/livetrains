@@ -40,7 +40,7 @@ import type { BasemapId } from './components/basemaps.ts';
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
 const TAB_LABELS: Record<Tab, string> = {
-  plan: 'Plan a trip',
+  plan: 'Plan',
   nearby: 'Nearby',
   routes: 'Routes',
   alerts: 'Alerts',

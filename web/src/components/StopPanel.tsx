@@ -191,7 +191,7 @@ export function StopPanel({
           <h3 className="panel-section__title">Getting to the platform</h3>
           {accessAlerts.length > 0 && (
             <p className="stop-panel__access-warning" role="status">
-              {accessAlerts[0].header}
+              Step-free access is affected here — see the alert above.
             </p>
           )}
           <ul className="pathways">

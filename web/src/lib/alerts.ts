@@ -37,14 +37,18 @@ const EFFECTS: Record<string, EffectMeta> = {
 const FALLBACK: EffectMeta = { label: 'Notice', tone: 'info', rank: 9 };
 
 export function effectMeta(alert: ServiceAlert): EffectMeta {
-  return (alert.effect && EFFECTS[alert.effect]) || FALLBACK;
+  const meta = (alert.effect && EFFECTS[alert.effect]) || FALLBACK;
+  // An elevator outage filed as a generic notice is still, for someone who
+  // cannot use stairs, the difference between a station and no station.
+  if (meta.tone === 'info' && isAccessibilityAlert(alert)) return EFFECTS.ACCESSIBILITY_ISSUE;
+  return meta;
 }
 
 /** True for alerts about lifts, ramps and step-free access. */
 export function isAccessibilityAlert(alert: ServiceAlert): boolean {
   if (alert.effect === 'ACCESSIBILITY_ISSUE') return true;
   // Plenty of producers file an elevator outage under a generic effect.
-  return /\b(elevators?|lifts?|escalators?|ramps?)\b/i.test(alert.header);
+  return /\b(elevators?|lifts?|ramps?)\b/i.test(alert.header);
 }
 
 /**

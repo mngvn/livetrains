@@ -77,22 +77,40 @@ function encodeTripUpdates(simulator: MockSimulator, now: number): Buffer {
   return Buffer.from(rt.FeedMessage.encode(message).finish());
 }
 
-function encodeAlerts(simulator: MockSimulator): Buffer {
+export function encodeAlerts(simulator: MockSimulator): Buffer {
   const message = rt.FeedMessage.create({
     header: { gtfsRealtimeVersion: '2.0', timestamp: Math.floor(Date.now() / 1000) },
     entity: simulator.alerts().map((alert) => ({
       id: alert.id,
       alert: {
-        informedEntity: [
-          ...alert.routeIds.map((routeId) => ({ routeId })),
-          ...alert.stopIds.map((stopId) => ({ stopId })),
-        ],
+        // The informed entities exactly as the simulator scoped them, so a
+        // stop-level closure stays stop-level and an agency-wide notice stays
+        // agency-wide after the round trip.
+        informedEntity: alert.informed.map((entity) => ({
+          ...(entity.agencyId ? { agencyId: entity.agencyId } : {}),
+          ...(entity.routeId ? { routeId: entity.routeId } : {}),
+          ...(entity.stopId ? { stopId: entity.stopId } : {}),
+          ...(entity.tripId ? { trip: { tripId: entity.tripId } } : {}),
+        })),
+        activePeriod: alert.periods.map((period) => ({
+          ...(period.start !== undefined ? { start: period.start } : {}),
+          ...(period.end !== undefined ? { end: period.end } : {}),
+        })),
+        ...(alert.cause ? { cause: enumValue(rt.Alert.Cause, alert.cause) } : {}),
+        ...(alert.effect ? { effect: enumValue(rt.Alert.Effect, alert.effect) } : {}),
         headerText: { translation: [{ text: alert.header, language: 'en' }] },
         descriptionText: { translation: [{ text: alert.description, language: 'en' }] },
+        ...(alert.url ? { url: { translation: [{ text: alert.url, language: 'en' }] } } : {}),
       },
     })),
   });
   return Buffer.from(rt.FeedMessage.encode(message).finish());
+}
+
+/** An enum member's wire value from its name, e.g. "DETOUR" → 4. */
+function enumValue(values: object, name: string): number | undefined {
+  const value = (values as Record<string, unknown>)[name];
+  return typeof value === 'number' ? value : undefined;
 }
 
 // Allow running directly: `tsx src/mock/fixtures.ts <outDir>`
