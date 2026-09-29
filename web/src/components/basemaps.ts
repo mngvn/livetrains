@@ -65,7 +65,7 @@ const IMAGERY_MAX_ZOOM = 19;
  * server cannot supply means no labels rather than a broken map, so the
  * imagery and the transit data are never at risk from this line.
  */
-const LABEL_FONT = ['Noto Sans Regular'];
+export const LABEL_FONT = ['Noto Sans Regular'];
 
 /**
  * The tile size to *declare* for the imagery, which is not its actual size.

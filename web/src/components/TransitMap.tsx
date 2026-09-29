@@ -5,7 +5,7 @@ import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { RouteNetwork } from '../lib/api.ts';
 import { MODE_TO_ICON, registerVehicleIcons } from './mapIcons.ts';
-import { BASEMAPS, FALLBACK_STYLE, VECTOR_SOURCE_ID, type BasemapId } from './basemaps.ts';
+import { BASEMAPS, FALLBACK_STYLE, LABEL_FONT, VECTOR_SOURCE_ID, type BasemapId } from './basemaps.ts';
 import type { JourneyPlayback } from '../lib/journeyPlayback.ts';
 import { trailAt } from '../lib/journey.ts';
 
@@ -37,6 +37,8 @@ interface Props {
   onViewportChange: (bbox: [number, number, number, number]) => void;
   /** Whether vehicles throw their colour beams. */
   showBeams: boolean;
+  /** Whether vehicles gather into counted groups when zoomed out. */
+  groupVehicles: boolean;
   /** Which background the map wears. */
   basemap: BasemapId;
   /** Tilt the camera and extrude buildings. */
@@ -90,6 +92,35 @@ const BUILDINGS_LAYER = 'buildings-3d';
 /** A vehicle id no feed can produce, so the selection filter matches nothing. */
 const NO_SELECTION = '\u0000no-selection';
 
+/**
+ * Below this zoom, vehicles are drawn in counted groups rather than one by one.
+ *
+ * At metro scale seven hundred markers pile into a few smears along the
+ * busiest corridors, and neither the count nor any single vehicle can be
+ * read. Past this zoom a neighbourhood fills the screen and every vehicle has
+ * room to be itself.
+ *
+ * A whole zoom level on purpose: MapLibre builds its hit-testing data per
+ * integer tile zoom, so a fractional threshold leaves a band where the hidden
+ * per-vehicle hit targets still answer clicks meant for a group.
+ */
+const GROUP_BELOW_ZOOM = 12;
+
+/**
+ * How often the grouped view is recomputed.
+ *
+ * Grouping re-indexes every vehicle, which is fine once a second and wasteful
+ * sixty times a second — and at the zooms where groups are shown, a second's
+ * travel is well under a pixel.
+ */
+const GROUP_REFRESH_MS = 1_000;
+
+/** The per-vehicle layers that give way to groups when zoomed out. */
+const INDIVIDUAL_VEHICLE_LAYERS = ['vehicles-heading', 'vehicles-dot', 'vehicles-hit'];
+
+/** The grouped view's layers. */
+const GROUP_LAYERS = ['vehicle-groups-circle', 'vehicle-groups-count', 'vehicle-groups-heading', 'vehicle-groups-dot'];
+
 export function TransitMap({
   agency,
   tracker,
@@ -105,6 +136,7 @@ export function TransitMap({
   onMapClick,
   onViewportChange,
   showBeams,
+  groupVehicles,
   basemap,
   three,
   playback,
@@ -139,6 +171,9 @@ export function TransitMap({
    */
   const beamsWanted = useRef(showBeams);
   beamsWanted.current = showBeams;
+  /** Read from the frame loop and the rebuild, which never see later props. */
+  const groupWanted = useRef(groupVehicles);
+  groupWanted.current = groupVehicles;
   /** The view mode at construction, so the first frame is already right. */
   const initial = useRef({ basemap, three });
   /** Read from the map's own listeners, which never see later props. */
@@ -215,6 +250,7 @@ export function TransitMap({
       try {
         registerVehicleIcons(instance);
         if (ensureLayers(instance, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+        syncGrouping(instance, groupWanted.current);
         syncBuildings(instance, threeWanted.current);
       } catch (err) {
         // The style was not as ready as it looked; `styledata` fires again.
@@ -252,7 +288,13 @@ export function TransitMap({
 
     // --- Interaction ---
     const pickFeature = (event: maplibregl.MapMouseEvent): MapGeoJSONFeature | null => {
-      const layers = ['vehicles-hit', 'stops-circle', 'itinerary-stops'].filter((id) => instance.getLayer(id));
+      const layers = [
+        'vehicles-hit',
+        'vehicle-groups-circle',
+        'vehicle-groups-dot',
+        'stops-circle',
+        'itinerary-stops',
+      ].filter((id) => instance.getLayer(id));
       if (layers.length === 0) return null;
       const hits = instance.queryRenderedFeatures(event.point, { layers });
       return hits[0] ?? null;
@@ -265,7 +307,17 @@ export function TransitMap({
         handlers.current.onMapClick(event.lngLat.lat, event.lngLat.lng);
         return;
       }
-      if (feature.layer.id === 'vehicles-hit') {
+      const layer = feature.layer.id;
+      if (layer === 'vehicle-groups-circle') {
+        // Open the group up: zoom to where it first splits apart.
+        const source = instance.getSource('vehicle-groups') as maplibregl.GeoJSONSource | undefined;
+        const clusterId = Number(feature.properties?.cluster_id);
+        const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        source
+          ?.getClusterExpansionZoom(clusterId)
+          .then((zoom) => instance.easeTo({ center, zoom: Math.max(zoom, instance.getZoom() + 1), duration: 500 }))
+          .catch(() => instance.easeTo({ center, zoom: instance.getZoom() + 2, duration: 500 }));
+      } else if (layer === 'vehicles-hit' || layer === 'vehicle-groups-dot') {
         handlers.current.onSelectVehicle(String(feature.properties?.id ?? ''));
       } else {
         handlers.current.onSelectStop(String(feature.properties?.id ?? ''));
@@ -285,41 +337,57 @@ export function TransitMap({
   }, [agency.bbox, agency.name]);
 
   // --- Live vehicles, updated per animation frame ---------------------------
-  useEffect(
-    () =>
-      tracker.onFrame((vehicles: TrackedVehicle[]) => {
-        if (!ready.current || !map.current) return;
-        setData('vehicles', {
-          type: 'FeatureCollection',
-          features: vehicles.map((v) => ({
-            type: 'Feature' as const,
-            geometry: { type: 'Point' as const, coordinates: [v.displayLon, v.displayLat] },
-            properties: {
-              id: v.id,
-              color: `#${v.color}`,
-              label: v.routeShortName ?? '',
-              bearing: v.displayBearing,
-              mode: v.mode,
-              // Only draw a heading arrow when the feed actually reported one;
-              // an arrow pointing north on a vehicle of unknown heading is a
-              // confident lie.
-              hasHeading: v.bearing !== undefined,
-            },
-          })),
-        });
-      }),
-    [tracker, setData],
-  );
+  useEffect(() => {
+    let lastGrouped = 0;
+    return tracker.onFrame((vehicles: TrackedVehicle[]) => {
+      const instance = map.current;
+      if (!ready.current || !instance) return;
+      const collection: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: vehicles.map((v) => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [v.displayLon, v.displayLat] },
+          properties: {
+            id: v.id,
+            color: `#${v.color}`,
+            label: v.routeShortName ?? '',
+            bearing: v.displayBearing,
+            mode: v.mode,
+            // Only draw a heading arrow when the feed actually reported one;
+            // an arrow pointing north on a vehicle of unknown heading is a
+            // confident lie.
+            hasHeading: v.bearing !== undefined,
+          },
+        })),
+      };
+      setData('vehicles', collection);
+
+      // The grouped view only while it can be seen. Zooming back out finds
+      // `lastGrouped` long past, so the groups are fresh on the very next frame.
+      const now = performance.now();
+      if (groupWanted.current && instance.getZoom() < GROUP_BELOW_ZOOM && now - lastGrouped >= GROUP_REFRESH_MS) {
+        lastGrouped = now;
+        setData('vehicle-groups', collection);
+      }
+    });
+  }, [tracker, setData]);
 
   // --- Selection highlight --------------------------------------------------
   useEffect(() => {
     if (!ready.current || !map.current) return;
-    map.current.setFilter('vehicles-selected', [
-      '==',
-      ['get', 'id'],
-      selectedVehicleId ?? NO_SELECTION,
-    ]);
+    const filter: maplibregl.FilterSpecification = ['==', ['get', 'id'], selectedVehicleId ?? NO_SELECTION];
+    map.current.setFilter('vehicles-selected', filter);
+    // The chosen vehicle is drawn on its own as well, so it stays visible even
+    // when zoomed out far enough that it would otherwise sit inside a group.
+    map.current.setFilter('vehicles-selected-dot', filter);
   }, [selectedVehicleId, styleEpoch]);
+
+  // --- Grouping on or off ---------------------------------------------------
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready.current || !instance) return;
+    syncGrouping(instance, groupVehicles);
+  }, [groupVehicles, styleEpoch]);
 
   // --- The animated journey -------------------------------------------------
   // Driven straight from the playback clock rather than through React: the
@@ -634,6 +702,12 @@ const FOCUS_DIMMING: { layer: string; property: string; value: number }[] = [
   { layer: 'vehicles-heading', property: 'icon-opacity', value: 0.1 },
   { layer: 'vehicles-dot', property: 'icon-opacity', value: 0.16 },
   { layer: 'vehicles-label', property: 'text-opacity', value: 0 },
+  { layer: 'vehicles-selected-dot', property: 'icon-opacity', value: 0.16 },
+  { layer: 'vehicle-groups-circle', property: 'circle-opacity', value: 0.12 },
+  { layer: 'vehicle-groups-circle', property: 'circle-stroke-opacity', value: 0.12 },
+  { layer: 'vehicle-groups-count', property: 'text-opacity', value: 0.15 },
+  { layer: 'vehicle-groups-heading', property: 'icon-opacity', value: 0.1 },
+  { layer: 'vehicle-groups-dot', property: 'icon-opacity', value: 0.16 },
 ];
 
 /** The scrim that pushes the basemap back behind the journey. */
@@ -683,6 +757,23 @@ function applyFocus(map: maplibregl.Map, showBeams: boolean): () => void {
     }
     if (map.getLayer(FOCUS_SCRIM)) map.removeLayer(FOCUS_SCRIM);
   };
+}
+
+/**
+ * Switches between grouped and individual vehicles at low zoom.
+ *
+ * Grouped: the live per-vehicle layers only start at GROUP_BELOW_ZOOM and the
+ * group layers cover everything beneath it. Ungrouped: the live layers run at
+ * every zoom and the group layers are hidden. The selected vehicle's own layer
+ * is untouched either way.
+ */
+function syncGrouping(map: maplibregl.Map, group: boolean): void {
+  for (const id of INDIVIDUAL_VEHICLE_LAYERS) {
+    if (map.getLayer(id)) map.setLayerZoomRange(id, group ? GROUP_BELOW_ZOOM : 0, 24);
+  }
+  for (const id of GROUP_LAYERS) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', group ? 'visible' : 'none');
+  }
 }
 
 /**
@@ -761,6 +852,24 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
+  }
+  if (!map.getSource('vehicle-groups')) {
+    map.addSource('vehicle-groups', {
+      type: 'geojson',
+      data: EMPTY,
+      cluster: true,
+      clusterRadius: 42,
+      // Groups keep forming right up to the zoom at which the live layers
+      // take over, rather than leaving a band of once-a-second single dots.
+      clusterMaxZoom: GROUP_BELOW_ZOOM - 1,
+      // Two vehicles side by side are still readable as two.
+      clusterMinPoints: 3,
+      // Enough to tint a group by what it is mostly made of.
+      // Every mode the map draws as a train, matching MODE_TO_ICON.
+      clusterProperties: {
+        rail: ['+', ['case', ['in', ['get', 'mode'], ['literal', ['rail', 'tram', 'metro', 'funicular', 'cable']]], 1, 0]],
+      },
+    });
   }
 
   // --- The whole route network, underneath everything ---
@@ -910,6 +1019,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     minzoom: 14.5,
     layout: {
       'text-field': ['get', 'name'],
+      'text-font': LABEL_FONT,
       'text-size': 11,
       'text-offset': [0, 1.1],
       'text-anchor': 'top',
@@ -994,6 +1104,77 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     },
   });
 
+  // --- Grouped vehicles, when zoomed out ---
+  // A disc per group with its count, and each vehicle not in a group drawn
+  // exactly as the live layer draws it. Hidden entirely above GROUP_BELOW_ZOOM,
+  // where the live per-frame layers take over.
+  map.addLayer({
+    id: 'vehicle-groups-circle',
+    type: 'circle',
+    source: 'vehicle-groups',
+    maxzoom: GROUP_BELOW_ZOOM,
+    filter: ['has', 'point_count'],
+    paint: {
+      // Mostly trains reads deep blue, mostly buses slate: enough to tell a
+      // light-rail platform from a bus garage at a glance.
+      'circle-color': [
+        'case',
+        ['>', ['/', ['get', 'rail'], ['get', 'point_count']], 0.5],
+        '#1e3a8a',
+        '#334155',
+      ],
+      'circle-opacity': 0.9,
+      'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 25, 18, 60, 22, 150, 27],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2,
+    },
+  });
+  map.addLayer({
+    id: 'vehicle-groups-count',
+    type: 'symbol',
+    source: 'vehicle-groups',
+    maxzoom: GROUP_BELOW_ZOOM,
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'],
+      'text-font': LABEL_FONT,
+      'text-size': 11.5,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: { 'text-color': '#ffffff' },
+  });
+  map.addLayer({
+    id: 'vehicle-groups-heading',
+    type: 'symbol',
+    source: 'vehicle-groups',
+    maxzoom: GROUP_BELOW_ZOOM,
+    filter: ['all', ['!', ['has', 'point_count']], ['get', 'hasHeading']],
+    layout: {
+      'icon-image': 'vehicle-heading',
+      'icon-rotate': ['get', 'bearing'],
+      'icon-rotation-alignment': 'map',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.55, 13, 0.9],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.6 },
+  });
+  map.addLayer({
+    id: 'vehicle-groups-dot',
+    type: 'symbol',
+    source: 'vehicle-groups',
+    maxzoom: GROUP_BELOW_ZOOM,
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      'icon-image': MODE_TO_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.45, 13, 0.75],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.4 },
+  });
+
   // Selection halo, beneath the marker it belongs to.
   map.addLayer({
     id: 'vehicles-selected',
@@ -1049,6 +1230,21 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     },
   });
 
+  // The selected vehicle, drawn again on its own so grouping never hides it.
+  map.addLayer({
+    id: 'vehicles-selected-dot',
+    type: 'symbol',
+    source: 'vehicles',
+    filter: ['==', ['get', 'id'], NO_SELECTION],
+    layout: {
+      'icon-image': MODE_TO_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 13, 0.85, 16, 1.05],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.6 },
+  });
+
   // Route number, once the marker is big enough to hold it.
   map.addLayer({
     id: 'vehicles-label',
@@ -1057,6 +1253,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     minzoom: 13,
     layout: {
       'text-field': ['get', 'label'],
+      'text-font': LABEL_FONT,
       'text-size': 10,
       'text-allow-overlap': true,
       'text-ignore-placement': true,

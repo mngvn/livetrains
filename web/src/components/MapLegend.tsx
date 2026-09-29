@@ -20,9 +20,11 @@ interface Props {
   routes: RouteSummary[];
   beams: boolean;
   onToggleBeams: () => void;
+  grouped: boolean;
+  onToggleGrouped: () => void;
 }
 
-export function MapLegend({ routes, beams, onToggleBeams }: Props) {
+export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -87,6 +89,23 @@ export function MapLegend({ routes, beams, onToggleBeams }: Props) {
                   aria-checked={beams}
                   aria-label="Show vehicle beams"
                   onClick={onToggleBeams}
+                >
+                  <span className="legend__switch-knob" aria-hidden="true" />
+                </button>
+              </li>
+              <li className={`legend__item${grouped ? '' : ' is-off'}`}>
+                <Swatch kind="group" />
+                <span>
+                  Group
+                  <em>{grouped ? 'vehicles counted when zoomed out' : 'every vehicle shown'}</em>
+                </span>
+                <button
+                  type="button"
+                  className="legend__switch"
+                  role="switch"
+                  aria-checked={grouped}
+                  aria-label="Group vehicles when zoomed out"
+                  onClick={onToggleGrouped}
                 >
                   <span className="legend__switch-knob" aria-hidden="true" />
                 </button>
@@ -187,6 +206,7 @@ function Swatch({
     | 'bus'
     | 'heading'
     | 'beam'
+    | 'group'
     | 'network'
     | 'stop'
     | 'ride'
@@ -229,6 +249,15 @@ function Swatch({
           {/* The shaft tapers rather than fading, which is what the map does. */}
           <path d="M10.4 13 L11.7 1.5 L12.3 1.5 L13.6 13 Z" fill="#0b5fa5" opacity="0.45" />
           <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
+        </svg>
+      );
+    case 'group':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <circle cx="12" cy="8" r="6.8" fill="#334155" opacity="0.9" stroke="#ffffff" strokeWidth="1.4" />
+          <text x="12" y="10.6" textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#ffffff">
+            12
+          </text>
         </svg>
       );
     case 'network':

@@ -137,6 +137,14 @@ export function App() {
   const [beamsVisible, toggleBeams] = usePersistedFlag('livetrains.beams', true);
 
   /**
+   * Whether vehicles gather into counted groups at metro zoom.
+   *
+   * On by default: seven hundred markers at city scale are unreadable. Off
+   * for anyone who would rather see every dot and let the beams do the work.
+   */
+  const [groupVehicles, toggleGroupVehicles] = usePersistedFlag('livetrains.group', true);
+
+  /**
    * How the map looks: which background, and whether it is tilted.
    *
    * Remembered for the same reason the other view preferences are — someone
@@ -568,6 +576,7 @@ export function App() {
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
         showBeams={beamsVisible}
+        groupVehicles={groupVehicles}
         basemap={basemap}
         three={three}
         playback={playback}
@@ -591,7 +600,13 @@ export function App() {
         }}
       />
 
-      <MapLegend routes={routes} beams={beamsVisible} onToggleBeams={toggleBeams} />
+      <MapLegend
+        routes={routes}
+        beams={beamsVisible}
+        onToggleBeams={toggleBeams}
+        grouped={groupVehicles}
+        onToggleGrouped={toggleGroupVehicles}
+      />
 
       {panelHidden && (
         <button
