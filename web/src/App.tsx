@@ -39,6 +39,10 @@ import type { BasemapId } from './components/basemaps.ts';
 import { useTheme } from './lib/theme.ts';
 import { hasSharedState, readSharedState, shareUrl, writeSharedState } from './lib/shareLink.ts';
 import { ShareButton } from './components/ShareButton.tsx';
+import { useReliability, useReliabilityRecorder, useSavedTrips, type SavedTrip } from './lib/savedTrips.ts';
+import { useLeaveReminder } from './lib/leaveReminder.ts';
+import { SavedTrips } from './components/SavedTrips.tsx';
+import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -510,6 +514,35 @@ export function App() {
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
 
+  // --- Saved trips, their history, and when to leave ------------------------
+  const saved = useSavedTrips();
+  const reliabilityVersion = useReliabilityRecorder(source.stop, saved.trips, engine.state === 'ready');
+  const reliability = useReliability(saved.trips, reliabilityVersion);
+  const savedCurrent = saved.find(origin, destination);
+  const leave = useLeaveReminder(chosen, source.stop, now);
+
+  const openSavedTrip = useCallback(
+    (trip: SavedTrip) => {
+      // "From where I am" is re-read every time, not frozen where it was saved.
+      if (trip.from.kind === 'current-location') useCurrentLocation('origin');
+      else setOrigin(trip.from);
+      setDestination(trip.to);
+      setTab('plan');
+    },
+    [useCurrentLocation],
+  );
+
+  // Say it in the tab title too: a reminder is most useful when the rider is
+  // looking at some other tab.
+  useEffect(() => {
+    if (!leave.fired) return;
+    const previous = document.title;
+    document.title = '⏰ Time to leave · livetrains';
+    return () => {
+      document.title = previous;
+    };
+  }, [leave.fired]);
+
   // --- Shared links ---------------------------------------------------------
   /** What the page was opened with, read once. */
   const shared = useMemo(() => readSharedState(window.location.search), []);
@@ -635,6 +668,17 @@ export function App() {
         vehicleTrip={selectedVehicleId ? vehicleTrip : null}
         vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
         cameraTarget={cameraTarget}
+      />
+
+      <LeaveBanner
+        state={leave}
+        onShowTrip={() => {
+          leave.dismiss();
+          setSelectedStopId(null);
+          setSelectedVehicleId(null);
+          setTab('plan');
+          if (panelHidden) togglePanel();
+        }}
       />
 
       {playingJourney && (
@@ -839,11 +883,29 @@ export function App() {
 
                       {chosen && (
                         <>
+                          <LeaveNudge state={leave} now={now} />
                           <div className="plan-actions">
                             <button type="button" className="journey-start" onClick={startJourney}>
                               <span aria-hidden="true">▶</span>
                               Watch this trip
                             </button>
+                            {origin && destination && (
+                              <button
+                                type="button"
+                                className={`chip${savedCurrent ? ' chip--primary' : ''}`}
+                                aria-pressed={Boolean(savedCurrent)}
+                                title={
+                                  savedCurrent
+                                    ? 'Saved on this device. Tap to forget it.'
+                                    : 'Keep this trip, and track how its buses and trains run'
+                                }
+                                onClick={() =>
+                                  savedCurrent ? saved.remove(savedCurrent.id) : saved.save(origin, destination, chosen)
+                                }
+                              >
+                                <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
+                              </button>
+                            )}
                             {origin && destination && (
                               <ShareButton
                                 url={shareUrl({ from: origin, to: destination })}
@@ -865,6 +927,15 @@ export function App() {
                         </>
                       )}
                     </>
+                  )}
+
+                  {!origin && !destination && !planning && (
+                    <SavedTrips
+                      trips={saved.trips}
+                      summaries={reliability}
+                      onOpen={openSavedTrip}
+                      onRemove={saved.remove}
+                    />
                   )}
 
                   {!origin && !destination && !planning && (
