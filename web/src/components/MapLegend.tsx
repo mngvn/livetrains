@@ -73,6 +73,13 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                   <em>arrow leads the vehicle</em>
                 </span>
               </li>
+              <li className="legend__item">
+                <Swatch kind="trail" />
+                <span>
+                  Trail
+                  <em>where a chosen vehicle has been, last 20 min</em>
+                </span>
+              </li>
               {/* The one legend row that does something. The legend is where
                   you come to ask what the beams are, so it is also the most
                   obvious place to turn them off once you know. */}
@@ -205,6 +212,7 @@ function Swatch({
     | 'rail'
     | 'bus'
     | 'heading'
+    | 'trail'
     | 'beam'
     | 'group'
     | 'network'
@@ -241,6 +249,19 @@ function Swatch({
             strokeWidth="1"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case 'trail':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <defs>
+            <linearGradient id="legend-trail" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" stopColor="#0b5fa5" stopOpacity="0" />
+              <stop offset="1" stopColor="#0b5fa5" stopOpacity="0.95" />
+            </linearGradient>
+          </defs>
+          <path d="M1 12 C 6 12, 8 5, 14 6 S 18 8, 19 8" stroke="url(#legend-trail)" strokeWidth="3" fill="none" strokeLinecap="round" />
+          <circle cx="19.5" cy="8" r="3.2" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
         </svg>
       );
     case 'beam':

@@ -31,6 +31,21 @@ export interface TrackedVehicle extends Vehicle {
 /** A position older than this is not live any more. */
 export const STALE_AFTER_SECONDS = 180;
 
+/**
+ * How much of each vehicle's recent path is kept, for the trail drawn behind
+ * a selected one. Twenty minutes is a few stops on a bus and most of a
+ * light-rail run through downtown — enough to see whether it has been
+ * crawling — and at one point per feed update it is a few kilobytes a vehicle.
+ */
+export const TRAIL_SECONDS = 20 * 60;
+
+interface TrailPoint {
+  lat: number;
+  lon: number;
+  /** The vehicle's own report time, Unix seconds. */
+  t: number;
+}
+
 interface Track {
   vehicle: Vehicle;
   fromLat: number;
@@ -42,6 +57,8 @@ interface Track {
   lastSeen: number;
   /** Restored from an earlier visit rather than received this session. */
   restored?: boolean;
+  /** Reported positions over the last TRAIL_SECONDS, oldest first. */
+  trail: TrailPoint[];
 }
 
 /**
@@ -68,6 +85,19 @@ export interface StreamStatus {
   /** Feed timestamp of the most recent message, in epoch seconds. */
   lastUpdate: number | null;
   error: string | null;
+}
+
+/**
+ * Adds a new report to a trail, skipping repeats of the same report, and lets
+ * go of anything older than the trail's span.
+ */
+function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
+  const last = trail[trail.length - 1];
+  const next = last && last.t >= vehicle.timestamp ? trail : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }];
+  const cutoff = vehicle.timestamp - TRAIL_SECONDS;
+  let start = 0;
+  while (start < next.length - 1 && next[start].t < cutoff) start++;
+  return start > 0 ? next.slice(start) : next;
 }
 
 /** Smoothstep easing; vehicles ease in and out rather than moving linearly. */
@@ -187,6 +217,23 @@ export class VehicleTracker {
     return this.tracks.get(id)?.vehicle;
   }
 
+  /**
+   * Where a vehicle has been over the last twenty minutes, oldest first, as
+   * [lon, lat] — ending at where it is drawn right now, so the trail stays
+   * attached to the marker while it glides between reports.
+   */
+  trail(id: string): [number, number][] {
+    const track = this.tracks.get(id);
+    if (!track) return [];
+    const points: [number, number][] = track.trail.map((p) => [p.lon, p.lat]);
+    const here = this.positionAt(track, performance.now());
+    // The glide runs from the previous report towards the newest, so the
+    // newest is still ahead of the marker: end the trail at the marker.
+    if (points.length > 0 && track.durationMs > 0 && performance.now() - track.startedAt < track.durationMs) points.pop();
+    points.push([here.lon, here.lat]);
+    return points;
+  }
+
   /** Every vehicle's last reported position, for saving. */
   snapshot(): Vehicle[] {
     return [...this.tracks.values()].filter((t) => !t.restored).map((t) => t.vehicle);
@@ -211,6 +258,7 @@ export class VehicleTracker {
         durationMs: 0,
         lastSeen: now,
         restored: true,
+        trail: [],
       });
     }
     this.setStatus({ vehicleCount: this.status.vehicleCount || vehicles.length });
@@ -292,6 +340,7 @@ export class VehicleTracker {
           startedAt: now,
           durationMs: 0,
           lastSeen: now,
+          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }],
         });
         continue;
       }
@@ -305,6 +354,7 @@ export class VehicleTracker {
         startedAt: now,
         durationMs: this.animationMs,
         lastSeen: now,
+        trail: extendTrail(existing.trail, vehicle),
       });
     }
 

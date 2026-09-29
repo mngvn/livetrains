@@ -129,6 +129,15 @@ const GROUP_REFRESH_MS = 1_000;
 const INDIVIDUAL_VEHICLE_LAYERS = ['vehicles-heading', 'vehicles-dot', 'vehicles-hit'];
 
 /** The grouped view's layers. */
+/** How often the selected vehicle's trail is redrawn. */
+const TRAIL_REFRESH_MS = 1_000;
+
+/** A route colour (hex, no '#') at an opacity, for gradients. */
+function rgba(hex: string, alpha: number): string {
+  const value = Number.parseInt(hex.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
 /** Vehicles whose position is no longer live are drawn at this strength. */
 const STALE_OPACITY: maplibregl.ExpressionSpecification = ['case', ['boolean', ['get', 'stale'], false], 0.38, 1];
 
@@ -188,6 +197,8 @@ export function TransitMap({
   /** Read from the frame loop and the rebuild, which never see later props. */
   const groupWanted = useRef(groupVehicles);
   groupWanted.current = groupVehicles;
+  const selectedRef = useRef(selectedVehicleId);
+  selectedRef.current = selectedVehicleId;
   /** The view mode at construction, so the first frame is already right. */
   const initial = useRef({ basemap, three, dark });
   /** The style last handed to MapLibre, so an unchanged one is not reloaded. */
@@ -361,6 +372,7 @@ export function TransitMap({
   // --- Live vehicles, updated per animation frame ---------------------------
   useEffect(() => {
     let lastGrouped = 0;
+    let lastTrail = 0;
     return tracker.onFrame((vehicles: TrackedVehicle[]) => {
       const instance = map.current;
       if (!ready.current || !instance) return;
@@ -385,9 +397,23 @@ export function TransitMap({
       };
       setData('vehicles', collection);
 
+      // The selected vehicle's trail, once a second: it grows by one point
+      // per feed update, and only its head moves in between.
+      const now = performance.now();
+      const selected = selectedRef.current;
+      if (selected && now - lastTrail >= TRAIL_REFRESH_MS) {
+        lastTrail = now;
+        const path = tracker.trail(selected);
+        setData(
+          'vehicle-trail',
+          path.length >= 2
+            ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: path }, properties: {} }] }
+            : EMPTY,
+        );
+      }
+
       // The grouped view only while it can be seen. Zooming back out finds
       // `lastGrouped` long past, so the groups are fresh on the very next frame.
-      const now = performance.now();
       if (groupWanted.current && instance.getZoom() < GROUP_BELOW_ZOOM && now - lastGrouped >= GROUP_REFRESH_MS) {
         lastGrouped = now;
         setData('vehicle-groups', collection);
@@ -403,7 +429,26 @@ export function TransitMap({
     // The chosen vehicle is drawn on its own as well, so it stays visible even
     // when zoomed out far enough that it would otherwise sit inside a group.
     map.current.setFilter('vehicles-selected-dot', filter);
-  }, [selectedVehicleId, styleEpoch]);
+
+    // The trail fades from nothing at its tail to the route's colour at the
+    // vehicle. A gradient cannot read the colour from the data, so it is set
+    // here, once per selection.
+    setData('vehicle-trail', EMPTY);
+    const color = selectedVehicleId ? tracker.get(selectedVehicleId)?.color : undefined;
+    if (color && map.current.getLayer('vehicle-trail-line')) {
+      map.current.setPaintProperty('vehicle-trail-line', 'line-gradient', [
+        'interpolate',
+        ['linear'],
+        ['line-progress'],
+        0,
+        rgba(color, 0),
+        0.6,
+        rgba(color, 0.45),
+        1,
+        rgba(color, 0.95),
+      ]);
+    }
+  }, [selectedVehicleId, styleEpoch, setData, tracker]);
 
   // --- Grouping on or off ---------------------------------------------------
   useEffect(() => {
@@ -941,6 +986,10 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
+  if (!map.getSource('vehicle-trail')) {
+    // Line metrics are what let the trail fade along its length.
+    map.addSource('vehicle-trail', { type: 'geojson', data: EMPTY, lineMetrics: true });
+  }
   if (!map.getSource('vehicle-groups')) {
     map.addSource('vehicle-groups', {
       type: 'geojson',
@@ -1051,6 +1100,19 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
       'circle-color': '#ffffff',
       'circle-stroke-color': ['get', 'color'],
       'circle-stroke-width': 2,
+    },
+  });
+
+  // Where the selected vehicle has actually been, over the last twenty
+  // minutes. Above its trip outline, which says where it was meant to go.
+  map.addLayer({
+    id: 'vehicle-trail-line',
+    type: 'line',
+    source: 'vehicle-trail',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-width': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 6],
+      'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.6)'],
     },
   });
 
