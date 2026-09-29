@@ -36,6 +36,15 @@ export interface TripUpdate {
  * are full snapshots, not deltas, so merging would leave stale vehicles behind
  * after a bus goes out of service.
  */
+/**
+ * How long a trip-update snapshot stays trustworthy without a refresh.
+ *
+ * Feeds publish every 15–30 seconds; five minutes without one means the feed
+ * or the connection is down, and predictions that old have drifted enough to
+ * mislead.
+ */
+export const TRIP_UPDATE_MAX_AGE_SECONDS = 300;
+
 export class RealtimeState {
   vehicles = new Map<string, Vehicle>();
   tripUpdates = new Map<string, TripUpdate>();
@@ -84,6 +93,25 @@ export class RealtimeState {
     this.lastTripUpdate = Math.floor(Date.now() / 1000);
     this.tripUpdateVersion++;
     if (store) this.annotateDelays(store);
+  }
+
+  /**
+   * Drops predictions the feed has not refreshed for too long.
+   *
+   * Called after a failed poll. A delay reported ten minutes ago is not a
+   * prediction any more; carrying on applying it — to departures, to the
+   * planner — would present a guess as live information, which is worse than
+   * falling back to the timetable and saying so. Vehicle positions are left
+   * alone: they carry their own timestamps, and the map fades them as they
+   * age rather than making them vanish.
+   */
+  expireTripUpdates(maxAgeSeconds: number, now = Math.floor(Date.now() / 1000)): boolean {
+    if (this.lastTripUpdate === null || this.tripUpdates.size === 0) return false;
+    if (now - this.lastTripUpdate <= maxAgeSeconds) return false;
+    this.tripUpdates = new Map();
+    this.tripUpdateVersion++;
+    for (const vehicle of this.vehicles.values()) delete vehicle.delaySeconds;
+    return true;
   }
 
   /** Recomputes every vehicle's delay from the trip updates held now. */

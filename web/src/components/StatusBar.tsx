@@ -1,6 +1,6 @@
 import type { FeedStatus } from '../lib/api.ts';
 import type { StreamStatus } from '../lib/vehicleTracker.ts';
-import { relativeAge } from '../lib/format.ts';
+import { clockTime, relativeAge } from '../lib/format.ts';
 
 /**
  * Feed health, stated plainly.
@@ -9,8 +9,33 @@ import { relativeAge } from '../lib/format.ts';
  * admits the feed is down: a rider standing at a stop needs to know whether
  * "3 min" is a live prediction or just the timetable.
  */
-export function StatusBar({ status, stream }: { status: FeedStatus | null; stream: StreamStatus }) {
+export function StatusBar({
+  status,
+  stream,
+  online = true,
+  lastKnownAt = null,
+}: {
+  status: FeedStatus | null;
+  stream: StreamStatus;
+  /** Whether the browser has a connection at all. */
+  online?: boolean;
+  /** When the vehicles on the map were last live, if they are not now. */
+  lastKnownAt?: number | null;
+}) {
   if (!status) return null;
+
+  // No connection trumps every other message: it explains all of them.
+  if (!online) {
+    return (
+      <div className="status-bar status-bar--offline" role="status">
+        <span className="status-bar__dot" aria-hidden="true" />
+        <span className="status-bar__text">
+          Offline · timetable only
+          {lastKnownAt ? ` · vehicles as of ${clockTime(lastKnownAt)}` : ''}
+        </span>
+      </div>
+    );
+  }
 
   const feedProblem = status.realtime.lastError;
   const tone = !stream.connected || feedProblem ? 'warn' : 'ok';
@@ -23,6 +48,8 @@ export function StatusBar({ status, stream }: { status: FeedStatus | null; strea
           <>
             {stream.vehicleCount} vehicles live · updated {relativeAge(stream.lastUpdate)}
           </>
+        ) : lastKnownAt ? (
+          `Live feed unavailable · vehicles as of ${clockTime(lastKnownAt)}`
         ) : (
           (stream.error ?? 'Live feed disconnected')
         )}

@@ -11,7 +11,7 @@ import {
   stopDetail,
   vehicleTrip,
 } from '../../../server/src/queries.js';
-import { RealtimeState } from '../../../server/src/realtime/state.js';
+import { RealtimeState, TRIP_UPDATE_MAX_AGE_SECONDS } from '../../../server/src/realtime/state.js';
 import {
   decodeAlerts,
   decodeTripUpdates,
@@ -147,6 +147,8 @@ async function poll(): Promise<void> {
   await Promise.all(tasks);
   pollInFlight = false;
   realtime.lastError = errors.length > 0 ? errors.join('; ') : null;
+  // Offline, or the feed is down: stop presenting old delays as live.
+  if (errors.length > 0) realtime.expireTripUpdates(TRIP_UPDATE_MAX_AGE_SECONDS);
 
   post({
     type: 'vehicles',

@@ -409,3 +409,17 @@ describe('alert matching', () => {
     expect(state.agencyWideAlerts().map((a) => a.id)).toEqual(['holiday']);
   });
 });
+
+describe('stale trip updates', () => {
+  it('are dropped once the feed has been silent too long, and not before', () => {
+    const state = new RealtimeState();
+    state.setTripUpdates([{ tripId: 't', stopTimeUpdates: [], cancelled: false } as never]);
+    const at = state.lastTripUpdate!;
+    const version = state.tripUpdateVersion;
+    expect(state.expireTripUpdates(300, at + 299)).toBe(false);
+    expect(state.tripUpdates.size).toBe(1);
+    expect(state.expireTripUpdates(300, at + 301)).toBe(true);
+    expect(state.tripUpdates.size).toBe(0);
+    expect(state.tripUpdateVersion).toBe(version + 1);
+  });
+});

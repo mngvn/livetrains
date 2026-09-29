@@ -208,6 +208,17 @@ button {
   white-space: nowrap;
 }
 
+/* Offline is the one state worth colouring: every number on screen is
+   affected by it. */
+.status-bar--offline {
+  font-weight: 600;
+  color: var(--late);
+}
+
+.status-bar--offline .status-bar__dot {
+  background: var(--late);
+}
+
 .status-bar__badge {
   flex: none;
   padding: 2px 7px;

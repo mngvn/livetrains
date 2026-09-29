@@ -129,6 +129,9 @@ const GROUP_REFRESH_MS = 1_000;
 const INDIVIDUAL_VEHICLE_LAYERS = ['vehicles-heading', 'vehicles-dot', 'vehicles-hit'];
 
 /** The grouped view's layers. */
+/** Vehicles whose position is no longer live are drawn at this strength. */
+const STALE_OPACITY: maplibregl.ExpressionSpecification = ['case', ['boolean', ['get', 'stale'], false], 0.38, 1];
+
 const GROUP_LAYERS = ['vehicle-groups-circle', 'vehicle-groups-count', 'vehicle-groups-heading', 'vehicle-groups-dot'];
 
 export function TransitMap({
@@ -376,6 +379,7 @@ export function TransitMap({
             // an arrow pointing north on a vehicle of unknown heading is a
             // confident lie.
             hasHeading: v.bearing !== undefined,
+            stale: v.stale,
           },
         })),
       };
@@ -1146,6 +1150,9 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
     id: 'vehicles-beam',
     type: 'symbol',
     source: 'vehicles',
+    // A beam says "here, now"; a position that is no longer live does not
+    // get one.
+    filter: ['!', ['boolean', ['get', 'stale'], false]],
     layout: {
       'icon-image': 'vehicle-beam',
       visibility: showBeams ? 'visible' : 'none',
@@ -1232,7 +1239,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
-    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.6 },
+    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.6, 'icon-opacity': STALE_OPACITY },
   });
   map.addLayer({
     id: 'vehicle-groups-dot',
@@ -1246,7 +1253,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
-    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.4 },
+    paint: { 'icon-color': ['get', 'color'], 'icon-halo-color': '#ffffff', 'icon-halo-width': 1.4, 'icon-opacity': STALE_OPACITY },
   });
 
   // Selection halo, beneath the marker it belongs to.
@@ -1282,6 +1289,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
       // A wide halo is what separates the arrow from the route line it is
       // flying along, which is the same colour underneath it.
       'icon-halo-width': 1.6,
+      'icon-opacity': STALE_OPACITY,
     },
   });
 
@@ -1301,6 +1309,7 @@ function ensureLayers(map: maplibregl.Map, showBeams: boolean): boolean {
       'icon-color': ['get', 'color'],
       'icon-halo-color': '#ffffff',
       'icon-halo-width': 1.4,
+      'icon-opacity': STALE_OPACITY,
     },
   });
 

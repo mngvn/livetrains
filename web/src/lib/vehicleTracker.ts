@@ -20,7 +20,16 @@ export interface TrackedVehicle extends Vehicle {
   displayLon: number;
   /** Smoothed heading, so a vehicle rotates rather than snapping. */
   displayBearing: number;
+  /**
+   * The position is too old to call live: the feed has gone quiet, the
+   * connection has dropped, or this is a last-known position from an earlier
+   * visit. Drawn faded, never dropped — where a bus last was is still useful.
+   */
+  stale: boolean;
 }
+
+/** A position older than this is not live any more. */
+export const STALE_AFTER_SECONDS = 180;
 
 interface Track {
   vehicle: Vehicle;
@@ -31,6 +40,8 @@ interface Track {
   durationMs: number;
   /** Timestamp of the last feed message that mentioned this vehicle. */
   lastSeen: number;
+  /** Restored from an earlier visit rather than received this session. */
+  restored?: boolean;
 }
 
 /**
@@ -119,7 +130,9 @@ export class VehicleTracker {
     if (source && source.mode === 'browser') {
       this.pushSource = source;
       this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error }) => {
-        this.ingest(vehicles);
+        // A failed poll with nothing to show is not news that every vehicle
+        // has left service; keep what is on the map (it fades as it ages).
+        if (!(error !== null && vehicles.length === 0)) this.ingest(vehicles);
         this.setStatus({
           connected: error === null,
           vehicleCount: vehicles.length,
@@ -172,6 +185,35 @@ export class VehicleTracker {
   /** The most recent raw position reported for a vehicle. */
   get(id: string): Vehicle | undefined {
     return this.tracks.get(id)?.vehicle;
+  }
+
+  /** Every vehicle's last reported position, for saving. */
+  snapshot(): Vehicle[] {
+    return [...this.tracks.values()].filter((t) => !t.restored).map((t) => t.vehicle);
+  }
+
+  /**
+   * Places last-known positions from an earlier visit, until live ones land.
+   *
+   * Only onto an empty map: live data always wins, and the first live
+   * message clears every restored vehicle it does not mention.
+   */
+  restore(vehicles: Vehicle[]): void {
+    if (this.tracks.size > 0) return;
+    const now = performance.now();
+    for (const vehicle of vehicles) {
+      this.tracks.set(vehicle.id, {
+        vehicle,
+        fromLat: vehicle.lat,
+        fromLon: vehicle.lon,
+        fromBearing: vehicle.bearing ?? 0,
+        startedAt: now,
+        durationMs: 0,
+        lastSeen: now,
+        restored: true,
+      });
+    }
+    this.setStatus({ vehicleCount: this.status.vehicleCount || vehicles.length });
   }
 
   private setStatus(next: Partial<StreamStatus>): void {
@@ -271,7 +313,8 @@ export class VehicleTracker {
     // rides out transient gaps in the feed.
     const grace = this.resetOnNextMessage ? 0 : 60_000;
     for (const [id, track] of this.tracks) {
-      if (!seen.has(id) && now - track.lastSeen >= grace) this.tracks.delete(id);
+      if (seen.has(id)) continue;
+      if (track.restored || now - track.lastSeen >= grace) this.tracks.delete(id);
     }
     this.resetOnNextMessage = false;
   }
@@ -293,6 +336,7 @@ export class VehicleTracker {
 
     const frame = () => {
       const now = performance.now();
+      const wall = Date.now() / 1000;
       const out: TrackedVehicle[] = [];
       for (const track of this.tracks.values()) {
         const position = this.positionAt(track, now);
@@ -301,6 +345,10 @@ export class VehicleTracker {
           displayLat: position.lat,
           displayLon: position.lon,
           displayBearing: position.bearing,
+          // By the vehicle's own report time, not when the feed last
+          // repeated it: a feed that keeps re-sending a frozen position is
+          // exactly the case this has to catch.
+          stale: track.restored === true || wall - track.vehicle.timestamp > STALE_AFTER_SECONDS,
         });
       }
       for (const listener of this.frameListeners) listener(out);

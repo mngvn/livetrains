@@ -43,6 +43,7 @@ import { useReliability, useReliabilityRecorder, useSavedTrips, type SavedTrip }
 import { useLeaveReminder } from './lib/leaveReminder.ts';
 import { SavedTrips } from './components/SavedTrips.tsx';
 import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
+import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -283,6 +284,49 @@ export function App() {
       tracker.disconnect();
     };
   }, [tracker, source, agency?.hasVehicles]);
+
+  // --- Offline: last-known vehicles ----------------------------------------
+  const online = useOnline();
+  /** When the positions on the map were last live, once they are not. */
+  const [lastKnownAt, setLastKnownAt] = useState<number | null>(null);
+
+  // Put the last positions seen on the map straight away. On a good
+  // connection live ones replace them within seconds; offline, they are all
+  // there is, drawn faded and dated.
+  useEffect(() => {
+    if (!agency?.hasVehicles) return;
+    let cancelled = false;
+    void loadLastVehicles().then((saved) => {
+      if (cancelled || !saved) return;
+      tracker.restore(saved.vehicles);
+      setLastKnownAt((current) => current ?? saved.asOf);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tracker, agency?.hasVehicles]);
+
+  // Keep a copy of the live fleet, every half minute while it is live.
+  const lastLive = useRef<number | null>(null);
+  if (stream.connected && stream.lastUpdate !== null) lastLive.current = stream.lastUpdate;
+  useEffect(() => {
+    if (!stream.connected) {
+      // Losing the feed dates what is left on the map.
+      if (lastLive.current !== null) setLastKnownAt(lastLive.current);
+      return;
+    }
+    setLastKnownAt(null);
+    const save = () => {
+      const vehicles = tracker.snapshot();
+      if (vehicles.length > 0 && lastLive.current !== null) void saveLastVehicles(vehicles, lastLive.current);
+    };
+    const first = window.setTimeout(save, 5_000);
+    const timer = window.setInterval(save, 30_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [tracker, stream.connected]);
 
   // Keep the selected vehicle's details fresh as new positions arrive.
   useEffect(() => {
@@ -763,7 +807,7 @@ export function App() {
               <span className="visually-hidden">Hide panel</span>
             </button>
           </div>
-          <StatusBar status={status} stream={stream} />
+          <StatusBar status={status} stream={stream} online={online} lastKnownAt={lastKnownAt} />
           <TransitSearch
             search={source.search}
             onRoute={(route) => openRoute(route.id)}

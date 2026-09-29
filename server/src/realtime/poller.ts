@@ -2,7 +2,7 @@ import type { AgencyDefinition } from '../agencies/types.js';
 import type { GtfsStore } from '../gtfs/store.js';
 import { log } from '../log.js';
 import { decodeAlerts, decodeTripUpdates, decodeVehiclePositions } from './decode.js';
-import { RealtimeState } from './state.js';
+import { RealtimeState, TRIP_UPDATE_MAX_AGE_SECONDS } from './state.js';
 
 /**
  * Polls an agency's GTFS-Realtime feeds on a fixed interval.
@@ -122,6 +122,10 @@ export class RealtimePoller {
     }
 
     this.state.lastError = errors.join('; ');
+    // Stop presenting predictions the feed has not refreshed as live.
+    if (this.state.expireTripUpdates(TRIP_UPDATE_MAX_AGE_SECONDS)) {
+      log.warn('realtime: trip updates are too old to trust; serving the timetable until the feed returns');
+    }
     this.consecutiveFailures++;
     // Log the first few failures, then back off to once a minute so a long
     // outage does not bury everything else in the log.
