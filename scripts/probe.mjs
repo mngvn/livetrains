@@ -1,9 +1,5 @@
 // One-off fact-finding against the real services this app depends on.
 // Runs in CI (which has network access); not part of the app.
-import { unzipSync, strFromU8 } from 'fflate';
-import bindings from 'gtfs-realtime-bindings';
-import { createHash } from 'node:crypto';
-const { transit_realtime: rt } = bindings;
 
 const section = (t) => console.log(`\n===== ${t} =====`);
 const get = async (url, init) => {
@@ -13,78 +9,43 @@ const get = async (url, init) => {
     return { err: String(err) };
   }
 };
+const origin = { headers: { Origin: 'https://mngvn.github.io' } };
 
-section('linked_datasets / vehicles / pathways');
-const g = await get('https://svc.metrotransit.org/mtgtfs/gtfs.zip');
-const files = unzipSync(new Uint8Array(await g.res.arrayBuffer()));
-const text = (name) => (files[name] ? strFromU8(files[name]) : '(absent)');
-console.log(text('linked_datasets.txt'));
-const head = (name, n) => text(name).split(/\r?\n/).slice(0, n).join('\n');
-console.log('--- vehicles.txt ---\n' + head('vehicles.txt', 4));
-console.log('--- pathways.txt ---\n' + head('pathways.txt', 4));
-console.log('pathways rows:', text('pathways.txt').split(/\r?\n/).filter(Boolean).length - 1);
-console.log('--- levels.txt ---\n' + head('levels.txt', 4));
-console.log('--- feed_info.txt ---\n' + head('feed_info.txt', 3));
-
-section('realtime URLs, up to three attempts each');
-const urls = new Set([
-  'https://svc.metrotransit.org/mtgtfs/vehiclepositions.pb',
-  'https://svc.metrotransit.org/mtgtfs/tripupdates.pb',
-  'https://svc.metrotransit.org/mtgtfs/alerts.pb',
-]);
-for (const line of text('linked_datasets.txt').split(/\r?\n/).slice(1)) {
-  for (const m of line.matchAll(/https?:\/\/[^,"\s]+/g)) urls.add(m[0]);
-}
-for (const url of urls) {
-  for (let i = 0; i < 3; i++) {
-    const r = await get(url, { headers: { Origin: 'https://mngvn.github.io' } });
-    let extra = '';
-    if (r.res?.ok) {
-      try {
-        const feed = rt.FeedMessage.decode(new Uint8Array(await r.res.arrayBuffer()));
-        extra = `entities=${feed.entity.length} vehicles=${feed.entity.filter((e) => e.vehicle).length}`;
-        const withAgency = {};
-        for (const e of feed.entity) {
-          if (!e.vehicle) continue;
-          const key = e.vehicle.stopId ? 'stopId' : 'no-stopId';
-          withAgency[key] = (withAgency[key] ?? 0) + 1;
-        }
-        if (Object.keys(withAgency).length) extra += ' ' + JSON.stringify(withAgency);
-        const sample = feed.entity.find((e) => e.vehicle)?.vehicle;
-        if (sample) extra += ' sample=' + JSON.stringify(sample).slice(0, 300);
-      } catch (e) {
-        extra = 'not protobuf: ' + e;
-      }
+section('OpenFreeMap styles');
+for (const name of ['positron', 'dark', 'fiord', 'liberty', 'bright']) {
+  const url = `https://tiles.openfreemap.org/styles/${name}`;
+  const r = await get(url, origin);
+  let extra = '';
+  if (r.res?.ok) {
+    try {
+      const style = await r.res.json();
+      const fonts = new Set();
+      for (const layer of style.layers ?? []) for (const f of layer.layout?.['text-font'] ?? []) fonts.add(f);
+      const bg = style.layers?.find((l) => l.type === 'background')?.paint?.['background-color'];
+      extra = `layers=${style.layers?.length} glyphs=${style.glyphs} sources=${Object.keys(style.sources ?? {}).join('|')} bg=${JSON.stringify(bg)} fonts=${[...fonts].join('|')}`;
+    } catch (e) {
+      extra = 'not json: ' + e;
     }
-    console.log(url, 'try', i + 1, '->', r.res?.status ?? r.err, 'ACAO', r.res?.headers.get('access-control-allow-origin'), extra);
-    if (r.res?.ok) break;
-    await new Promise((res) => setTimeout(res, 3000));
   }
+  console.log(name, '->', r.res?.status ?? r.err, 'ACAO', r.res?.headers.get('access-control-allow-origin'), 'cache', r.res?.headers.get('cache-control'), extra);
 }
 
-section('Esri: is z20 a placeholder?');
-const tile = (z, lat, lon) => {
-  const n = 2 ** z;
-  const x = Math.floor(((lon + 180) / 360) * n);
-  const y = Math.floor(
-    ((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2) * n,
-  );
-  return { x, y };
-};
-for (const [name, lat, lon] of [
-  ['downtown', 44.9778, -93.265],
-  ['uptown', 44.9483, -93.298],
-  ['st paul', 44.9537, -93.09],
-]) {
-  for (const z of [19, 20]) {
-    const { x, y } = tile(z, lat, lon);
-    const r = await get(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`);
-    const buf = Buffer.from(await r.res.arrayBuffer());
-    console.log(name, `z${z}`, r.res.status, buf.length, createHash('md5').update(buf).digest('hex').slice(0, 10));
-  }
+section('Glyph stacks');
+for (const stack of ['Noto Sans Regular', 'Noto Sans Bold', 'Open Sans Regular,Arial Unicode MS Regular', 'Open Sans Regular']) {
+  const url = `https://tiles.openfreemap.org/fonts/${encodeURIComponent(stack)}/0-255.pbf`;
+  const r = await get(url, origin);
+  const size = r.res?.ok ? (await r.res.arrayBuffer()).byteLength : 0;
+  console.log(JSON.stringify(stack), '->', r.res?.status ?? r.err, 'bytes', size);
 }
-const meta = await get('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json');
-if (meta.res?.ok) {
-  const m = await meta.res.json();
-  console.log('service max level:', Math.max(...m.tileInfo.lods.map((l) => l.level)));
+
+section('Tile caching headers (for the offline service worker)');
+const tj = await get('https://tiles.openfreemap.org/planet', origin);
+if (tj.res?.ok) {
+  const tilejson = await tj.res.json();
+  console.log('tilejson tiles:', JSON.stringify(tilejson.tiles), 'maxzoom', tilejson.maxzoom);
+  const tile = tilejson.tiles[0].replace('{z}', '12').replace('{x}', '987').replace('{y}', '1471');
+  const t = await get(tile, origin);
+  console.log('tile', tile, '->', t.res?.status, 'ACAO', t.res?.headers.get('access-control-allow-origin'), 'cache', t.res?.headers.get('cache-control'), 'type', t.res?.headers.get('content-type'));
 }
+const esri = await get('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1471/987', origin);
+console.log('esri ->', esri.res?.status, 'ACAO', esri.res?.headers.get('access-control-allow-origin'), 'cache', esri.res?.headers.get('cache-control'));
