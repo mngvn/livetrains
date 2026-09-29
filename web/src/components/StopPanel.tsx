@@ -1,25 +1,19 @@
-import { useEffect, useState } from 'react';
-import type { Departure, PathwaySummary, RouteSummary, StopDetail } from '../lib/api.ts';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PathwaySummary, RouteSummary, StopDetail } from '../lib/api.ts';
 import { isAccessibilityAlert, sortAlerts } from '../lib/alerts.ts';
-import { countdown, modeLabel } from '../lib/format.ts';
+import { relativeAge } from '../lib/format.ts';
 import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
-import { ScheduleTime } from './ScheduleTime.tsx';
 import { AccessibilityTag } from './AccessibilityTag.tsx';
 import { ShareButton } from './ShareButton.tsx';
+import { DepartureBoard } from './DepartureBoard.tsx';
 import { shareUrl } from '../lib/shareLink.ts';
 
-/** A departure carries its route's display fields inline; rebuild the badge's view of it. */
-function routeOf(departure: Departure): RouteSummary {
-  return {
-    id: departure.routeId,
-    shortName: departure.routeShortName,
-    longName: departure.headsign,
-    mode: departure.mode,
-    color: departure.color,
-    textColor: departure.textColor,
-  };
-}
+/**
+ * How often an open board refreshes. Predictions move on the scale of the
+ * feed (15–30 s); this is a board someone leaves open while they wait.
+ */
+const REFRESH_MS = 30_000;
 
 const PATHWAY_LABEL: Record<PathwaySummary['mode'], string> = {
   walkway: 'Walkway',
@@ -45,9 +39,10 @@ const PATHWAY_ORDER: PathwaySummary['mode'][] = [
 /**
  * Everything about one stop: what calls here, when, and how to get on.
  *
- * Refreshes on its own timer rather than waiting for the vehicle stream:
- * predictions change even when no vehicle has moved far enough to be worth
- * re-broadcasting, and a stale countdown is worse than no countdown.
+ * Loads the full day's board when opened and refreshes it every 30 seconds
+ * while it stays open. Choosing another stop updates the panel in place: the
+ * previous stop stays on screen, dimmed, until the new one has loaded, rather
+ * than the panel blanking and redrawing.
  */
 export function StopPanel({
   stopId,
@@ -57,68 +52,80 @@ export function StopPanel({
   onPlanFromHere,
   onPlanToHere,
   onShowRoute,
+  onShowVehicle,
   onRoutesLoaded,
-  onClose,
+  onLoaded,
 }: {
   stopId: string;
   now: number;
   /** Supplied by the app so this works against either backend. */
-  load: (stopId: string, limit?: number, signal?: AbortSignal) => Promise<StopDetail>;
+  load: (stopId: string, signal?: AbortSignal) => Promise<StopDetail>;
   /** Every route, for drawing badges on alerts. */
   routes: Map<string, RouteSummary>;
   onPlanFromHere: (detail: StopDetail) => void;
   onPlanToHere: (detail: StopDetail) => void;
   onShowRoute: (routeId: string) => void;
+  /** Opens a vehicle in the panel; its route, so the map can be made to show it. */
+  onShowVehicle: (vehicleId: string, routeId?: string) => void;
   /** Tells the map which lines to light up; null when the panel closes. */
   onRoutesLoaded: (routeIds: string[] | null) => void;
-  onClose: () => void;
+  /** The stop's own record once known, for the map pin. */
+  onLoaded?: (detail: StopDetail) => void;
 }) {
   const [detail, setDetail] = useState<StopDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    const refresh = () => {
-      load(stopId, 12, controller.signal)
-        .then((result) => {
-          if (cancelled) return;
-          setDetail(result);
-          setError(null);
-        })
-        .catch((err: unknown) => {
-          if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
-          setError(err instanceof Error ? err.message : 'Could not load departures');
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    };
-
-    setLoading(true);
-    setDetail(null);
-    refresh();
-    const timer = window.setInterval(refresh, 20_000);
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearInterval(timer);
-    };
+  const refresh = useCallback(() => {
+    controller.current?.abort();
+    const current = new AbortController();
+    controller.current = current;
+    setRefreshing(true);
+    load(stopId, current.signal)
+      .then((result) => {
+        if (current.signal.aborted) return;
+        setDetail(result);
+        setError(null);
+        setUpdatedAt(Date.now() / 1000);
+        onLoadedRef.current?.(result);
+      })
+      .catch((err: unknown) => {
+        if (current.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+        setError(err instanceof Error ? err.message : 'Could not load departures');
+      })
+      .finally(() => {
+        if (!current.signal.aborted) setRefreshing(false);
+      });
   }, [stopId, load]);
 
+  // On open, and every half minute while open. A new stop restarts both.
+  useEffect(() => {
+    refresh();
+    const timer = window.setInterval(refresh, REFRESH_MS);
+    return () => {
+      window.clearInterval(timer);
+      controller.current?.abort();
+    };
+  }, [refresh]);
+
   // Light up the lines through this stop, and put the map back on close.
-  const routeKey = detail?.routes.map((r) => r.id).join(',') ?? '';
+  const routeKey = detail?.stop.id === stopId ? detail.routes.map((r) => r.id).join(',') : '';
   useEffect(() => {
     if (routeKey) onRoutesLoaded(routeKey.split(','));
   }, [routeKey, onRoutesLoaded]);
   useEffect(() => () => onRoutesLoaded(null), [onRoutesLoaded]);
 
-  if (loading && !detail) return <div className="panel-loading">Loading departures…</div>;
-  if (error && !detail) return <div className="panel-error">{error}</div>;
-  if (!detail) return null;
+  if (!detail) {
+    if (error) return <div className="panel-error">{error}</div>;
+    return <div className="panel-loading">Loading departures…</div>;
+  }
 
+  // Still showing the previous stop while the chosen one loads.
+  const stale = detail.stop.id !== stopId && !detail.groupedStopIds.includes(stopId);
   const { stop, station } = detail;
   const alerts = sortAlerts(detail.alerts, now);
   const accessAlerts = alerts.filter(isAccessibilityAlert);
@@ -132,7 +139,7 @@ export function StopPanel({
   );
 
   return (
-    <div className="stop-panel">
+    <div className={`stop-panel${stale ? ' is-stale' : ''}`} aria-busy={stale || undefined}>
       <header className="panel-header">
         <div className="panel-header__text">
           <h2 className="panel-title">{stop.name}</h2>
@@ -140,9 +147,6 @@ export function StopPanel({
           {station && station.name !== stop.name && <p className="panel-subtitle">In {station.name}</p>}
           {stop.description && <p className="panel-subtitle">{stop.description}</p>}
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
-          ×
-        </button>
       </header>
 
       <div className="stop-panel__tags">
@@ -168,6 +172,33 @@ export function StopPanel({
           </div>
         </section>
       )}
+
+      <p className="board__updated" role="status">
+        {error ? (
+          <span className="board__updated-error">Could not refresh — showing the last board.</span>
+        ) : (
+          <>Updated {updatedAt ? relativeAge(Math.floor(updatedAt)) : 'just now'} · refreshes every 30 s</>
+        )}
+        <button
+          type="button"
+          className={`icon-button board__refresh${refreshing ? ' is-spinning' : ''}`}
+          onClick={refresh}
+          aria-label="Refresh departures"
+          title="Refresh now"
+        >
+          ↻
+        </button>
+      </p>
+
+      <DepartureBoard
+        // Keyed on the whole group, so a filter set on a station is the same
+        // filter whichever of its platforms is opened next time.
+        stopId={[...detail.groupedStopIds].sort()[0] ?? detail.stop.id}
+        departures={detail.departures}
+        routes={detail.routes}
+        now={now}
+        onShowVehicle={onShowVehicle}
+      />
 
       {detail.routes.length > 0 && (
         <section className="panel-section">
@@ -210,48 +241,6 @@ export function StopPanel({
           </ul>
         </section>
       )}
-
-      <section className="panel-section">
-        <h3 className="panel-section__title">Departures</h3>
-        {detail.departures.length === 0 ? (
-          <p className="panel-empty">
-            No departures in the next few hours. Service may have finished for the night.
-          </p>
-        ) : (
-          <ul className="departures">
-            {detail.departures.map((departure) => (
-              <li
-                key={`${departure.tripId}-${departure.scheduledTime}`}
-                className={`departure${departure.skipped ? ' is-skipped' : ''}`}
-              >
-                <RouteBadge route={routeOf(departure)} />
-                <div className="departure__text">
-                  <span className="departure__headsign">{departure.headsign}</span>
-                  <span className="departure__meta">
-                    {modeLabel(departure.mode)}
-                    <ScheduleTime
-                      scheduled={departure.scheduledTime}
-                      predicted={departure.expectedTime}
-                      delaySeconds={departure.delaySeconds}
-                      isRealtime={departure.isRealtime}
-                      skipped={departure.skipped}
-                    />
-                    {departure.wheelchair === 'not-accessible' && (
-                      <AccessibilityTag value="not-accessible" subject="trip" compact />
-                    )}
-                  </span>
-                </div>
-                <div className={`departure__countdown${departure.isRealtime ? ' is-live' : ''}`}>
-                  {departure.skipped ? '—' : countdown(departure.expectedTime, now)}
-                  {departure.isRealtime && !departure.skipped && (
-                    <span className="live-dot" title="Live prediction" />
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </div>
   );
 }

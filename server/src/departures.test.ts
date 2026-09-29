@@ -146,6 +146,15 @@ describe('departuresForStops', () => {
     const [atStop] = departuresForStops(store, patterns, local, [govPlaza], { now, limit: 1 });
     expect(atStop.atStop).toBe(true);
 
+    // Standing at the stop but running late on paper: still first on the board.
+    const second = departuresForStops(store, patterns, realtime, [govPlaza], { now, limit: 2 })[1];
+    const late = new RealtimeState();
+    late.setTripUpdates([{ tripId: next.tripId, stops: new Map(), tripDelaySeconds: 900, cancelled: false, timestamp: now }]);
+    late.setVehicles([vehicle as never]);
+    const board = departuresForStops(store, patterns, late, [govPlaza], { now, limit: 5 });
+    expect(board[0].tripId).toBe(next.tripId);
+    expect(board[0].expectedTime).toBeGreaterThan(second.expectedTime);
+
     // Named as its stop but still a few hundred metres off: arriving, not there.
     const farther = new RealtimeState();
     farther.setVehicles([{ ...vehicle, lat: stop.lat + 0.004 } as never]);

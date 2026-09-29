@@ -144,7 +144,10 @@ export function departuresForStops(
     }
   }
 
-  found.sort((a, b) => a.expectedTime - b.expectedTime);
+  // A vehicle standing at the stop is leaving now, whatever its prediction
+  // says, so it heads the board.
+  const leavesAt = (d: Departure) => (d.atStop ? Math.min(d.expectedTime, now) : d.expectedTime);
+  found.sort((a, b) => leavesAt(a) - leavesAt(b));
   return found.slice(0, limit);
 }
 

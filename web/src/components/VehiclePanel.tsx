@@ -26,7 +26,6 @@ export function VehiclePanel({
   routes,
   onShowStop,
   onShowRoute,
-  onClose,
 }: {
   vehicle: Vehicle;
   trip: VehicleTrip | null;
@@ -35,7 +34,6 @@ export function VehiclePanel({
   routes: Map<string, RouteSummary>;
   onShowStop: (stopId: string) => void;
   onShowRoute: (routeId: string) => void;
-  onClose: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const delay = delayText(vehicle.delaySeconds);
@@ -67,9 +65,6 @@ export function VehiclePanel({
             </p>
           </div>
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
-          ×
-        </button>
       </header>
 
       {next && <p className="vehicle-panel__where">{whereNow(vehicle, next)}</p>}

@@ -2930,3 +2930,474 @@ button {
     animation: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   The detail panel: one stop or one vehicle, on the right
+   -------------------------------------------------------------------------- */
+
+:root {
+  --detail-width: 390px;
+}
+
+.detail {
+  --detail-accent: var(--accent);
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 7;
+  width: var(--detail-width);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  /* Set apart from the planner by its frame: a coloured top edge in the
+     selection's colour and a heavier outline. */
+  border: 1px solid color-mix(in srgb, var(--detail-accent) 35%, var(--border));
+  border-top: 4px solid var(--detail-accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: detail-in 0.24s ease-out;
+}
+
+.detail__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px 7px 14px;
+  background: color-mix(in srgb, var(--detail-accent) 9%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+
+.detail__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--detail-accent);
+}
+
+.detail__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Inside the panel the body scrolls, not the stop or vehicle view. */
+.detail .stop-panel,
+.detail .vehicle-panel {
+  flex: none;
+  overflow: visible;
+  padding: 14px 16px 20px;
+}
+
+.detail > .detail__body > .panel-empty {
+  margin: 16px;
+}
+
+/* A new selection dims the old one until it has loaded, rather than blanking. */
+.stop-panel.is-stale {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+/* The map's own furniture moves clear of the panel. */
+.app.has-detail .legend,
+.app.has-detail .map-controls {
+  right: calc(var(--detail-width) + 24px);
+}
+
+.app.has-detail .maplibregl-ctrl-bottom-right {
+  right: calc(var(--detail-width) + 12px);
+}
+
+.app.has-detail .journey:not(.is-wide) {
+  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
+}
+
+.app.has-detail .journey.is-wide {
+  left: calc(50% - (var(--detail-width) + 12px) / 2);
+}
+
+/* Below this width two panels and a map do not fit: the detail panel pushes
+   the planner off to the left while it is open, and the planner slides back
+   when it closes. */
+@media (max-width: 1023px) {
+  .app.has-detail .sheet {
+    transform: translateX(calc(-100% - 24px));
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+      transform 0.28s ease,
+      opacity 0.2s ease,
+      visibility 0s linear 0.28s;
+  }
+
+  .app.has-detail .panel-reveal {
+    display: none;
+  }
+
+  .app.has-detail .journey,
+  .app.has-detail .journey.is-wide {
+    left: calc(50% - (var(--detail-width) + 12px) / 2);
+  }
+}
+
+/* On a phone the detail panel takes the bottom sheet's place. The planner
+   slides out to the left as the detail slides in from the right: one panel
+   pushing the other away, never both at once. */
+@media (max-width: 720px) {
+  .detail {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 62vh;
+    border-radius: 16px 16px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: detail-in-phone 0.28s ease-out;
+  }
+
+  .app.has-detail .legend,
+  .app.has-detail .map-controls {
+    right: 10px;
+  }
+
+  .app.has-detail .maplibregl-ctrl-bottom-right {
+    right: 0;
+  }
+
+  .app.has-detail .journey,
+  .app.has-detail .journey.is-wide {
+    left: 50%;
+    bottom: calc(62vh + 10px);
+  }
+
+  @keyframes detail-in-phone {
+    from {
+      transform: translateX(100%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   The departure board
+   -------------------------------------------------------------------------- */
+
+.board__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board__count {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.board__updated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.board__updated-error {
+  color: var(--late);
+}
+
+.board__refresh {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+}
+
+.board__refresh.is-spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+.board__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 0 4px;
+}
+
+.board__route-chip {
+  padding: 2px;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  opacity: 0.55;
+}
+
+.board__route-chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+/* With nothing chosen every route is shown, so every chip reads as "on". */
+.board__filters:has(> .chip[aria-pressed='true']:first-child) .board__route-chip {
+  opacity: 1;
+}
+
+.board__route-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.board__list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board__hour {
+  padding: 10px 0 3px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.board-row {
+  /* A day's board can run to hundreds of rows; the browser skips laying out
+     the ones scrolled out of view. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-row__button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 6px 9px 8px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+}
+
+button.board-row__button:hover {
+  background: var(--surface-2);
+}
+
+.board-row.is-live .board-row__button,
+.board-row.is-at-stop .board-row__button {
+  border-left-color: var(--live);
+  background: color-mix(in srgb, var(--live) 5%, transparent);
+}
+
+.board-row__when {
+  flex: none;
+  width: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.board-row__countdown {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.board-row.is-live .board-row__countdown {
+  color: var(--live);
+}
+
+.board-row.is-timetable .board-row__countdown {
+  color: var(--text);
+}
+
+.board-row__clock {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.board-row__clock--small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.board-row__at-stop {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--live);
+}
+
+.board-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.board-row__headsign {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.board-row__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.board-row__flag--live {
+  color: var(--live);
+  background: color-mix(in srgb, var(--live) 14%, transparent);
+}
+
+.board-row__flag--timetable {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+}
+
+.board-row__flag--cancelled {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.board-row__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+/* Cancelled: still listed, visibly not running. */
+.board-row.is-cancelled .board-row__button {
+  filter: grayscale(1);
+  opacity: 0.62;
+}
+
+.board-row.is-cancelled .board-row__headsign {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.board-row.is-cancelled .board-row__flag--cancelled {
+  /* The one thing on the row that keeps its colour. */
+  filter: none;
+}
+
+.board-row.is-skipped .board-row__headsign {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-row__pulse,
+  .board__refresh.is-spinning {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   The selected stop's pin
+   -------------------------------------------------------------------------- */
+
+.stop-pin {
+  cursor: default;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 30%));
+}
+
+/* On the drawing, not the marker: MapLibre positions the marker element
+   itself with a transform, and animating that would fight it. */
+.stop-pin svg {
+  display: block;
+  animation: stop-pin-drop 0.35s cubic-bezier(0.3, 1.4, 0.6, 1);
+}
+
+.stop-pin__body {
+  fill: var(--accent);
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.stop-pin__eye {
+  fill: #ffffff;
+}
+
+.stop-pin__shadow {
+  fill: rgb(0 0 0 / 22%);
+}
+
+@keyframes stop-pin-drop {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stop-pin svg {
+    animation: none;
+  }
+}
+
+.board-row__when s {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-muted);
+}

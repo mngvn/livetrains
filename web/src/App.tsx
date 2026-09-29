@@ -45,6 +45,7 @@ import { SavedTrips } from './components/SavedTrips.tsx';
 import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
 import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
 import { Onboarding } from './components/Onboarding.tsx';
+import { DetailPanel } from './components/DetailPanel.tsx';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -287,38 +288,57 @@ export function App() {
   const sheetRef = useRef<HTMLDivElement>(null);
 
   /**
-   * How much of the map the panel covers: its right edge on a desktop, its
-   * top edge on a phone, nothing when it is tucked away. Measured rather than
-   * assumed, because the bottom sheet's height follows its content.
+   * How much of the map the panels cover, so the camera centres in what is
+   * left. On a desktop the planner covers the left and the detail panel the
+   * right. Below 1024px there is room for only one: the detail panel, when
+   * open, has pushed the planner away. On a phone whichever is showing is a
+   * bottom sheet, measured because its height follows its content.
    */
   const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
   const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
+  const detailOpen = selectedStopId !== null || selectedVehicleId !== null;
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!shellReady || !sheet) return;
     const phone = window.matchMedia('(max-width: 720px)');
+    const narrow = window.matchMedia('(max-width: 1023px)');
+    const detail = document.querySelector<HTMLElement>('.detail');
     const measure = () => {
-      const rect = sheet.getBoundingClientRect();
       const next: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
-      if (!panelHidden) {
-        if (phone.matches) next.bottom = Math.max(0, Math.round(window.innerHeight - rect.top));
-        else next.left = Math.max(0, Math.round(rect.right));
+      const detailRect = detailOpen && detail ? detail.getBoundingClientRect() : null;
+      const sheetRect = sheet.getBoundingClientRect();
+      if (phone.matches) {
+        if (detailRect) next.bottom = Math.round(window.innerHeight - detailRect.top);
+        else if (!panelHidden) next.bottom = Math.round(window.innerHeight - sheetRect.top);
+      } else {
+        if (detailRect) next.right = Math.round(window.innerWidth - detailRect.left);
+        if (!panelHidden && !(detailRect && narrow.matches)) next.left = Math.round(sheetRect.right);
       }
+      next.bottom = Math.max(0, next.bottom);
+      next.left = Math.max(0, next.left);
+      next.right = Math.max(0, next.right);
       setMapPadding((current) =>
-        Math.abs(current.bottom - next.bottom) < 8 && Math.abs(current.left - next.left) < 8 ? current : next,
+        Math.abs(current.bottom - next.bottom) < 8 &&
+        Math.abs(current.left - next.left) < 8 &&
+        Math.abs(current.right - next.right) < 8
+          ? current
+          : next,
       );
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(sheet);
+    if (detail) observer.observe(detail);
     window.addEventListener('resize', measure);
     phone.addEventListener('change', measure);
+    narrow.addEventListener('change', measure);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
       phone.removeEventListener('change', measure);
+      narrow.removeEventListener('change', measure);
     };
-  }, [shellReady, panelHidden]);
+  }, [shellReady, panelHidden, detailOpen]);
 
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
@@ -537,7 +557,6 @@ export function App() {
     if (origin && destination) {
       runPlan(origin, destination);
       setTab('plan');
-      setSelectedStopId(null);
     } else {
       setItineraries([]);
       setSelectedItinerary(null);
@@ -625,6 +644,22 @@ export function App() {
   /** Routes by id, for drawing badges wherever only an id is at hand. */
   const routesById = useMemo(() => new Map(routes.map((route) => [route.id, route])), [routes]);
 
+  // --- The detail panel -----------------------------------------------------
+  // One stop or one vehicle at a time; choosing either replaces whatever the
+  // panel was showing, in place.
+  const showStop = useCallback((stopId: string) => {
+    setSelectedVehicleId(null);
+    setSelectedStopId(stopId);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(null);
+  }, []);
+
+  /** Pinned under the selected stop; set once the stop's record has loaded. */
+  const [stopPin, setStopPin] = useState<{ id: string; name: string; lat: number; lon: number } | null>(null);
+
   /**
    * Opens a route from anywhere — a stop's lines, an alert, a vehicle.
    *
@@ -635,12 +670,23 @@ export function App() {
     (routeId: string) => {
       const route = routesById.get(routeId);
       if (!route) return;
-      setSelectedStopId(null);
-      setSelectedVehicleId(null);
+      // Where only one panel fits, the route list is what was asked for.
+      if (window.matchMedia('(max-width: 1023px)').matches) closeDetail();
       setTab('routes');
       if (activeRouteId !== routeId) showRoute(route);
     },
-    [routesById, activeRouteId, showRoute],
+    [routesById, activeRouteId, showRoute, closeDetail],
+  );
+
+  const showVehicle = useCallback(
+    (vehicleId: string, routeId?: string) => {
+      // A vehicle on another route than the one being browsed is not on the
+      // map; show every route again so it can be.
+      if (activeRouteId && routeId && routeId !== activeRouteId) clearRoute();
+      setSelectedStopId(null);
+      setSelectedVehicleId(vehicleId);
+    },
+    [activeRouteId, clearRoute],
   );
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
@@ -695,13 +741,13 @@ export function App() {
     if (shared.route) openRoute(shared.route);
     if (shared.stop && !(shared.from && shared.to)) {
       const stopId = shared.stop;
-      setSelectedStopId(stopId);
+      showStop(stopId);
       source
         .stop(stopId, 1)
         .then((detail) => setCameraTarget({ lon: detail.stop.lon, lat: detail.stop.lat, zoom: 16 }))
         .catch(() => undefined);
     }
-  }, [shared, engine.state, agency, routes.length, openRoute, source]);
+  }, [shared, engine.state, agency, routes.length, openRoute, source, showStop]);
 
   // Keep the address bar describing what is on screen, so copying it from
   // the browser shares exactly this view. Replaced, not pushed: every stop
@@ -774,7 +820,7 @@ export function App() {
 
 
   return (
-    <div className={`app${mapPickTarget ? ' is-picking' : ''}`}>
+    <div className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}`}>
       <TransitMap
         agency={agency}
         tracker={tracker}
@@ -785,11 +831,8 @@ export function App() {
         selectedVehicleId={selectedVehicleId}
         origin={origin}
         destination={destination}
-        onSelectVehicle={setSelectedVehicleId}
-        onSelectStop={(stopId) => {
-          setSelectedStopId(stopId);
-          setSelectedVehicleId(null);
-        }}
+        onSelectVehicle={(vehicleId) => vehicleId && showVehicle(vehicleId)}
+        onSelectStop={showStop}
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
         showBeams={beamsVisible}
@@ -804,6 +847,7 @@ export function App() {
         vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
         cameraTarget={cameraTarget}
         padding={mapPadding}
+        pin={selectedStopId && stopPin ? stopPin : null}
       />
 
       <LeaveBanner
@@ -929,241 +973,253 @@ export function App() {
             search={source.search}
             onRoute={(route) => openRoute(route.id)}
             onStop={(stop) => {
-              setSelectedVehicleId(null);
-              setSelectedStopId(stop.id);
+              showStop(stop.id);
               setCameraTarget({ lon: stop.lon, lat: stop.lat, zoom: 16 });
             }}
           />
         </header>
 
-        {selectedVehicle ? (
-          <VehiclePanel
-            vehicle={selectedVehicle}
-            trip={vehicleTrip}
-            tripLoading={vehicleTripLoading}
-            now={now}
-            routes={routesById}
-            onShowStop={(stopId) => {
-              setSelectedVehicleId(null);
-              setSelectedStopId(stopId);
-            }}
-            onShowRoute={openRoute}
-            onClose={() => setSelectedVehicleId(null)}
-          />
-        ) : selectedStopId ? (
-          <StopPanel
-            stopId={selectedStopId}
-            now={now}
-            load={source.stop}
-            routes={routesById}
-            onPlanFromHere={(detail) => planFromStop(detail, 'origin')}
-            onPlanToHere={(detail) => planFromStop(detail, 'destination')}
-            onShowRoute={openRoute}
-            onRoutesLoaded={setHighlightRouteIds}
-            onClose={() => setSelectedStopId(null)}
-          />
-        ) : (
-          <>
-            <nav className="tabs" role="tablist">
-              {(Object.keys(TAB_LABELS) as Tab[]).map((id) => (
+        <nav className="tabs" role="tablist">
+          {(Object.keys(TAB_LABELS) as Tab[]).map((id) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              className={`tab${tab === id ? ' is-active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              {TAB_LABELS[id]}
+              {id === 'alerts' && activeAlertCount > 0 && (
+                <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
+                  {activeAlertCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sheet__body">
+          {tab === 'plan' && (
+            <div className="plan-tab">
+              <PlaceSearch
+                label="From"
+                search={source.geocode}
+                value={origin}
+                placeholder="Starting point"
+                near={mapCentre}
+                onChange={setOrigin}
+                onUseCurrentLocation={() => useCurrentLocation('origin')}
+                onPickOnMap={() => setMapPickTarget('origin')}
+                awaitingMapPick={mapPickTarget === 'origin'}
+              />
+              <PlaceSearch
+                label="To"
+                search={source.geocode}
+                value={destination}
+                placeholder="Where are you going?"
+                near={mapCentre}
+                onChange={setDestination}
+                onUseCurrentLocation={() => useCurrentLocation('destination')}
+                onPickOnMap={() => setMapPickTarget('destination')}
+                awaitingMapPick={mapPickTarget === 'destination'}
+              />
+
+              {origin && destination && (
                 <button
-                  key={id}
-                  role="tab"
-                  aria-selected={tab === id}
-                  className={`tab${tab === id ? ' is-active' : ''}`}
-                  onClick={() => setTab(id)}
+                  type="button"
+                  className="swap-button"
+                  onClick={() => {
+                    const previous = origin;
+                    setOrigin(destination);
+                    setDestination(previous);
+                  }}
                 >
-                  {TAB_LABELS[id]}
-                  {id === 'alerts' && activeAlertCount > 0 && (
-                    <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
-                      {activeAlertCount}
-                    </span>
-                  )}
+                  Swap start and destination
                 </button>
-              ))}
-            </nav>
-
-            <div className="sheet__body">
-              {tab === 'plan' && (
-                <div className="plan-tab">
-                  <PlaceSearch
-                    label="From"
-                    search={source.geocode}
-                    value={origin}
-                    placeholder="Starting point"
-                    near={mapCentre}
-                    onChange={setOrigin}
-                    onUseCurrentLocation={() => useCurrentLocation('origin')}
-                    onPickOnMap={() => setMapPickTarget('origin')}
-                    awaitingMapPick={mapPickTarget === 'origin'}
-                  />
-                  <PlaceSearch
-                    label="To"
-                    search={source.geocode}
-                    value={destination}
-                    placeholder="Where are you going?"
-                    near={mapCentre}
-                    onChange={setDestination}
-                    onUseCurrentLocation={() => useCurrentLocation('destination')}
-                    onPickOnMap={() => setMapPickTarget('destination')}
-                    awaitingMapPick={mapPickTarget === 'destination'}
-                  />
-
-                  {origin && destination && (
-                    <button
-                      type="button"
-                      className="swap-button"
-                      onClick={() => {
-                        const previous = origin;
-                        setOrigin(destination);
-                        setDestination(previous);
-                      }}
-                    >
-                      Swap start and destination
-                    </button>
-                  )}
-
-                  {planning && <div className="panel-loading">Finding the best way there…</div>}
-
-                  {!planning && planMessage && <p className="panel-empty">{planMessage}</p>}
-
-                  {!planning && itineraries.length > 0 && (
-                    <>
-                      <ul className="itinerary-list">
-                        {itineraries.map((itinerary, index) => (
-                          <li key={`${itinerary.departureTime}-${index}`}>
-                            <ItinerarySummary
-                              itinerary={itinerary}
-                              selected={selectedItinerary === index}
-                              now={now}
-                              onSelect={() => setSelectedItinerary(index)}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-
-                      {chosen && (
-                        <>
-                          <LeaveNudge state={leave} now={now} />
-                          <div className="plan-actions">
-                            <button type="button" className="journey-start" onClick={startJourney}>
-                              <span aria-hidden="true">▶</span>
-                              Watch this trip
-                            </button>
-                            {origin && destination && (
-                              <button
-                                type="button"
-                                className={`chip${savedCurrent ? ' chip--primary' : ''}`}
-                                aria-pressed={Boolean(savedCurrent)}
-                                title={
-                                  savedCurrent
-                                    ? 'Saved on this device. Tap to forget it.'
-                                    : 'Keep this trip, and track how its buses and trains run'
-                                }
-                                onClick={() =>
-                                  savedCurrent ? saved.remove(savedCurrent.id) : saved.save(origin, destination, chosen)
-                                }
-                              >
-                                <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
-                              </button>
-                            )}
-                            {origin && destination && (
-                              <ShareButton
-                                url={shareUrl({ from: origin, to: destination })}
-                                title={`${origin.name} to ${destination.name}`}
-                                note={
-                                  origin.kind === 'current-location'
-                                    ? 'your location is left out; they plan from theirs'
-                                    : undefined
-                                }
-                              />
-                            )}
-                          </div>
-                          <ItineraryDetail
-                            itinerary={chosen}
-                            now={now}
-                            onShowVehicle={setSelectedVehicleId}
-                            onShowStop={setSelectedStopId}
-                          />
-                        </>
-                      )}
-                    </>
-                  )}
-
-                  {!origin && !destination && !planning && (
-                    <SavedTrips
-                      trips={saved.trips}
-                      summaries={reliability}
-                      onOpen={openSavedTrip}
-                      onRemove={saved.remove}
-                    />
-                  )}
-
-                  {!origin && !destination && !planning && (
-                    <p className="panel-hint">
-                      Pick a destination to see the fastest way there, with live vehicle positions
-                      along the way. You can also tap any stop or vehicle on the map.
-                    </p>
-                  )}
-                </div>
               )}
 
-              {tab === 'nearby' && (
-                <div className="nearby-tab">
-                  <button type="button" className="chip" onClick={() => useCurrentLocation('origin')}>
-                    Centre on my location
-                  </button>
-                  {nearbyStops.length === 0 ? (
-                    <p className="panel-empty">No stops in view. Pan or zoom the map.</p>
-                  ) : (
-                    <ul className="stop-list">
-                      {nearbyStops.map((stop) => (
-                        <li key={stop.id}>
+              {planning && <div className="panel-loading">Finding the best way there…</div>}
+
+              {!planning && planMessage && <p className="panel-empty">{planMessage}</p>}
+
+              {!planning && itineraries.length > 0 && (
+                <>
+                  <ul className="itinerary-list">
+                    {itineraries.map((itinerary, index) => (
+                      <li key={`${itinerary.departureTime}-${index}`}>
+                        <ItinerarySummary
+                          itinerary={itinerary}
+                          selected={selectedItinerary === index}
+                          now={now}
+                          onSelect={() => setSelectedItinerary(index)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+
+                  {chosen && (
+                    <>
+                      <LeaveNudge state={leave} now={now} />
+                      <div className="plan-actions">
+                        <button type="button" className="journey-start" onClick={startJourney}>
+                          <span aria-hidden="true">▶</span>
+                          Watch this trip
+                        </button>
+                        {origin && destination && (
                           <button
                             type="button"
-                            className="stop-list__item"
-                            onClick={() => setSelectedStopId(stop.id)}
+                            className={`chip${savedCurrent ? ' chip--primary' : ''}`}
+                            aria-pressed={Boolean(savedCurrent)}
+                            title={
+                              savedCurrent
+                                ? 'Saved on this device. Tap to forget it.'
+                                : 'Keep this trip, and track how its buses and trains run'
+                            }
+                            onClick={() =>
+                              savedCurrent ? saved.remove(savedCurrent.id) : saved.save(origin, destination, chosen)
+                            }
                           >
-                            <span className="stop-list__text">
-                              <span className="stop-list__name">{stop.name}</span>
-                              <span className="stop-list__meta">
-                                {stop.distance !== undefined && `${stop.distance} m away`}
-                              </span>
-                            </span>
-                            <span className="stop-list__routes">
-                              {(stop.routes ?? []).slice(0, 5).map((route) => (
-                                <RouteBadge key={route.id} route={route} size="small" />
-                              ))}
-                            </span>
+                            <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
                           </button>
-                        </li>
-                      ))}
-                    </ul>
+                        )}
+                        {origin && destination && (
+                          <ShareButton
+                            url={shareUrl({ from: origin, to: destination })}
+                            title={`${origin.name} to ${destination.name}`}
+                            note={
+                              origin.kind === 'current-location'
+                                ? 'your location is left out; they plan from theirs'
+                                : undefined
+                            }
+                          />
+                        )}
+                      </div>
+                      <ItineraryDetail
+                        itinerary={chosen}
+                        now={now}
+                        onShowVehicle={(vehicleId) => showVehicle(vehicleId)}
+                        onShowStop={showStop}
+                      />
+                    </>
                   )}
-                </div>
+                </>
               )}
 
-              {tab === 'routes' && (
-                <RoutesTab
-                  routes={routes}
-                  activeRouteId={activeRouteId}
-                  activeDetail={activeRouteDetail}
-                  alertCounts={alertCounts}
-                  now={now}
-                  routesById={routesById}
-                  onSelect={showRoute}
-                  onClear={clearRoute}
-                  onShowRoute={openRoute}
+              {!origin && !destination && !planning && (
+                <SavedTrips
+                  trips={saved.trips}
+                  summaries={reliability}
+                  onOpen={openSavedTrip}
+                  onRemove={saved.remove}
                 />
               )}
 
-              {tab === 'alerts' && (
-                <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
+              {!origin && !destination && !planning && (
+                <p className="panel-hint">
+                  Pick a destination to see the fastest way there, with live vehicle positions
+                  along the way. You can also tap any stop or vehicle on the map.
+                </p>
               )}
             </div>
-          </>
-        )}
+          )}
+
+          {tab === 'nearby' && (
+            <div className="nearby-tab">
+              <button type="button" className="chip" onClick={() => useCurrentLocation('origin')}>
+                Centre on my location
+              </button>
+              {nearbyStops.length === 0 ? (
+                <p className="panel-empty">No stops in view. Pan or zoom the map.</p>
+              ) : (
+                <ul className="stop-list">
+                  {nearbyStops.map((stop) => (
+                    <li key={stop.id}>
+                      <button
+                        type="button"
+                        className="stop-list__item"
+                        onClick={() => showStop(stop.id)}
+                      >
+                        <span className="stop-list__text">
+                          <span className="stop-list__name">{stop.name}</span>
+                          <span className="stop-list__meta">
+                            {stop.distance !== undefined && `${stop.distance} m away`}
+                          </span>
+                        </span>
+                        <span className="stop-list__routes">
+                          {(stop.routes ?? []).slice(0, 5).map((route) => (
+                            <RouteBadge key={route.id} route={route} size="small" />
+                          ))}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {tab === 'routes' && (
+            <RoutesTab
+              routes={routes}
+              activeRouteId={activeRouteId}
+              activeDetail={activeRouteDetail}
+              alertCounts={alertCounts}
+              now={now}
+              routesById={routesById}
+              onSelect={showRoute}
+              onClear={clearRoute}
+              onShowRoute={openRoute}
+            />
+          )}
+
+          {tab === 'alerts' && (
+            <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
+          )}
+        </div>
       </div>
+
+      {detailOpen && (
+        <DetailPanel
+          kind={selectedVehicleId ? 'vehicle' : 'stop'}
+          selectionKey={selectedVehicleId ?? selectedStopId ?? ''}
+          accent={selectedVehicleId ? selectedVehicle?.color : undefined}
+          onClose={closeDetail}
+        >
+          {selectedVehicleId ? (
+            selectedVehicle ? (
+              <VehiclePanel
+                vehicle={selectedVehicle}
+                trip={vehicleTrip}
+                tripLoading={vehicleTripLoading}
+                now={now}
+                routes={routesById}
+                onShowStop={showStop}
+                onShowRoute={openRoute}
+              />
+            ) : (
+              <p className="panel-empty">
+                Waiting for this vehicle to report its position. If it has just finished its trip, it may not
+                appear again.
+              </p>
+            )
+          ) : selectedStopId ? (
+            <StopPanel
+              stopId={selectedStopId}
+              now={now}
+              load={source.stopBoard}
+              routes={routesById}
+              onPlanFromHere={(detail) => planFromStop(detail, 'origin')}
+              onPlanToHere={(detail) => planFromStop(detail, 'destination')}
+              onShowRoute={openRoute}
+              onShowVehicle={showVehicle}
+              onRoutesLoaded={setHighlightRouteIds}
+              onLoaded={(detail) =>
+                setStopPin({ id: detail.stop.id, name: detail.stop.name, lat: detail.stop.lat, lon: detail.stop.lon })
+              }
+            />
+          ) : null}
+        </DetailPanel>
+      )}
     </div>
   );
 }
