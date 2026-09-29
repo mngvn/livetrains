@@ -50,6 +50,8 @@ export interface LeaveState {
   leg: TransitLeg | null;
   /** Whether the time comes from a live prediction. */
   live: boolean;
+  /** The feed has cancelled the trip this depends on. */
+  cancelled: boolean;
   armed: boolean;
   arm: () => Promise<void>;
   disarm: () => void;
@@ -65,6 +67,7 @@ export function useLeaveReminder(
 ): LeaveState {
   const leg = useMemo(() => (itinerary ? firstTransitLeg(itinerary) : null), [itinerary]);
   const [predicted, setPredicted] = useState<{ tripId: string; time: number } | null>(null);
+  const [cancelledTrip, setCancelledTrip] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [fired, setFired] = useState(false);
   const firedFor = useRef<string | null>(null);
@@ -75,6 +78,7 @@ export function useLeaveReminder(
     setArmed(false);
     setFired(false);
     setPredicted(null);
+    setCancelledTrip(null);
     firedFor.current = null;
   }, [tripKey]);
 
@@ -86,7 +90,8 @@ export function useLeaveReminder(
       load(leg.from.id, 20, controller.signal)
         .then((detail) => {
           const match = detail.departures.find((d) => d.tripId === leg.tripId);
-          if (match && match.isRealtime) setPredicted({ tripId: leg.tripId, time: match.expectedTime });
+          setCancelledTrip(match?.cancelled ? leg.tripId : null);
+          if (match && match.isRealtime && !match.cancelled) setPredicted({ tripId: leg.tripId, time: match.expectedTime });
         })
         .catch(() => undefined);
     };
@@ -99,17 +104,18 @@ export function useLeaveReminder(
   }, [leg, load]);
 
   const live = Boolean(leg && predicted && predicted.tripId === leg.tripId);
+  const cancelled = Boolean(leg && cancelledTrip === leg.tripId);
   const leaveAt = itinerary && leg ? leaveBy(itinerary, live ? predicted!.time : undefined) : null;
 
   // Go off once, a couple of minutes before leave-by.
   useEffect(() => {
-    if (!armed || leaveAt === null || !leg || !tripKey) return;
+    if (!armed || leaveAt === null || !leg || !tripKey || cancelledTrip === leg.tripId) return;
     if (now < leaveAt - REMIND_BEFORE_SECONDS || firedFor.current === tripKey) return;
     firedFor.current = tripKey;
     setFired(true);
     setArmed(false);
     void notify(leg, leaveAt, now);
-  }, [armed, leaveAt, now, leg, tripKey]);
+  }, [armed, leaveAt, now, leg, tripKey, cancelledTrip]);
 
   const arm = useCallback(async () => {
     // Asked for at the moment the rider taps, which is when browsers allow
@@ -128,7 +134,7 @@ export function useLeaveReminder(
   const disarm = useCallback(() => setArmed(false), []);
   const dismiss = useCallback(() => setFired(false), []);
 
-  return { leaveAt, leg, live, armed, arm, disarm, fired, dismiss };
+  return { leaveAt, leg, live, cancelled, armed, arm, disarm, fired, dismiss };
 }
 
 /** The system notification, where the browser allows one. */

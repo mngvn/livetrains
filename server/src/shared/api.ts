@@ -106,6 +106,10 @@ export interface Departure {
   skipped?: boolean;
   /** Whether this particular trip is run with an accessible vehicle. */
   wheelchair?: Accessibility;
+  /** The whole trip has been cancelled. Still listed, so nobody waits for it. */
+  cancelled?: boolean;
+  /** Its vehicle is standing at this stop right now. */
+  atStop?: boolean;
 }
 
 /** A vehicle's current position, as broadcast on the SSE stream. */

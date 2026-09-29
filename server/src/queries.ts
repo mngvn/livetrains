@@ -74,6 +74,8 @@ export function stopDetail(
   realtime: RealtimeState,
   stopId: string,
   limit: number,
+  /** The whole rest of the service day, for the departure board. */
+  restOfServiceDay = false,
 ): StopDetail | null {
   const stopIndex = store.stopIndexById.get(stopId);
   if (stopIndex === undefined) return null;
@@ -87,7 +89,7 @@ export function stopDetail(
   const detail: StopDetail = {
     stop: stopWithRoutes(store, stopIndex),
     groupedStopIds: indices.map((i) => store.stops[i].id),
-    departures: departuresForStops(store, patterns, realtime, indices, { limit }),
+    departures: departuresForStops(store, patterns, realtime, indices, { limit, restOfServiceDay }),
     alerts: realtime.alertsForStop(
       indices.map((i) => store.stops[i].id),
       routes.map((route) => route.id),

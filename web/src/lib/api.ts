@@ -58,6 +58,12 @@ export class ApiError extends Error {
 }
 
 /** Where a user-chosen API address is remembered. */
+/**
+ * How many departures the full board asks for. The engine caps a day's board
+ * at 600 anyway; this only needs to be at least that.
+ */
+export const BOARD_LIMIT = 600;
+
 const API_OVERRIDE_KEY = 'livetrains.apiUrl';
 
 /**
@@ -139,6 +145,9 @@ export const api = {
 
   stop: (stopId: string, limit = 15, signal?: AbortSignal) =>
     get<StopDetail>(`/api/stops/${encodeURIComponent(stopId)}`, { limit }, signal),
+
+  stopBoard: (stopId: string, signal?: AbortSignal) =>
+    get<StopDetail>(`/api/stops/${encodeURIComponent(stopId)}`, { limit: BOARD_LIMIT, day: 1 }, signal),
 
   vehicles: (signal?: AbortSignal) =>
     get<{ vehicles: Vehicle[]; timestamp: number | null }>('/api/vehicles', undefined, signal),

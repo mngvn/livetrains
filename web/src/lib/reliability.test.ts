@@ -50,6 +50,11 @@ group('observationsFrom', () => {
     expect(rows).toEqual([]);
   });
 
+  it('records a cancelled trip as one that did not come', () => {
+    const rows = observationsFrom('s', [departure({ isRealtime: false, cancelled: true })], new Set(['21|0']), NOW);
+    expect(rows[0].skipped).toBe(true);
+  });
+
   it('records a skipped stop even without a prediction', () => {
     const rows = observationsFrom('s', [departure({ isRealtime: false, skipped: true })], new Set(['21|0']), NOW);
     expect(rows[0].skipped).toBe(true);

@@ -90,7 +90,7 @@ describe('departuresForStops', () => {
     expect(match!.expectedTime).toBe(before.scheduledTime + 180);
   });
 
-  it('hides cancelled trips', () => {
+  it('keeps cancelled trips, marked, so nobody waits for them', () => {
     const now = todayAt(11);
     const [before] = departuresForStops(store, patterns, realtime, [govPlaza], { now, limit: 1 });
 
@@ -100,7 +100,61 @@ describe('departuresForStops', () => {
     ]);
 
     const after = departuresForStops(store, patterns, local, [govPlaza], { now, limit: 10 });
-    expect(after.some((d) => d.tripId === before.tripId)).toBe(false);
+    const match = after.find((d) => d.tripId === before.tripId);
+    expect(match).toBeDefined();
+    expect(match!.cancelled).toBe(true);
+    // A cancelled trip has no prediction; it is listed at its timetable time.
+    expect(match!.expectedTime).toBe(match!.scheduledTime);
+    expect(after.filter((d) => d.tripId !== before.tripId).every((d) => !d.cancelled)).toBe(true);
+  });
+
+  it('lists the whole rest of the service day on request', () => {
+    const now = todayAt(9);
+    const short = departuresForStops(store, patterns, realtime, [govPlaza], { now, limit: 600 });
+    const day = departuresForStops(store, patterns, realtime, [govPlaza], {
+      now,
+      limit: 600,
+      restOfServiceDay: true,
+    });
+    // The default three-hour board is a strict prefix of the day's.
+    expect(day.length).toBeGreaterThan(short.length);
+    expect(day.slice(0, short.length).map((d) => d.tripId)).toEqual(short.map((d) => d.tripId));
+    // Well into the evening, and never into tomorrow's service.
+    expect(day[day.length - 1].scheduledTime).toBeGreaterThan(todayAt(21));
+    expect(day.every((d) => d.scheduledTime < todayAt(28))).toBe(true);
+    for (let i = 1; i < day.length; i++) expect(day[i].expectedTime).toBeGreaterThanOrEqual(day[i - 1].expectedTime);
+  });
+
+  it('says a vehicle is at the stop when it is standing there', () => {
+    const now = todayAt(12);
+    const [next] = departuresForStops(store, patterns, realtime, [govPlaza], { now, limit: 1 });
+    const stop = store.stops[govPlaza];
+    const vehicle = {
+      id: 'v1',
+      tripId: next.tripId,
+      routeId: next.routeId,
+      lat: stop.lat + 0.0001,
+      lon: stop.lon,
+      timestamp: now,
+      mode: next.mode,
+      color: next.color,
+      stopId: stop.id,
+    };
+
+    const local = new RealtimeState();
+    local.setVehicles([vehicle as never]);
+    const [atStop] = departuresForStops(store, patterns, local, [govPlaza], { now, limit: 1 });
+    expect(atStop.atStop).toBe(true);
+
+    // Named as its stop but still a few hundred metres off: arriving, not there.
+    const farther = new RealtimeState();
+    farther.setVehicles([{ ...vehicle, lat: stop.lat + 0.004 } as never]);
+    expect(departuresForStops(store, patterns, farther, [govPlaza], { now, limit: 1 })[0].atStop).toBeUndefined();
+
+    // The feed's own "in transit" overrides a coincidence of distance.
+    const moving = new RealtimeState();
+    moving.setVehicles([{ ...vehicle, currentStatus: 'in-transit' } as never]);
+    expect(departuresForStops(store, patterns, moving, [govPlaza], { now, limit: 1 })[0].atStop).toBeUndefined();
   });
 
   it('does not list a departure from the last stop of a trip', () => {

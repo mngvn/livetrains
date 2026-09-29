@@ -1,5 +1,6 @@
 import {
   api,
+  BOARD_LIMIT,
   getApiBase,
   type StopDetail,
   type RouteDetail,
@@ -86,6 +87,8 @@ export interface DataSource {
   nearbyStops(lat: number, lon: number, radius?: number, limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stopsWithin(bbox: [number, number, number, number], limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stop(stopId: string, limit?: number, signal?: AbortSignal): Promise<StopDetail>;
+  /** A stop with its full departure board: everything left in the service day. */
+  stopBoard(stopId: string, signal?: AbortSignal): Promise<StopDetail>;
   vehicleTrip(vehicleId: string, signal?: AbortSignal): Promise<VehicleTrip | null>;
   search(q: string, limit?: number, signal?: AbortSignal): Promise<TransitSearchResult[]>;
   geocode(q: string, near?: { lat: number; lon: number }, signal?: AbortSignal): Promise<Place[]>;
@@ -130,6 +133,8 @@ class BrowserSource implements DataSource {
   stopsWithin = (bbox: [number, number, number, number], limit = 300) =>
     this.engine.request<StopSummary[]>('stopsWithin', { bbox: bbox.join(','), limit });
   stop = (stopId: string, limit = 15) => this.engine.request<StopDetail>('stop', { stopId, limit });
+  stopBoard = (stopId: string) =>
+    this.engine.request<StopDetail>('stop', { stopId, limit: BOARD_LIMIT, day: true });
   vehicleTrip = (vehicleId: string) => this.engine.request<VehicleTrip | null>('vehicleTrip', { vehicleId });
   search = (q: string, limit = 12) => this.engine.request<TransitSearchResult[]>('search', { q, limit });
   geocode = (q: string, near?: { lat: number; lon: number }) =>
@@ -178,6 +183,7 @@ class ServerSource implements DataSource {
   nearbyStops = api.nearbyStops;
   stopsWithin = api.stopsWithin;
   stop = api.stop;
+  stopBoard = api.stopBoard;
   vehicleTrip = api.vehicleTrip;
   search = api.search;
   geocode = api.geocode;
