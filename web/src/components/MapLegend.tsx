@@ -22,9 +22,10 @@ interface Props {
   onToggleBeams: () => void;
   grouped: boolean;
   onToggleGrouped: () => void;
+  onReplayTour: () => void;
 }
 
-export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped }: Props) {
+export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped, onReplayTour }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -192,6 +193,17 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
               </ul>
             </section>
           )}
+
+          <button
+            type="button"
+            className="text-button legend__tour"
+            onClick={() => {
+              setOpen(false);
+              onReplayTour();
+            }}
+          >
+            Take the tour again
+          </button>
         </div>
       )}
     </div>

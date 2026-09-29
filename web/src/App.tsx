@@ -44,6 +44,7 @@ import { useLeaveReminder } from './lib/leaveReminder.ts';
 import { SavedTrips } from './components/SavedTrips.tsx';
 import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
 import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
+import { Onboarding } from './components/Onboarding.tsx';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -65,6 +66,30 @@ type MapPickTarget = 'origin' | 'destination' | null;
 const WELCOME_MS = 1_800;
 
 const BASEMAP_KEY = 'livetrains.basemap';
+
+/** Set once the introduction has been seen or skipped. */
+const ONBOARDED_KEY = 'livetrains.onboarded';
+
+/**
+ * The trip the introduction plays: the length of the Green Line, downtown
+ * Minneapolis to downtown St Paul. One train, no transfer, a real walk at
+ * each end — every part of the playback in one short watch.
+ */
+const SAMPLE_TRIP: { from: Place; to: Place; label: string } = {
+  from: { id: 'sample-from', name: 'Target Field Station', lat: 44.9832, lon: -93.2777, kind: 'stop' },
+  to: { id: 'sample-to', name: 'Union Depot', lat: 44.9479, lon: -93.0855, kind: 'stop' },
+  label: 'Minneapolis to St Paul',
+};
+
+function shouldShowTour(): boolean {
+  try {
+    if (window.localStorage.getItem(ONBOARDED_KEY)) return false;
+  } catch {
+    return false;
+  }
+  // Someone arriving on a shared link came for that link, not a tour.
+  return !hasSharedState(readSharedState(window.location.search));
+}
 
 /** The remembered basemap, tolerating storage being unavailable or stale. */
 function readBasemap(): BasemapId {
@@ -188,6 +213,18 @@ export function App() {
   const [playingJourney, setPlayingJourney] = useState(false);
   useEffect(() => () => playback.dispose(), [playback]);
 
+  const [showTour, setShowTour] = useState(shouldShowTour);
+  /** Set by the tour's "Show me": play the sample as soon as it is planned. */
+  const playWhenPlanned = useRef(false);
+  const closeTour = useCallback(() => {
+    setShowTour(false);
+    try {
+      window.localStorage.setItem(ONBOARDED_KEY, '1');
+    } catch {
+      // Seen again next visit; not worth failing over.
+    }
+  }, []);
+
   /**
    * Holds the welcome on screen long enough to finish playing.
    *
@@ -221,6 +258,13 @@ export function App() {
     setPlayingJourney(true);
     playback.play();
   }, [chosen, playback]);
+
+  // The tour's sample trip, played the moment its plan is in.
+  useEffect(() => {
+    if (!playWhenPlanned.current || planning || !chosen) return;
+    playWhenPlanned.current = false;
+    startJourney();
+  }, [planning, chosen, startJourney]);
 
   const endJourney = useCallback(() => {
     playback.load(null);
@@ -740,7 +784,32 @@ export function App() {
         onTheme={theme.setChoice}
       />
 
+      {showTour && (
+        <Onboarding
+          onClose={closeTour}
+          sampleLabel={SAMPLE_TRIP.label}
+          onPlaySample={
+            // Only where the sample trip is actually in this agency's area.
+            [SAMPLE_TRIP.from, SAMPLE_TRIP.to].every(
+              (p) => p.lon >= agency.bbox[0] && p.lon <= agency.bbox[2] && p.lat >= agency.bbox[1] && p.lat <= agency.bbox[3],
+            )
+              ? () => {
+                  closeTour();
+                  setSelectedStopId(null);
+                  setSelectedVehicleId(null);
+                  setTab('plan');
+                  if (panelHidden) togglePanel();
+                  playWhenPlanned.current = true;
+                  setOrigin(SAMPLE_TRIP.from);
+                  setDestination(SAMPLE_TRIP.to);
+                }
+              : undefined
+          }
+        />
+      )}
+
       <MapLegend
+        onReplayTour={() => setShowTour(true)}
         routes={routes}
         beams={beamsVisible}
         onToggleBeams={toggleBeams}

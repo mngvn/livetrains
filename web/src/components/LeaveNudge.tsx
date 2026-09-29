@@ -34,7 +34,7 @@ export function LeaveNudge({ state, now }: { state: LeaveState; now: number }) {
       <div className="leave-nudge__text">
         <strong className="leave-nudge__headline">{headline}</strong>
         <span className="leave-nudge__detail">
-          by {clockTime(leaveAt)} to catch the {leg.route.shortName} at {leg.from.name}
+          by {clockTime(leaveAt)}, a minute to spare, for the {leg.route.shortName} at {leg.from.name}
           {live ? ' · live' : ' · scheduled'}
         </span>
       </div>
