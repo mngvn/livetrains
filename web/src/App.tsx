@@ -4,6 +4,7 @@ import {
   type FeedStatus,
   type Itinerary,
   type Place,
+  type RouteDetail,
   type RouteNetwork,
   type RouteSummary,
   type StopDetail,
@@ -13,7 +14,8 @@ import {
 import { VehicleTracker, type StreamStatus } from './lib/vehicleTracker.ts';
 import { createDataSource, type EngineStatus } from './lib/dataSource.ts';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
-import { TransitMap } from './components/TransitMap.tsx';
+import { TransitMap, type CameraTarget, type MapPadding } from './components/TransitMap.tsx';
+import { TransitSearch } from './components/TransitSearch.tsx';
 import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
 import { StopPanel } from './components/StopPanel.tsx';
@@ -28,10 +30,30 @@ import { JourneyPlayback } from './lib/journeyPlayback.ts';
 import { buildJourney } from './lib/journey.ts';
 import { WalkRouter } from './lib/walkRouter.ts';
 import { refineWalks } from './lib/refineWalks.ts';
+import { useVehicleTrip } from './lib/useVehicleTrip.ts';
+import { routeWideAlertCounts, useAlerts } from './lib/useAlerts.ts';
+import { isActive } from './lib/alerts.ts';
+import { RoutesTab } from './components/RoutesTab.tsx';
+import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
-import { modeLabel } from './lib/format.ts';
+import { useTheme } from './lib/theme.ts';
+import { hasSharedState, readSharedState, shareUrl, writeSharedState } from './lib/shareLink.ts';
+import { ShareButton } from './components/ShareButton.tsx';
+import { useReliability, useReliabilityRecorder, useSavedTrips, type SavedTrip } from './lib/savedTrips.ts';
+import { useLeaveReminder } from './lib/leaveReminder.ts';
+import { SavedTrips } from './components/SavedTrips.tsx';
+import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
+import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
+import { Onboarding } from './components/Onboarding.tsx';
 
-type Tab = 'plan' | 'nearby' | 'routes';
+type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
+
+const TAB_LABELS: Record<Tab, string> = {
+  plan: 'Plan',
+  nearby: 'Nearby',
+  routes: 'Routes',
+  alerts: 'Alerts',
+};
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
 
@@ -44,6 +66,30 @@ type MapPickTarget = 'origin' | 'destination' | null;
 const WELCOME_MS = 1_800;
 
 const BASEMAP_KEY = 'livetrains.basemap';
+
+/** Set once the introduction has been seen or skipped. */
+const ONBOARDED_KEY = 'livetrains.onboarded';
+
+/**
+ * The trip the introduction plays: the length of the Green Line, downtown
+ * Minneapolis to downtown St Paul. One train, no transfer, a real walk at
+ * each end — every part of the playback in one short watch.
+ */
+const SAMPLE_TRIP: { from: Place; to: Place; label: string } = {
+  from: { id: 'sample-from', name: 'Target Field Station', lat: 44.9832, lon: -93.2777, kind: 'stop' },
+  to: { id: 'sample-to', name: 'Union Depot', lat: 44.9479, lon: -93.0855, kind: 'stop' },
+  label: 'Minneapolis to St Paul',
+};
+
+function shouldShowTour(): boolean {
+  try {
+    if (window.localStorage.getItem(ONBOARDED_KEY)) return false;
+  } catch {
+    return false;
+  }
+  // Someone arriving on a shared link came for that link, not a tour.
+  return !hasSharedState(readSharedState(window.location.search));
+}
 
 /** The remembered basemap, tolerating storage being unavailable or stale. */
 function readBasemap(): BasemapId {
@@ -78,6 +124,10 @@ export function App() {
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [activeRoute, setActiveRoute] = useState<{ geometry: [number, number][]; color: string } | null>(null);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
+  /** The active route's full detail, for its alerts and operator. */
+  const [activeRouteDetail, setActiveRouteDetail] = useState<RouteDetail | null>(null);
+  /** Every route through the selected stop, lit up on the map. */
+  const [highlightRouteIds, setHighlightRouteIds] = useState<string[] | null>(null);
   /** Every route's drawn shape, for the faint underlay beneath the vehicles. */
   const [network, setNetwork] = useState<RouteNetwork | null>(null);
 
@@ -86,6 +136,8 @@ export function App() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
 
   const [viewport, setViewport] = useState<[number, number, number, number] | null>(null);
+  /** Where the camera has been asked to go, by search or a shared link. */
+  const [cameraTarget, setCameraTarget] = useState<CameraTarget | null>(null);
   const [stream, setStream] = useState<StreamStatus>({
     connected: false,
     vehicleCount: 0,
@@ -118,6 +170,14 @@ export function App() {
   const [beamsVisible, toggleBeams] = usePersistedFlag('livetrains.beams', true);
 
   /**
+   * Whether vehicles gather into counted groups at metro zoom.
+   *
+   * On by default: seven hundred markers at city scale are unreadable. Off
+   * for anyone who would rather see every dot and let the beams do the work.
+   */
+  const [groupVehicles, toggleGroupVehicles] = usePersistedFlag('livetrains.group', true);
+
+  /**
    * How the map looks: which background, and whether it is tilted.
    *
    * Remembered for the same reason the other view preferences are — someone
@@ -133,6 +193,7 @@ export function App() {
     }
   }, []);
   const [three, toggleThree] = usePersistedFlag('livetrains.three');
+  const theme = useTheme();
 
   /**
    * The journey playback clock.
@@ -151,6 +212,18 @@ export function App() {
   const walkRouter = useMemo(() => new WalkRouter(), []);
   const [playingJourney, setPlayingJourney] = useState(false);
   useEffect(() => () => playback.dispose(), [playback]);
+
+  const [showTour, setShowTour] = useState(shouldShowTour);
+  /** Set by the tour's "Show me": play the sample as soon as it is planned. */
+  const playWhenPlanned = useRef(false);
+  const closeTour = useCallback(() => {
+    setShowTour(false);
+    try {
+      window.localStorage.setItem(ONBOARDED_KEY, '1');
+    } catch {
+      // Seen again next visit; not worth failing over.
+    }
+  }, []);
 
   /**
    * Holds the welcome on screen long enough to finish playing.
@@ -177,6 +250,9 @@ export function App() {
     }
   }, [chosen, playback]);
 
+  /** Set when playback tucked the phone's bottom sheet away, to bring it back after. */
+  const hidPanelForJourney = useRef(false);
+
   const startJourney = useCallback(() => {
     if (!chosen) return;
     const journey = buildJourney(chosen);
@@ -184,14 +260,65 @@ export function App() {
     playback.load(journey);
     setPlayingJourney(true);
     playback.play();
-  }, [chosen, playback]);
+    // On a phone the sheet would cover most of the trip; tuck it away for
+    // the length of the playback.
+    if (!panelHidden && window.matchMedia('(max-width: 720px)').matches) {
+      hidPanelForJourney.current = true;
+      togglePanel();
+    }
+  }, [chosen, playback, panelHidden, togglePanel]);
+
+  // The tour's sample trip, played the moment its plan is in.
+  useEffect(() => {
+    if (!playWhenPlanned.current || planning || !chosen) return;
+    playWhenPlanned.current = false;
+    startJourney();
+  }, [planning, chosen, startJourney]);
 
   const endJourney = useCallback(() => {
     playback.load(null);
     setPlayingJourney(false);
-  }, [playback]);
+    if (hidPanelForJourney.current) {
+      hidPanelForJourney.current = false;
+      if (panelHidden) togglePanel();
+    }
+  }, [playback, panelHidden, togglePanel]);
 
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * How much of the map the panel covers: its right edge on a desktop, its
+   * top edge on a phone, nothing when it is tucked away. Measured rather than
+   * assumed, because the bottom sheet's height follows its content.
+   */
+  const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
+  const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!shellReady || !sheet) return;
+    const phone = window.matchMedia('(max-width: 720px)');
+    const measure = () => {
+      const rect = sheet.getBoundingClientRect();
+      const next: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+      if (!panelHidden) {
+        if (phone.matches) next.bottom = Math.max(0, Math.round(window.innerHeight - rect.top));
+        else next.left = Math.max(0, Math.round(rect.right));
+      }
+      setMapPadding((current) =>
+        Math.abs(current.bottom - next.bottom) < 8 && Math.abs(current.left - next.left) < 8 ? current : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(sheet);
+    window.addEventListener('resize', measure);
+    phone.addEventListener('change', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      phone.removeEventListener('change', measure);
+    };
+  }, [shellReady, panelHidden]);
 
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
@@ -248,6 +375,49 @@ export function App() {
       tracker.disconnect();
     };
   }, [tracker, source, agency?.hasVehicles]);
+
+  // --- Offline: last-known vehicles ----------------------------------------
+  const online = useOnline();
+  /** When the positions on the map were last live, once they are not. */
+  const [lastKnownAt, setLastKnownAt] = useState<number | null>(null);
+
+  // Put the last positions seen on the map straight away. On a good
+  // connection live ones replace them within seconds; offline, they are all
+  // there is, drawn faded and dated.
+  useEffect(() => {
+    if (!agency?.hasVehicles) return;
+    let cancelled = false;
+    void loadLastVehicles().then((saved) => {
+      if (cancelled || !saved) return;
+      tracker.restore(saved.vehicles);
+      setLastKnownAt((current) => current ?? saved.asOf);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tracker, agency?.hasVehicles]);
+
+  // Keep a copy of the live fleet, every half minute while it is live.
+  const lastLive = useRef<number | null>(null);
+  if (stream.connected && stream.lastUpdate !== null) lastLive.current = stream.lastUpdate;
+  useEffect(() => {
+    if (!stream.connected) {
+      // Losing the feed dates what is left on the map.
+      if (lastLive.current !== null) setLastKnownAt(lastLive.current);
+      return;
+    }
+    setLastKnownAt(null);
+    const save = () => {
+      const vehicles = tracker.snapshot();
+      if (vehicles.length > 0 && lastLive.current !== null) void saveLastVehicles(vehicles, lastLive.current);
+    };
+    const first = window.setTimeout(save, 5_000);
+    const timer = window.setInterval(save, 30_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [tracker, stream.connected]);
 
   // Keep the selected vehicle's details fresh as new positions arrive.
   useEffect(() => {
@@ -423,27 +593,135 @@ export function App() {
     [mapPickTarget],
   );
 
+  const clearRoute = useCallback(() => {
+    setActiveRouteId(null);
+    setActiveRoute(null);
+    setActiveRouteDetail(null);
+    tracker.setFilter({});
+  }, [tracker]);
+
   const showRoute = useCallback(
     (route: RouteSummary) => {
       if (activeRouteId === route.id) {
-        setActiveRouteId(null);
-        setActiveRoute(null);
-        tracker.setFilter({});
+        clearRoute();
         return;
       }
       setActiveRouteId(route.id);
+      setActiveRouteDetail(null);
       // Narrow the live stream to this route so the map shows only its vehicles.
       tracker.setFilter({ routeId: route.id });
       source
         .route(route.id)
         .then((detail) => {
+          setActiveRouteDetail(detail);
           const direction = detail.directions[0];
           if (direction) setActiveRoute({ geometry: direction.geometry, color: detail.route.color });
         })
         .catch(() => undefined);
     },
-    [activeRouteId, tracker, source],
+    [activeRouteId, tracker, source, clearRoute],
   );
+
+  /** Routes by id, for drawing badges wherever only an id is at hand. */
+  const routesById = useMemo(() => new Map(routes.map((route) => [route.id, route])), [routes]);
+
+  /**
+   * Opens a route from anywhere — a stop's lines, an alert, a vehicle.
+   *
+   * Unlike tapping it in the route list, this never toggles it off: arriving
+   * at a route from somewhere else should always show it.
+   */
+  const openRoute = useCallback(
+    (routeId: string) => {
+      const route = routesById.get(routeId);
+      if (!route) return;
+      setSelectedStopId(null);
+      setSelectedVehicleId(null);
+      setTab('routes');
+      if (activeRouteId !== routeId) showRoute(route);
+    },
+    [routesById, activeRouteId, showRoute],
+  );
+
+  const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
+
+  const alerts = useAlerts(source.alerts, engine.state === 'ready');
+  const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
+  const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
+
+  // --- Saved trips, their history, and when to leave ------------------------
+  const saved = useSavedTrips();
+  const reliabilityVersion = useReliabilityRecorder(source.stop, saved.trips, engine.state === 'ready');
+  const reliability = useReliability(saved.trips, reliabilityVersion);
+  const savedCurrent = saved.find(origin, destination);
+  const leave = useLeaveReminder(chosen, source.stop, now);
+
+  const openSavedTrip = useCallback(
+    (trip: SavedTrip) => {
+      // "From where I am" is re-read every time, not frozen where it was saved.
+      if (trip.from.kind === 'current-location') useCurrentLocation('origin');
+      else setOrigin(trip.from);
+      setDestination(trip.to);
+      setTab('plan');
+    },
+    [useCurrentLocation],
+  );
+
+  // Say it in the tab title too: a reminder is most useful when the rider is
+  // looking at some other tab.
+  useEffect(() => {
+    if (!leave.fired) return;
+    const previous = document.title;
+    document.title = '⏰ Time to leave · livetrains';
+    return () => {
+      document.title = previous;
+    };
+  }, [leave.fired]);
+
+  // --- Shared links ---------------------------------------------------------
+  /** What the page was opened with, read once. */
+  const shared = useMemo(() => readSharedState(window.location.search), []);
+  /** Until a link has been applied, the URL is left alone rather than wiped. */
+  const sharedApplied = useRef(!hasSharedState(shared));
+
+  useEffect(() => {
+    if (sharedApplied.current || engine.state !== 'ready' || !agency) return;
+    // A route can only be opened once the route list is in.
+    if (shared.route && routes.length === 0) return;
+    sharedApplied.current = true;
+    if (shared.from) setOrigin(shared.from);
+    if (shared.to) setDestination(shared.to);
+    if (shared.from || shared.to) setTab('plan');
+    if (shared.route) openRoute(shared.route);
+    if (shared.stop && !(shared.from && shared.to)) {
+      const stopId = shared.stop;
+      setSelectedStopId(stopId);
+      source
+        .stop(stopId, 1)
+        .then((detail) => setCameraTarget({ lon: detail.stop.lon, lat: detail.stop.lat, zoom: 16 }))
+        .catch(() => undefined);
+    }
+  }, [shared, engine.state, agency, routes.length, openRoute, source]);
+
+  // Keep the address bar describing what is on screen, so copying it from
+  // the browser shares exactly this view. Replaced, not pushed: every stop
+  // tapped should not become a step in the back button's history.
+  useEffect(() => {
+    if (!sharedApplied.current) return;
+    const query = writeSharedState(
+      {
+        from: origin ?? undefined,
+        to: destination ?? undefined,
+        stop: selectedStopId ?? undefined,
+        route: activeRouteId ?? undefined,
+      },
+      window.location.search,
+    );
+    const next = `${window.location.pathname}${query}${window.location.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+      window.history.replaceState(window.history.state, '', next);
+    }
+  }, [origin, destination, selectedStopId, activeRouteId]);
 
   const planFromStop = useCallback((detail: StopDetail, target: 'origin' | 'destination') => {
     const place: Place = {
@@ -515,10 +793,28 @@ export function App() {
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
         showBeams={beamsVisible}
+        groupVehicles={groupVehicles}
         basemap={basemap}
+        dark={theme.resolved === 'dark'}
         three={three}
         playback={playback}
         focusJourney={playingJourney}
+        highlightRouteIds={selectedStopId ? highlightRouteIds : null}
+        vehicleTrip={selectedVehicleId ? vehicleTrip : null}
+        vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
+        cameraTarget={cameraTarget}
+        padding={mapPadding}
+      />
+
+      <LeaveBanner
+        state={leave}
+        onShowTrip={() => {
+          leave.dismiss();
+          setSelectedStopId(null);
+          setSelectedVehicleId(null);
+          setTab('plan');
+          if (panelHidden) togglePanel();
+        }}
       />
 
       {playingJourney && (
@@ -532,9 +828,42 @@ export function App() {
         onThree={(next) => {
           if (next !== three) toggleThree();
         }}
+        theme={theme.choice}
+        onTheme={theme.setChoice}
       />
 
-      <MapLegend routes={routes} beams={beamsVisible} onToggleBeams={toggleBeams} />
+      {showTour && (
+        <Onboarding
+          onClose={closeTour}
+          sampleLabel={SAMPLE_TRIP.label}
+          onPlaySample={
+            // Only where the sample trip is actually in this agency's area.
+            [SAMPLE_TRIP.from, SAMPLE_TRIP.to].every(
+              (p) => p.lon >= agency.bbox[0] && p.lon <= agency.bbox[2] && p.lat >= agency.bbox[1] && p.lat <= agency.bbox[3],
+            )
+              ? () => {
+                  closeTour();
+                  setSelectedStopId(null);
+                  setSelectedVehicleId(null);
+                  setTab('plan');
+                  if (panelHidden) togglePanel();
+                  playWhenPlanned.current = true;
+                  setOrigin(SAMPLE_TRIP.from);
+                  setDestination(SAMPLE_TRIP.to);
+                }
+              : undefined
+          }
+        />
+      )}
+
+      <MapLegend
+        onReplayTour={() => setShowTour(true)}
+        routes={routes}
+        beams={beamsVisible}
+        onToggleBeams={toggleBeams}
+        grouped={groupVehicles}
+        onToggleGrouped={toggleGroupVehicles}
+      />
 
       {panelHidden && (
         <button
@@ -595,24 +924,48 @@ export function App() {
               <span className="visually-hidden">Hide panel</span>
             </button>
           </div>
-          <StatusBar status={status} stream={stream} />
+          <StatusBar status={status} stream={stream} online={online} lastKnownAt={lastKnownAt} />
+          <TransitSearch
+            search={source.search}
+            onRoute={(route) => openRoute(route.id)}
+            onStop={(stop) => {
+              setSelectedVehicleId(null);
+              setSelectedStopId(stop.id);
+              setCameraTarget({ lon: stop.lon, lat: stop.lat, zoom: 16 });
+            }}
+          />
         </header>
 
         {selectedVehicle ? (
-          <VehiclePanel vehicle={selectedVehicle} onClose={() => setSelectedVehicleId(null)} />
+          <VehiclePanel
+            vehicle={selectedVehicle}
+            trip={vehicleTrip}
+            tripLoading={vehicleTripLoading}
+            now={now}
+            routes={routesById}
+            onShowStop={(stopId) => {
+              setSelectedVehicleId(null);
+              setSelectedStopId(stopId);
+            }}
+            onShowRoute={openRoute}
+            onClose={() => setSelectedVehicleId(null)}
+          />
         ) : selectedStopId ? (
           <StopPanel
             stopId={selectedStopId}
             now={now}
             load={source.stop}
+            routes={routesById}
             onPlanFromHere={(detail) => planFromStop(detail, 'origin')}
             onPlanToHere={(detail) => planFromStop(detail, 'destination')}
+            onShowRoute={openRoute}
+            onRoutesLoaded={setHighlightRouteIds}
             onClose={() => setSelectedStopId(null)}
           />
         ) : (
           <>
             <nav className="tabs" role="tablist">
-              {(['plan', 'nearby', 'routes'] as Tab[]).map((id) => (
+              {(Object.keys(TAB_LABELS) as Tab[]).map((id) => (
                 <button
                   key={id}
                   role="tab"
@@ -620,7 +973,12 @@ export function App() {
                   className={`tab${tab === id ? ' is-active' : ''}`}
                   onClick={() => setTab(id)}
                 >
-                  {id === 'plan' ? 'Plan a trip' : id === 'nearby' ? 'Nearby' : 'Routes'}
+                  {TAB_LABELS[id]}
+                  {id === 'alerts' && activeAlertCount > 0 && (
+                    <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
+                      {activeAlertCount}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -686,10 +1044,41 @@ export function App() {
 
                       {chosen && (
                         <>
-                          <button type="button" className="journey-start" onClick={startJourney}>
-                            <span aria-hidden="true">▶</span>
-                            Watch this trip
-                          </button>
+                          <LeaveNudge state={leave} now={now} />
+                          <div className="plan-actions">
+                            <button type="button" className="journey-start" onClick={startJourney}>
+                              <span aria-hidden="true">▶</span>
+                              Watch this trip
+                            </button>
+                            {origin && destination && (
+                              <button
+                                type="button"
+                                className={`chip${savedCurrent ? ' chip--primary' : ''}`}
+                                aria-pressed={Boolean(savedCurrent)}
+                                title={
+                                  savedCurrent
+                                    ? 'Saved on this device. Tap to forget it.'
+                                    : 'Keep this trip, and track how its buses and trains run'
+                                }
+                                onClick={() =>
+                                  savedCurrent ? saved.remove(savedCurrent.id) : saved.save(origin, destination, chosen)
+                                }
+                              >
+                                <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
+                              </button>
+                            )}
+                            {origin && destination && (
+                              <ShareButton
+                                url={shareUrl({ from: origin, to: destination })}
+                                title={`${origin.name} to ${destination.name}`}
+                                note={
+                                  origin.kind === 'current-location'
+                                    ? 'your location is left out; they plan from theirs'
+                                    : undefined
+                                }
+                              />
+                            )}
+                          </div>
                           <ItineraryDetail
                             itinerary={chosen}
                             now={now}
@@ -699,6 +1088,15 @@ export function App() {
                         </>
                       )}
                     </>
+                  )}
+
+                  {!origin && !destination && !planning && (
+                    <SavedTrips
+                      trips={saved.trips}
+                      summaries={reliability}
+                      onOpen={openSavedTrip}
+                      onRemove={saved.remove}
+                    />
                   )}
 
                   {!origin && !destination && !planning && (
@@ -746,38 +1144,21 @@ export function App() {
               )}
 
               {tab === 'routes' && (
-                <div className="routes-tab">
-                  {activeRouteId && (
-                    <button
-                      type="button"
-                      className="chip chip--primary"
-                      onClick={() => {
-                        setActiveRouteId(null);
-                        setActiveRoute(null);
-                        tracker.setFilter({});
-                      }}
-                    >
-                      Show all routes again
-                    </button>
-                  )}
-                  <ul className="route-list">
-                    {routes.map((route) => (
-                      <li key={route.id}>
-                        <button
-                          type="button"
-                          className={`route-list__item${activeRouteId === route.id ? ' is-active' : ''}`}
-                          onClick={() => showRoute(route)}
-                        >
-                          <RouteBadge route={route} />
-                          <span className="route-list__text">
-                            <span className="route-list__name">{route.longName || route.shortName}</span>
-                            <span className="route-list__mode">{modeLabel(route.mode)}</span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <RoutesTab
+                  routes={routes}
+                  activeRouteId={activeRouteId}
+                  activeDetail={activeRouteDetail}
+                  alertCounts={alertCounts}
+                  now={now}
+                  routesById={routesById}
+                  onSelect={showRoute}
+                  onClear={clearRoute}
+                  onShowRoute={openRoute}
+                />
+              )}
+
+              {tab === 'alerts' && (
+                <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
               )}
             </div>
           </>

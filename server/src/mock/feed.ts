@@ -187,24 +187,40 @@ function runningTime(line: LineSpec, from: LineSpec['stations'][0], to: LineSpec
  * service" whenever it is loaded, which is what makes the demo work at any hour
  * and keeps tests from breaking overnight.
  */
+const MOCK_AGENCY = 'MOCK';
+const SUBURBAN_AGENCY = 'SUBURB';
+/** Nicollet Mall Station: the one stop modelled as a full station. */
+const STATION_PLATFORM = 'BL03';
+const STATION_ID = 'NICOLLET-STN';
+const STATION_ENTRANCE = 'NICOLLET-STN-E1';
+/** A bus stop recorded as having no step-free boarding. */
+const INACCESSIBLE_STOP = 'R21B';
+
 export function buildMockGtfs(timezone = 'America/Chicago', now = Date.now()): Map<string, string> {
   const today = serviceDateAt(Math.floor(now / 1000), timezone);
   const startDate = shiftServiceDate(today, -7);
   const endDate = shiftServiceDate(today, 180);
 
   const stops = new Map<string, { id: string; name: string; lat: number; lon: number }>();
-  const tripRows: (string | number)[][] = [['route_id', 'service_id', 'trip_id', 'trip_headsign', 'direction_id', 'shape_id']];
+  const tripRows: (string | number)[][] = [
+    ['route_id', 'service_id', 'trip_id', 'trip_headsign', 'direction_id', 'shape_id', 'wheelchair_accessible'],
+  ];
   const stopTimeRows: (string | number)[][] = [
     ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence', 'pickup_type', 'drop_off_type'],
   ];
   const shapeRows: (string | number)[][] = [['shape_id', 'shape_pt_lat', 'shape_pt_lon', 'shape_pt_sequence']];
   const routeRows: (string | number)[][] = [
-    ['route_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type', 'route_color', 'route_text_color'],
+    ['route_id', 'agency_id', 'route_short_name', 'route_long_name', 'route_desc', 'route_type', 'route_color', 'route_text_color'],
   ];
+  // Stops served by rail, which are the accessible, station-like ones.
+  const railStops = new Set<string>();
 
   for (const line of LINES) {
     routeRows.push([
       line.routeId,
+      // One route is run by a second operator, so the feed exercises what a
+      // regional feed really looks like: several agencies, one timetable.
+      line.shortName === '5' ? SUBURBAN_AGENCY : MOCK_AGENCY,
       line.shortName,
       line.longName,
       line.routeType === 0 ? 'Light rail' : 'Bus route',
@@ -213,7 +229,10 @@ export function buildMockGtfs(timezone = 'America/Chicago', now = Date.now()): M
       line.textColor,
     ]);
 
-    for (const station of line.stations) stops.set(station.id, station);
+    for (const station of line.stations) {
+      stops.set(station.id, station);
+      if (line.routeType === 0) railStops.add(station.id);
+    }
 
     // Both directions: 0 is the listed order, 1 is the reverse.
     for (const direction of [0, 1] as const) {
@@ -245,6 +264,9 @@ export function buildMockGtfs(timezone = 'America/Chicago', now = Date.now()): M
           stations[stations.length - 1].name,
           direction,
           shapeId,
+          // Rail and the busier routes are run with accessible vehicles; the
+          // suburban route leaves it unstated, as plenty of real feeds do.
+          line.shortName === '5' ? 0 : 1,
         ]);
         stations.forEach((station, index) => {
           const time = formatGtfsTime(departure + offsets[index]);
@@ -263,10 +285,28 @@ export function buildMockGtfs(timezone = 'America/Chicago', now = Date.now()): M
     }
   }
 
-  const stopRows: (string | number)[][] = [['stop_id', 'stop_code', 'stop_name', 'stop_lat', 'stop_lon', 'location_type']];
+  const stopRows: (string | number)[][] = [
+    ['stop_id', 'stop_code', 'stop_name', 'stop_lat', 'stop_lon', 'location_type', 'parent_station', 'wheelchair_boarding'],
+  ];
   for (const stop of stops.values()) {
-    stopRows.push([stop.id, stop.id, stop.name, stop.lat, stop.lon, 0]);
+    const station = stop.id === STATION_PLATFORM ? STATION_ID : '';
+    // Rail platforms are step-free; a bus stop's kerb is often not recorded.
+    // One is marked inaccessible so that state is visible in the demo too.
+    const wheelchair = railStops.has(stop.id) ? 1 : stop.id === INACCESSIBLE_STOP ? 2 : 0;
+    stopRows.push([stop.id, stop.id, stop.name, stop.lat, stop.lon, 0, station, wheelchair]);
   }
+  const platform = stops.get(STATION_PLATFORM);
+  if (platform) {
+    // The station itself, and a street entrance: enough for pathways.txt to
+    // describe the lift and stairs between them.
+    stopRows.push([STATION_ID, '', platform.name, platform.lat, platform.lon, 1, '', 1]);
+    stopRows.push([STATION_ENTRANCE, '', `${platform.name} (street)`, platform.lat + 0.0002, platform.lon, 2, STATION_ID, 1]);
+  }
+  const pathwayRows: (string | number)[][] = [
+    ['pathway_id', 'from_stop_id', 'to_stop_id', 'pathway_mode', 'is_bidirectional', 'length', 'stair_count', 'pathway_code'],
+    ['NM-LIFT', STATION_ENTRANCE, STATION_PLATFORM, 5, 1, 12, '', 'Street elevator to platform'],
+    ['NM-STAIRS', STATION_ENTRANCE, STATION_PLATFORM, 2, 1, 14, 22, 'Stairs from 5th St to platform'],
+  ];
 
   const { year, month, day } = splitServiceDate(today);
   const version = `mock-${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}`;
@@ -275,10 +315,12 @@ export function buildMockGtfs(timezone = 'America/Chicago', now = Date.now()): M
     [
       'agency.txt',
       csv([
-        ['agency_id', 'agency_name', 'agency_url', 'agency_timezone'],
-        ['MOCK', 'Demo Transit (synthetic)', 'https://example.invalid', timezone],
+        ['agency_id', 'agency_name', 'agency_url', 'agency_timezone', 'agency_phone'],
+        [MOCK_AGENCY, 'Demo Transit (synthetic)', 'https://example.invalid', timezone, '612-555-0100'],
+        [SUBURBAN_AGENCY, 'Suburban Link (synthetic)', 'https://example.invalid/suburban', timezone, '952-555-0100'],
       ]),
     ],
+    ['pathways.txt', csv(pathwayRows)],
     ['stops.txt', csv(stopRows)],
     ['routes.txt', csv(routeRows)],
     ['trips.txt', csv(tripRows)],

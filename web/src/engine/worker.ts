@@ -1,16 +1,17 @@
 /// <reference lib="webworker" />
-import type {
-  AgencyInfo,
-  FeedStatus,
-  PlanRequest,
-  RouteSummary,
-  Vehicle,
-} from '../../../server/src/shared/api.js';
+import type { AgencyInfo, FeedStatus, PlanRequest, Vehicle } from '../../../server/src/shared/api.js';
 import type { AgencyDefinition } from '../../../server/src/agencies/types.js';
 import { GtfsStore } from '../../../server/src/gtfs/store.js';
-import { Planner, routeSummary } from '../../../server/src/planner/index.js';
-import { departuresForStops, groupedStopIndices, stopWithRoutes } from '../../../server/src/departures.js';
-import { RealtimeState } from '../../../server/src/realtime/state.js';
+import { Planner } from '../../../server/src/planner/index.js';
+import { stopWithRoutes } from '../../../server/src/departures.js';
+import {
+  routeDetail,
+  searchTransit,
+  sortedRoutes,
+  stopDetail,
+  vehicleTrip,
+} from '../../../server/src/queries.js';
+import { RealtimeState, TRIP_UPDATE_MAX_AGE_SECONDS } from '../../../server/src/realtime/state.js';
 import {
   decodeAlerts,
   decodeTripUpdates,
@@ -118,7 +119,7 @@ async function poll(): Promise<void> {
   if (vehiclePositions) {
     tasks.push(
       fetchFeed(vehiclePositions)
-        .then((buffer) => realtime.setVehicles(decodeVehiclePositions(buffer, store)))
+        .then((buffer) => realtime.setVehicles(decodeVehiclePositions(buffer, store), store))
         .catch((err: unknown) => {
           errors.push(`vehicles (${describe(err)})`);
         }),
@@ -127,7 +128,7 @@ async function poll(): Promise<void> {
   if (tripUpdates) {
     tasks.push(
       fetchFeed(tripUpdates)
-        .then((buffer) => realtime.setTripUpdates(decodeTripUpdates(buffer)))
+        .then((buffer) => realtime.setTripUpdates(decodeTripUpdates(buffer), store))
         .catch((err: unknown) => {
           errors.push(`trip updates (${describe(err)})`);
         }),
@@ -146,6 +147,8 @@ async function poll(): Promise<void> {
   await Promise.all(tasks);
   pollInFlight = false;
   realtime.lastError = errors.length > 0 ? errors.join('; ') : null;
+  // Offline, or the feed is down: stop presenting old delays as live.
+  if (errors.length > 0) realtime.expireTripUpdates(TRIP_UPDATE_MAX_AGE_SECONDS);
 
   post({
     type: 'vehicles',
@@ -239,45 +242,14 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
     case 'agency':
       return agencyInfo();
 
-    case 'routes': {
-      const { store: s } = requireReady();
-      const routes: RouteSummary[] = s.routes.map(routeSummary);
-      const modeRank: Record<string, number> = { rail: 0, metro: 0, tram: 0, ferry: 1, bus: 2 };
-      return routes.sort((a, b) => {
-        const rank = (modeRank[a.mode] ?? 3) - (modeRank[b.mode] ?? 3);
-        if (rank !== 0) return rank;
-        const numeric = Number(a.shortName) - Number(b.shortName);
-        if (!Number.isNaN(numeric) && numeric !== 0) return numeric;
-        return a.shortName.localeCompare(b.shortName, undefined, { numeric: true });
-      });
-    }
+    case 'routes':
+      return sortedRoutes(requireReady().store);
 
     case 'route': {
       const { store: s, planner: p } = requireReady();
-      const routeIndex = s.routeIndexById.get(String(params.routeId));
-      if (routeIndex === undefined) throw new Error(`Unknown route "${String(params.routeId)}"`);
-      const route = s.routes[routeIndex];
-
-      const directions = [0, 1]
-        .map((directionId) => {
-          const candidates = p.patterns.patterns.filter(
-            (pattern) => pattern.routeIndex === routeIndex && pattern.directionId === directionId,
-          );
-          if (candidates.length === 0) return null;
-          // A route has many patterns (short turns, branches); the longest is
-          // the best single representation of the line.
-          const longest = candidates.reduce((a, b) => (b.stops.length > a.stops.length ? b : a));
-          const trip = longest.trips[0];
-          return {
-            directionId,
-            headsign: s.tripHeadsigns[trip] || route.longName,
-            stops: [...longest.stops].map((stopIndex) => stopWithRoutes(s, stopIndex)),
-            geometry: s.tripGeometry(trip),
-          };
-        })
-        .filter((d) => d !== null);
-
-      return { route: routeSummary(route), directions, alerts: realtime.alertsFor([route.id], []) };
+      const detail = routeDetail(s, p.patterns, realtime, String(params.routeId));
+      if (!detail) throw new Error(`Unknown route "${String(params.routeId)}"`);
+      return detail;
     }
 
     case 'nearbyStops': {
@@ -305,20 +277,20 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
 
     case 'stop': {
       const { store: s, planner: p } = requireReady();
-      const stopIndex = s.stopIndexById.get(String(params.stopId));
-      if (stopIndex === undefined) throw new Error(`Unknown stop "${String(params.stopId)}"`);
-      const indices = groupedStopIndices(s, stopIndex);
-      return {
-        stop: stopWithRoutes(s, stopIndex),
-        groupedStopIds: indices.map((i) => s.stops[i].id),
-        departures: departuresForStops(s, p.patterns, realtime, indices, {
-          limit: num(params.limit, 15),
-        }),
-        alerts: realtime.alertsFor(
-          s.routesAtStop[stopIndex].map((r) => s.routes[r].id),
-          indices.map((i) => s.stops[i].id),
-        ),
-      };
+      const detail = stopDetail(s, p.patterns, realtime, String(params.stopId), num(params.limit, 15));
+      if (!detail) throw new Error(`Unknown stop "${String(params.stopId)}"`);
+      return detail;
+    }
+
+    case 'vehicleTrip': {
+      const { store: s } = requireReady();
+      // Null rather than an error: many vehicles report no trip at all.
+      return vehicleTrip(s, realtime, String(params.vehicleId), Math.floor(Date.now() / 1000));
+    }
+
+    case 'search': {
+      const { store: s } = requireReady();
+      return searchTransit(s, String(params.q ?? ''), num(params.limit, 12));
     }
 
     case 'vehicles':

@@ -16,6 +16,15 @@ export interface Stop {
   lon: number;
   /** Index of the parent station, or -1. Used to merge platform-level stops. */
   parent: number;
+  /**
+   * GTFS wheelchair_boarding: 0 unknown, 1 some accessible boarding, 2 none.
+   * A platform left at 0 inherits its station's value, as the spec says.
+   */
+  wheelchair: 0 | 1 | 2;
+  /** The platform or bay identifier riders see on signs, e.g. "B" or "2". */
+  platformCode: string;
+  /** stop_desc: free text, often a cross-street or boarding location. */
+  description: string;
 }
 
 export interface Route {
@@ -28,7 +37,50 @@ export interface Route {
   description: string;
   /** Lower sorts first in route lists; from routes.txt route_sort_order. */
   sortOrder: number;
+  /** The operator, from routes.txt agency_id; the feed's only agency if blank. */
+  agencyId: string;
 }
+
+/** An operator named in agency.txt. One feed can carry several. */
+export interface Agency {
+  id: string;
+  name: string;
+  url: string;
+  phone: string;
+}
+
+/**
+ * GTFS pathway_mode: how a rider gets between two points inside a station.
+ * Kept as names because the only use is telling a rider what is there.
+ */
+export type PathwayMode =
+  | 'walkway'
+  | 'stairs'
+  | 'moving-sidewalk'
+  | 'escalator'
+  | 'elevator'
+  | 'fare-gate'
+  | 'exit-gate';
+
+/** One way through a station, from pathways.txt. */
+export interface Pathway {
+  mode: PathwayMode;
+  /** The agency's own description, e.g. "North tower elevator to track 2". */
+  description: string;
+  lengthMeters: number | null;
+  stairCount: number | null;
+  bidirectional: boolean;
+}
+
+const PATHWAY_MODES: Record<string, PathwayMode> = {
+  '1': 'walkway',
+  '2': 'stairs',
+  '3': 'moving-sidewalk',
+  '4': 'escalator',
+  '5': 'elevator',
+  '6': 'fare-gate',
+  '7': 'exit-gate',
+};
 
 /** GTFS route_type -> the mode names the client styles against. */
 function modeFromRouteType(routeType: string): Mode {
@@ -114,9 +166,19 @@ export const TRANSFER_KEY_STRIDE = 1_000_000;
 export class GtfsStore {
   stops: Stop[] = [];
   routes: Route[] = [];
+  /**
+   * Every operator in agency.txt.
+   *
+   * One regional feed routinely carries several: Metro Transit's names Maple
+   * Grove, Plymouth, SouthWest Transit, the airport and the University of
+   * Minnesota alongside itself. Which one runs a bus is worth telling a rider
+   * — fares, passes and customer service all differ.
+   */
+  agencies: Agency[] = [];
 
   readonly stopIndexById = new Map<string, number>();
   readonly routeIndexById = new Map<string, number>();
+  readonly agencyById = new Map<string, Agency>();
 
   // --- Trips, one entry per trip index -------------------------------------
   tripIds: string[] = [];
@@ -124,8 +186,20 @@ export class GtfsStore {
   tripRoute = new Int32Array(0);
   tripService = new Int32Array(0);
   tripDirection = new Uint8Array(0);
+  /** GTFS wheelchair_accessible per trip: 0 unknown, 1 accessible, 2 not. */
+  tripWheelchair = new Uint8Array(0);
   tripShape: (string | null)[] = [];
   readonly tripIndexById = new Map<string, number>();
+
+  /**
+   * Routes through each station, by the station's stop index.
+   *
+   * From pathways.txt: the elevators, stairs and escalators between street
+   * and platform. For a rider who cannot manage stairs this is the difference
+   * between a station they can use and one they cannot, and it pairs with the
+   * alerts feed, which is where an elevator being out of service is announced.
+   */
+  readonly stationPathways = new Map<number, Pathway[]>();
 
   /** `stopTimeStart[t] .. stopTimeStart[t+1]` bounds trip `t`'s stop times. */
   stopTimeStart = new Int32Array(0);
@@ -202,6 +276,7 @@ export class GtfsStore {
 
     store.loadAgency(take('agency.txt'));
     store.loadStops(take('stops.txt', true)!);
+    store.loadPathways(take('pathways.txt'));
     store.loadRoutes(take('routes.txt', true)!);
     store.loadCalendar(take('calendar.txt'), take('calendar_dates.txt'));
     store.loadTrips(take('trips.txt', true)!);
@@ -227,8 +302,34 @@ export class GtfsStore {
   private loadAgency(text: string | undefined): void {
     if (!text) return;
     const rows = parseCsv(text);
+    // GTFS requires every agency in a feed to share one timezone.
     if (rows[0]?.agency_timezone) this.timezone = rows[0].agency_timezone.trim();
+    for (const row of rows) {
+      const name = (row.agency_name || '').trim();
+      if (!name) continue;
+      // agency_id may be omitted when a feed has only one agency.
+      const agency: Agency = {
+        id: (row.agency_id ?? '').trim(),
+        name,
+        url: (row.agency_url || '').trim(),
+        phone: (row.agency_phone || '').trim(),
+      };
+      this.agencies.push(agency);
+      this.agencyById.set(agency.id, agency);
+    }
   }
+
+  /** The operator of a route, falling back to the feed's first agency. */
+  agencyOf(route: Route): Agency | undefined {
+    return this.agencyById.get(route.agencyId) ?? this.agencies[0];
+  }
+
+  /**
+   * Station nodes (entrances, generic nodes, boarding areas), by id, to the
+   * station they belong to. Only needed to place pathways, so it is dropped
+   * once they are loaded.
+   */
+  private stationNodes: Map<string, string> | null = new Map();
 
   private loadFeedInfo(text: string | undefined): void {
     if (!text) return;
@@ -275,13 +376,21 @@ export class GtfsStore {
   private loadStops(text: string): void {
     const parentIds: string[] = [];
     forEachRow(text, (row) => {
-      const lat = Number(row.stop_lat);
-      const lon = Number(row.stop_lon);
-      // Entrances and generic nodes carry no coordinates; they are not boardable.
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
       const locationType = row.location_type?.trim();
+      // Entrances, generic nodes and boarding areas are not boardable, but
+      // pathways run between them, so remember which station each is in.
+      if (locationType === '2' || locationType === '3' || locationType === '4') {
+        const parent = row.parent_station?.trim();
+        if (parent) this.stationNodes?.set(row.stop_id, parent);
+        return;
+      }
       if (locationType && locationType !== '0' && locationType !== '1') return;
 
+      const lat = Number(row.stop_lat);
+      const lon = Number(row.stop_lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+      const wheelchair = row.wheelchair_boarding?.trim();
       this.stopIndexById.set(row.stop_id, this.stops.length);
       parentIds.push(row.parent_station ?? '');
       this.stops.push({
@@ -291,6 +400,9 @@ export class GtfsStore {
         lat,
         lon,
         parent: -1,
+        wheelchair: wheelchair === '1' ? 1 : wheelchair === '2' ? 2 : 0,
+        platformCode: (row.platform_code || '').trim(),
+        description: (row.stop_desc || '').trim(),
       });
     });
 
@@ -298,6 +410,61 @@ export class GtfsStore {
       const parentId = parentIds[i];
       if (parentId) this.stops[i].parent = this.stopIndexById.get(parentId) ?? -1;
     }
+
+    // A platform that says nothing about wheelchair boarding takes its
+    // station's answer; the spec defines 0 on a child stop as "inherit".
+    for (const stop of this.stops) {
+      if (stop.wheelchair === 0 && stop.parent >= 0) stop.wheelchair = this.stops[stop.parent].wheelchair;
+    }
+  }
+
+  /**
+   * Reads pathways.txt, grouping each pathway under the station it is in.
+   *
+   * A pathway joins two nodes — a platform, an entrance, a landing — and
+   * either end identifies the station: a boardable stop by its parent, a node
+   * by the parent remembered while loading stops.
+   */
+  private loadPathways(text: string | undefined): void {
+    const nodes = this.stationNodes;
+    this.stationNodes = null;
+    if (!text) return;
+
+    const stationFor = (id: string): number | undefined => {
+      const index = this.stopIndexById.get(id);
+      if (index !== undefined) {
+        const stop = this.stops[index];
+        return stop.parent >= 0 ? stop.parent : index;
+      }
+      const parent = nodes?.get(id);
+      return parent === undefined ? undefined : this.stopIndexById.get(parent);
+    };
+
+    forEachRow(text, (row) => {
+      const mode = PATHWAY_MODES[row.pathway_mode?.trim() ?? ''];
+      if (!mode) return;
+      const station = stationFor(row.from_stop_id ?? '') ?? stationFor(row.to_stop_id ?? '');
+      if (station === undefined) return;
+
+      const length = Number(row.length);
+      const stairs = Number(row.stair_count);
+      const pathway: Pathway = {
+        mode,
+        description: (row.signposted_as || row.pathway_code || '').trim(),
+        lengthMeters: row.length && Number.isFinite(length) ? length : null,
+        stairCount: row.stair_count && Number.isFinite(stairs) ? Math.abs(stairs) : null,
+        bidirectional: row.is_bidirectional?.trim() === '1',
+      };
+      let list = this.stationPathways.get(station);
+      if (!list) this.stationPathways.set(station, (list = []));
+      list.push(pathway);
+    });
+  }
+
+  /** The station a stop belongs to: its parent, or itself if it has none. */
+  stationOf(stopIndex: number): number {
+    const parent = this.stops[stopIndex].parent;
+    return parent >= 0 ? parent : stopIndex;
   }
 
   private loadRoutes(text: string): void {
@@ -314,6 +481,7 @@ export class GtfsStore {
         textColor: (row.route_text_color || '').trim().replace(/^#/, '') || 'FFFFFF',
         description: (row.route_desc || '').trim(),
         sortOrder: Number(row.route_sort_order) || 0,
+        agencyId: (row.agency_id ?? '').trim() || (this.agencies[0]?.id ?? ''),
       });
     });
   }
@@ -369,6 +537,7 @@ export class GtfsStore {
     const routeIdx: number[] = [];
     const serviceIdx: number[] = [];
     const direction: number[] = [];
+    const wheelchair: number[] = [];
 
     forEachRow(text, (row) => {
       const r = this.routeIndexById.get(row.route_id);
@@ -380,11 +549,14 @@ export class GtfsStore {
       routeIdx.push(r);
       serviceIdx.push(this.serviceIndex(row.service_id));
       direction.push(row.direction_id?.trim() === '1' ? 1 : 0);
+      const access = row.wheelchair_accessible?.trim();
+      wheelchair.push(access === '1' ? 1 : access === '2' ? 2 : 0);
     });
 
     this.tripRoute = Int32Array.from(routeIdx);
     this.tripService = Int32Array.from(serviceIdx);
     this.tripDirection = Uint8Array.from(direction);
+    this.tripWheelchair = Uint8Array.from(wheelchair);
   }
 
   /**
@@ -681,4 +853,5 @@ export const GTFS_FILES = [
   'shapes.txt',
   'feed_info.txt',
   'transfers.txt',
+  'pathways.txt',
 ] as const;

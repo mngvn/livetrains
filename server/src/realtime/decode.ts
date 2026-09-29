@@ -1,6 +1,7 @@
 import bindings from 'gtfs-realtime-bindings';
-import type { Mode, ServiceAlert, Vehicle } from '../shared/api.js';
+import type { InformedEntity, Mode, ServiceAlert, Vehicle } from '../shared/api.js';
 import type { GtfsStore } from '../gtfs/store.js';
+import { accessibility } from '../summaries.js';
 import type { StopPrediction, TripUpdate } from './state.js';
 
 const { transit_realtime: rt } = bindings;
@@ -28,6 +29,23 @@ function toNumber(value: number | Long | null | undefined): number | null {
 function toTimestamp(value: number | Long | null | undefined): number | null {
   const n = toNumber(value);
   return n === null || n === 0 ? null : n;
+}
+
+/**
+ * Reads a field only if the producer actually sent it.
+ *
+ * protobufjs puts a field's default on the message *prototype* rather than
+ * leaving it undefined, so reading an unsent `int64 time` yields a Long zero
+ * and an unsent `int32 delay` yields 0 — both indistinguishable, by value,
+ * from a real reading. That is not academic here: a stop predicted by delay
+ * alone would read as having a predicted *time* of midnight 1970, and the
+ * departure board would drop it as long gone; a stop predicted by time alone
+ * would read as having a delay of exactly zero, and show as on time whatever
+ * the prediction said. Fields the decoder actually read are own properties,
+ * so that is the test.
+ */
+function sent(message: object | null | undefined, field: string): boolean {
+  return message !== null && message !== undefined && Object.prototype.hasOwnProperty.call(message, field);
 }
 
 /** Picks the best translation from a GTFS-RT TranslatedString. */
@@ -64,6 +82,20 @@ function decodeFeed(buffer: Uint8Array) {
   }
 }
 
+/** VehicleStopStatus, as the three words the client shows. */
+function statusName(value: number | null | undefined): Vehicle['currentStatus'] {
+  switch (value) {
+    case rt.VehiclePosition.VehicleStopStatus.INCOMING_AT:
+      return 'incoming';
+    case rt.VehiclePosition.VehicleStopStatus.STOPPED_AT:
+      return 'stopped';
+    case rt.VehiclePosition.VehicleStopStatus.IN_TRANSIT_TO:
+      return 'in-transit';
+    default:
+      return undefined;
+  }
+}
+
 export function decodeVehiclePositions(buffer: Uint8Array, store: GtfsStore | null): Vehicle[] {
   const feed = decodeFeed(buffer);
   const feedTimestamp = toTimestamp(feed.header?.timestamp) ?? Math.floor(Date.now() / 1000);
@@ -88,6 +120,7 @@ export function decodeVehiclePositions(buffer: Uint8Array, store: GtfsStore | nu
     let color = '0B5FA5';
     let headsign: string | undefined;
     let directionId: number | undefined;
+    let wheelchair: Vehicle['wheelchair'];
 
     if (store && tripIdx !== undefined) {
       const route = store.routes[store.tripRoute[tripIdx]];
@@ -97,6 +130,7 @@ export function decodeVehiclePositions(buffer: Uint8Array, store: GtfsStore | nu
       color = route.color;
       headsign = store.tripHeadsigns[tripIdx] || undefined;
       directionId = store.tripDirection[tripIdx];
+      wheelchair = accessibility(store.tripWheelchair[tripIdx]);
     } else if (store && routeId) {
       const route = store.routeById(routeId);
       if (route) {
@@ -118,15 +152,26 @@ export function decodeVehiclePositions(buffer: Uint8Array, store: GtfsStore | nu
       color,
       lat,
       lon,
-      bearing: Number.isFinite(position.bearing) ? (position.bearing as number) : undefined,
-      speed: Number.isFinite(position.speed) ? (position.speed as number) : undefined,
+      // Each optional field is read only if it was sent. Unsent, protobufjs
+      // reads bearing and speed as 0 — a heading arrow pointing north on a
+      // vehicle that never reported one — and occupancy as its enum's zero,
+      // which is EMPTY: every bus on a feed that omits occupancy showed as
+      // empty.
+      bearing:
+        sent(position, 'bearing') && Number.isFinite(position.bearing) ? (position.bearing as number) : undefined,
+      speed: sent(position, 'speed') && Number.isFinite(position.speed) ? (position.speed as number) : undefined,
       headsign,
       directionId,
       timestamp: toTimestamp(v.timestamp) ?? feedTimestamp,
-      occupancy: enumName(
-        rt.VehiclePosition.OccupancyStatus as unknown as Record<string, string | number>,
-        v.occupancyStatus,
-      ),
+      stopId: v.stopId || undefined,
+      currentStatus: sent(v, 'currentStatus') ? statusName(v.currentStatus) : undefined,
+      occupancy: sent(v, 'occupancyStatus')
+        ? enumName(
+            rt.VehiclePosition.OccupancyStatus as unknown as Record<string, string | number>,
+            v.occupancyStatus,
+          )
+        : undefined,
+      wheelchair,
     });
   }
 
@@ -149,15 +194,17 @@ export function decodeTripUpdates(buffer: Uint8Array): TripUpdate[] {
       if (!stopId) continue;
       // SKIPPED (1) means the vehicle will not serve this stop at all.
       if (stu.scheduleRelationship === rt.TripUpdate.StopTimeUpdate.ScheduleRelationship.SKIPPED) {
-        stops.set(stopId, { delaySeconds: null, arrivalTime: null, departureTime: null });
+        stops.set(stopId, { delaySeconds: null, arrivalTime: null, departureTime: null, skipped: true });
         continue;
       }
-      const arrivalDelay = toNumber(stu.arrival?.delay);
-      const departureDelay = toNumber(stu.departure?.delay);
+      const arrivalDelay = sent(stu.arrival, 'delay') ? toNumber(stu.arrival?.delay) : null;
+      const departureDelay = sent(stu.departure, 'delay') ? toNumber(stu.departure?.delay) : null;
       stops.set(stopId, {
         delaySeconds: departureDelay ?? arrivalDelay,
-        arrivalTime: toNumber(stu.arrival?.time),
-        departureTime: toNumber(stu.departure?.time),
+        // Zero is "not sent" as well as "unset": an epoch of 0 is 1970.
+        arrivalTime: sent(stu.arrival, 'time') ? toTimestamp(stu.arrival?.time) : null,
+        departureTime: sent(stu.departure, 'time') ? toTimestamp(stu.departure?.time) : null,
+        skipped: false,
       });
     }
 
@@ -165,7 +212,7 @@ export function decodeTripUpdates(buffer: Uint8Array): TripUpdate[] {
       tripId,
       routeId: u.trip?.routeId ?? undefined,
       stops,
-      tripDelaySeconds: toNumber(u.delay),
+      tripDelaySeconds: sent(u, 'delay') ? toNumber(u.delay) : null,
       cancelled: u.trip?.scheduleRelationship === rt.TripDescriptor.ScheduleRelationship.CANCELED,
       timestamp: toTimestamp(u.timestamp) ?? feedTimestamp,
     });
@@ -184,13 +231,27 @@ export function decodeAlerts(buffer: Uint8Array): ServiceAlert[] {
 
     const routeIds = new Set<string>();
     const stopIds = new Set<string>();
-    for (const informed of a.informedEntity ?? []) {
-      if (informed.routeId) routeIds.add(informed.routeId);
-      if (informed.stopId) stopIds.add(informed.stopId);
-      if (informed.trip?.routeId) routeIds.add(informed.trip.routeId);
+    const informed: InformedEntity[] = [];
+    for (const e of a.informedEntity ?? []) {
+      const entry: InformedEntity = {};
+      if (e.agencyId) entry.agencyId = e.agencyId;
+      const routeId = e.routeId || e.trip?.routeId || undefined;
+      if (routeId) {
+        entry.routeId = routeId;
+        routeIds.add(routeId);
+      }
+      if (e.stopId) {
+        entry.stopId = e.stopId;
+        stopIds.add(e.stopId);
+      }
+      if (e.trip?.tripId) entry.tripId = e.trip.tripId;
+      if (Object.keys(entry).length > 0) informed.push(entry);
     }
 
-    const period = a.activePeriod?.[0];
+    const periods = (a.activePeriod ?? []).map((p) => ({
+      start: toTimestamp(p?.start) ?? undefined,
+      end: toTimestamp(p?.end) ?? undefined,
+    }));
     const header = translated(a.headerText);
     const description = translated(a.descriptionText);
     if (!header && !description) continue;
@@ -199,13 +260,21 @@ export function decodeAlerts(buffer: Uint8Array): ServiceAlert[] {
       id: entity.id || `${header}:${[...routeIds].join(',')}`,
       header,
       description,
-      cause: enumName(rt.Alert.Cause as unknown as Record<string, string | number>, a.cause),
-      effect: enumName(rt.Alert.Effect as unknown as Record<string, string | number>, a.effect),
+      // Enums read only when sent: an unsent cause would otherwise read as
+      // its zero value, which in these enums is not "unknown" but a real one.
+      cause: sent(a, 'cause')
+        ? enumName(rt.Alert.Cause as unknown as Record<string, string | number>, a.cause)
+        : undefined,
+      effect: sent(a, 'effect')
+        ? enumName(rt.Alert.Effect as unknown as Record<string, string | number>, a.effect)
+        : undefined,
       url: translated(a.url) || undefined,
       routeIds: [...routeIds],
       stopIds: [...stopIds],
-      activeFrom: toTimestamp(period?.start) ?? undefined,
-      activeUntil: toTimestamp(period?.end) ?? undefined,
+      informed,
+      activeFrom: periods[0]?.start,
+      activeUntil: periods[0]?.end,
+      periods,
     });
   }
 

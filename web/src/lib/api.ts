@@ -1,30 +1,40 @@
 import type {
   AgencyInfo,
-  Departure,
   FeedStatus,
-  Itinerary,
   Place,
   PlanResponse,
+  RouteDetail,
   RouteSummary,
   ServiceAlert,
+  StopDetail,
   StopSummary,
+  TransitSearchResult,
   Vehicle,
+  VehicleTrip,
 } from '@shared/api.ts';
 
 export type {
+  Accessibility,
   AgencyInfo,
   Departure,
   FeedStatus,
   Itinerary,
   Leg,
   Mode,
+  Operator,
+  PathwaySummary,
   Place,
   PlanResponse,
+  RouteDetail,
   RouteSummary,
   ServiceAlert,
+  StopDetail,
   StopSummary,
   TransitLeg,
+  TransitSearchResult,
+  TripStop,
   Vehicle,
+  VehicleTrip,
   WalkLeg,
 } from '@shared/api.ts';
 
@@ -36,24 +46,6 @@ export interface RouteNetwork {
     geometry: { type: 'LineString'; coordinates: [number, number][] };
     properties: { routeId: string; color: string; mode: string; rail: boolean };
   }[];
-}
-
-export interface StopDetail {
-  stop: StopSummary;
-  groupedStopIds: string[];
-  departures: Departure[];
-  alerts: ServiceAlert[];
-}
-
-export interface RouteDetail {
-  route: RouteSummary;
-  directions: {
-    directionId: number;
-    headsign: string;
-    stops: StopSummary[];
-    geometry: [number, number][];
-  }[];
-  alerts: ServiceAlert[];
 }
 
 export class ApiError extends Error {
@@ -151,6 +143,21 @@ export const api = {
   vehicles: (signal?: AbortSignal) =>
     get<{ vehicles: Vehicle[]; timestamp: number | null }>('/api/vehicles', undefined, signal),
 
+  /** A vehicle's whole trip, or null when none is known for it right now. */
+  vehicleTrip: async (vehicleId: string, signal?: AbortSignal): Promise<VehicleTrip | null> => {
+    try {
+      return await get<VehicleTrip>(`/api/vehicles/${encodeURIComponent(vehicleId)}/trip`, undefined, signal);
+    } catch (err) {
+      // 404 is the server saying "no trip for that vehicle", which is an
+      // answer rather than a failure.
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
+
+  search: (q: string, limit = 12, signal?: AbortSignal) =>
+    get<TransitSearchResult[]>('/api/search', { q, limit }, signal),
+
   geocode: (q: string, near?: { lat: number; lon: number }, signal?: AbortSignal) =>
     get<Place[]>('/api/geocode', { q, lat: near?.lat, lon: near?.lon }, signal),
 
@@ -190,4 +197,3 @@ export const api = {
   alerts: (signal?: AbortSignal) => get<{ alerts: ServiceAlert[] }>('/api/alerts', undefined, signal),
 };
 
-export type ItineraryList = Itinerary[];

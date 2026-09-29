@@ -138,6 +138,7 @@ export class MockSimulator {
             delaySeconds: delay,
             arrivalTime: epochFor(date, store.stopTimeArrival[i] + delay, store.timezone),
             departureTime: epochFor(date, store.stopTimeDeparture[i] + delay, store.timezone),
+            skipped: false,
           });
         }
 
@@ -167,6 +168,11 @@ export class MockSimulator {
         effect: 'ACCESSIBILITY_ISSUE',
         routeIds: ['BLUE', 'GREEN'],
         stopIds: ['BL03'],
+        informed: [
+          { routeId: 'BLUE', stopId: 'BL03' },
+          { routeId: 'GREEN', stopId: 'BL03' },
+        ],
+        periods: [],
       },
       {
         id: 'mock-alert-2',
@@ -176,6 +182,19 @@ export class MockSimulator {
         effect: 'DETOUR',
         routeIds: ['ROUTE21'],
         stopIds: [],
+        informed: [{ routeId: 'ROUTE21' }],
+        periods: [],
+      },
+      {
+        id: 'mock-alert-3',
+        header: 'Sunday schedules in effect on Monday',
+        description: 'All routes run to their Sunday timetable for the holiday.',
+        cause: 'HOLIDAY',
+        effect: 'MODIFIED_SERVICE',
+        routeIds: [],
+        stopIds: [],
+        informed: [{ agencyId: 'MOCK' }],
+        periods: [],
       },
     ];
   }

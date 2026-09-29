@@ -3,7 +3,7 @@ import type { GtfsStore } from './gtfs/store.js';
 import { candidateServiceDays, epochFor } from './gtfs/time.js';
 import type { PatternSet } from './planner/patterns.js';
 import type { RealtimeState } from './realtime/state.js';
-import { stopSummary } from './planner/index.js';
+import { accessibility, leanRouteSummary, stopSummary } from './summaries.js';
 
 export interface DeparturesOptions {
   /** How many departures to return. */
@@ -107,6 +107,10 @@ export function departuresForStops(
             delaySeconds: predicted !== null ? predicted - scheduledTime : delay,
             isRealtime: predicted !== null || delay !== null,
             vehicleId: realtime.vehicleForTrip(tripId)?.id,
+            // Listed rather than dropped: "the 18 is not stopping here" is
+            // exactly what someone standing at this stop needs to know.
+            skipped: realtime.isSkipped(tripId, stop.id) || undefined,
+            wheelchair: accessibility(store.tripWheelchair[tripIndex]),
           });
           // A few per pattern is plenty; the merge below picks the real winners.
           if (found.length > limit * 8) break;
@@ -146,16 +150,6 @@ export function groupedStopIndices(store: GtfsStore, stopIndex: number): number[
 export function stopWithRoutes(store: GtfsStore, stopIndex: number, distance?: number): StopSummary {
   const summary = stopSummary(store.stops[stopIndex]);
   if (distance !== undefined) summary.distance = Math.round(distance);
-  summary.routes = store.routesAtStop[stopIndex].map((routeIndex) => {
-    const route = store.routes[routeIndex];
-    return {
-      id: route.id,
-      shortName: route.shortName,
-      longName: route.longName,
-      mode: route.mode,
-      color: route.color,
-      textColor: route.textColor,
-    };
-  });
+  summary.routes = store.routesAtStop[stopIndex].map((routeIndex) => leanRouteSummary(store.routes[routeIndex]));
   return summary;
 }

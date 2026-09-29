@@ -20,6 +20,30 @@ export interface TrackedVehicle extends Vehicle {
   displayLon: number;
   /** Smoothed heading, so a vehicle rotates rather than snapping. */
   displayBearing: number;
+  /**
+   * The position is too old to call live: the feed has gone quiet, the
+   * connection has dropped, or this is a last-known position from an earlier
+   * visit. Drawn faded, never dropped — where a bus last was is still useful.
+   */
+  stale: boolean;
+}
+
+/** A position older than this is not live any more. */
+export const STALE_AFTER_SECONDS = 180;
+
+/**
+ * How much of each vehicle's recent path is kept, for the trail drawn behind
+ * a selected one. Twenty minutes is a few stops on a bus and most of a
+ * light-rail run through downtown — enough to see whether it has been
+ * crawling — and at one point per feed update it is a few kilobytes a vehicle.
+ */
+export const TRAIL_SECONDS = 20 * 60;
+
+interface TrailPoint {
+  lat: number;
+  lon: number;
+  /** The vehicle's own report time, Unix seconds. */
+  t: number;
 }
 
 interface Track {
@@ -31,6 +55,10 @@ interface Track {
   durationMs: number;
   /** Timestamp of the last feed message that mentioned this vehicle. */
   lastSeen: number;
+  /** Restored from an earlier visit rather than received this session. */
+  restored?: boolean;
+  /** Reported positions over the last TRAIL_SECONDS, oldest first. */
+  trail: TrailPoint[];
 }
 
 /**
@@ -57,6 +85,19 @@ export interface StreamStatus {
   /** Feed timestamp of the most recent message, in epoch seconds. */
   lastUpdate: number | null;
   error: string | null;
+}
+
+/**
+ * Adds a new report to a trail, skipping repeats of the same report, and lets
+ * go of anything older than the trail's span.
+ */
+function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
+  const last = trail[trail.length - 1];
+  const next = last && last.t >= vehicle.timestamp ? trail : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }];
+  const cutoff = vehicle.timestamp - TRAIL_SECONDS;
+  let start = 0;
+  while (start < next.length - 1 && next[start].t < cutoff) start++;
+  return start > 0 ? next.slice(start) : next;
 }
 
 /** Smoothstep easing; vehicles ease in and out rather than moving linearly. */
@@ -119,7 +160,9 @@ export class VehicleTracker {
     if (source && source.mode === 'browser') {
       this.pushSource = source;
       this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error }) => {
-        this.ingest(vehicles);
+        // A failed poll with nothing to show is not news that every vehicle
+        // has left service; keep what is on the map (it fades as it ages).
+        if (!(error !== null && vehicles.length === 0)) this.ingest(vehicles);
         this.setStatus({
           connected: error === null,
           vehicleCount: vehicles.length,
@@ -172,6 +215,53 @@ export class VehicleTracker {
   /** The most recent raw position reported for a vehicle. */
   get(id: string): Vehicle | undefined {
     return this.tracks.get(id)?.vehicle;
+  }
+
+  /**
+   * Where a vehicle has been over the last twenty minutes, oldest first, as
+   * [lon, lat] — ending at where it is drawn right now, so the trail stays
+   * attached to the marker while it glides between reports.
+   */
+  trail(id: string): [number, number][] {
+    const track = this.tracks.get(id);
+    if (!track) return [];
+    const points: [number, number][] = track.trail.map((p) => [p.lon, p.lat]);
+    const here = this.positionAt(track, performance.now());
+    // The glide runs from the previous report towards the newest, so the
+    // newest is still ahead of the marker: end the trail at the marker.
+    if (points.length > 0 && track.durationMs > 0 && performance.now() - track.startedAt < track.durationMs) points.pop();
+    points.push([here.lon, here.lat]);
+    return points;
+  }
+
+  /** Every vehicle's last reported position, for saving. */
+  snapshot(): Vehicle[] {
+    return [...this.tracks.values()].filter((t) => !t.restored).map((t) => t.vehicle);
+  }
+
+  /**
+   * Places last-known positions from an earlier visit, until live ones land.
+   *
+   * Only onto an empty map: live data always wins, and the first live
+   * message clears every restored vehicle it does not mention.
+   */
+  restore(vehicles: Vehicle[]): void {
+    if (this.tracks.size > 0) return;
+    const now = performance.now();
+    for (const vehicle of vehicles) {
+      this.tracks.set(vehicle.id, {
+        vehicle,
+        fromLat: vehicle.lat,
+        fromLon: vehicle.lon,
+        fromBearing: vehicle.bearing ?? 0,
+        startedAt: now,
+        durationMs: 0,
+        lastSeen: now,
+        restored: true,
+        trail: [],
+      });
+    }
+    this.setStatus({ vehicleCount: this.status.vehicleCount || vehicles.length });
   }
 
   private setStatus(next: Partial<StreamStatus>): void {
@@ -250,6 +340,7 @@ export class VehicleTracker {
           startedAt: now,
           durationMs: 0,
           lastSeen: now,
+          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }],
         });
         continue;
       }
@@ -263,6 +354,7 @@ export class VehicleTracker {
         startedAt: now,
         durationMs: this.animationMs,
         lastSeen: now,
+        trail: extendTrail(existing.trail, vehicle),
       });
     }
 
@@ -271,7 +363,8 @@ export class VehicleTracker {
     // rides out transient gaps in the feed.
     const grace = this.resetOnNextMessage ? 0 : 60_000;
     for (const [id, track] of this.tracks) {
-      if (!seen.has(id) && now - track.lastSeen >= grace) this.tracks.delete(id);
+      if (seen.has(id)) continue;
+      if (track.restored || now - track.lastSeen >= grace) this.tracks.delete(id);
     }
     this.resetOnNextMessage = false;
   }
@@ -293,6 +386,7 @@ export class VehicleTracker {
 
     const frame = () => {
       const now = performance.now();
+      const wall = Date.now() / 1000;
       const out: TrackedVehicle[] = [];
       for (const track of this.tracks.values()) {
         const position = this.positionAt(track, now);
@@ -301,6 +395,10 @@ export class VehicleTracker {
           displayLat: position.lat,
           displayLon: position.lon,
           displayBearing: position.bearing,
+          // By the vehicle's own report time, not when the feed last
+          // repeated it: a feed that keeps re-sending a frozen position is
+          // exactly the case this has to catch.
+          stale: track.restored === true || wall - track.vehicle.timestamp > STALE_AFTER_SECONDS,
         });
       }
       for (const listener of this.frameListeners) listener(out);

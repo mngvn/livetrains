@@ -20,9 +20,12 @@ interface Props {
   routes: RouteSummary[];
   beams: boolean;
   onToggleBeams: () => void;
+  grouped: boolean;
+  onToggleGrouped: () => void;
+  onReplayTour: () => void;
 }
 
-export function MapLegend({ routes, beams, onToggleBeams }: Props) {
+export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped, onReplayTour }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -71,6 +74,13 @@ export function MapLegend({ routes, beams, onToggleBeams }: Props) {
                   <em>arrow leads the vehicle</em>
                 </span>
               </li>
+              <li className="legend__item">
+                <Swatch kind="trail" />
+                <span>
+                  Trail
+                  <em>where a chosen vehicle has been, last 20 min</em>
+                </span>
+              </li>
               {/* The one legend row that does something. The legend is where
                   you come to ask what the beams are, so it is also the most
                   obvious place to turn them off once you know. */}
@@ -87,6 +97,23 @@ export function MapLegend({ routes, beams, onToggleBeams }: Props) {
                   aria-checked={beams}
                   aria-label="Show vehicle beams"
                   onClick={onToggleBeams}
+                >
+                  <span className="legend__switch-knob" aria-hidden="true" />
+                </button>
+              </li>
+              <li className={`legend__item${grouped ? '' : ' is-off'}`}>
+                <Swatch kind="group" />
+                <span>
+                  Group
+                  <em>{grouped ? 'vehicles counted when zoomed out' : 'every vehicle shown'}</em>
+                </span>
+                <button
+                  type="button"
+                  className="legend__switch"
+                  role="switch"
+                  aria-checked={grouped}
+                  aria-label="Group vehicles when zoomed out"
+                  onClick={onToggleGrouped}
                 >
                   <span className="legend__switch-knob" aria-hidden="true" />
                 </button>
@@ -166,6 +193,17 @@ export function MapLegend({ routes, beams, onToggleBeams }: Props) {
               </ul>
             </section>
           )}
+
+          <button
+            type="button"
+            className="text-button legend__tour"
+            onClick={() => {
+              setOpen(false);
+              onReplayTour();
+            }}
+          >
+            Take the tour again
+          </button>
         </div>
       )}
     </div>
@@ -186,7 +224,9 @@ function Swatch({
     | 'rail'
     | 'bus'
     | 'heading'
+    | 'trail'
     | 'beam'
+    | 'group'
     | 'network'
     | 'stop'
     | 'ride'
@@ -223,12 +263,34 @@ function Swatch({
           />
         </svg>
       );
+    case 'trail':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <defs>
+            <linearGradient id="legend-trail" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" stopColor="#0b5fa5" stopOpacity="0" />
+              <stop offset="1" stopColor="#0b5fa5" stopOpacity="0.95" />
+            </linearGradient>
+          </defs>
+          <path d="M1 12 C 6 12, 8 5, 14 6 S 18 8, 19 8" stroke="url(#legend-trail)" strokeWidth="3" fill="none" strokeLinecap="round" />
+          <circle cx="19.5" cy="8" r="3.2" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
+        </svg>
+      );
     case 'beam':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
           {/* The shaft tapers rather than fading, which is what the map does. */}
           <path d="M10.4 13 L11.7 1.5 L12.3 1.5 L13.6 13 Z" fill="#0b5fa5" opacity="0.45" />
           <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
+        </svg>
+      );
+    case 'group':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <circle cx="12" cy="8" r="6.8" fill="#334155" opacity="0.9" stroke="#ffffff" strokeWidth="1.4" />
+          <text x="12" y="10.6" textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#ffffff">
+            12
+          </text>
         </svg>
       );
     case 'network':

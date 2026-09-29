@@ -12,45 +12,73 @@ worldwide — adding another city is a config entry rather than a rewrite.
 
 ## What it does
 
-- **Live vehicle map.** Every bus and train currently in service, drawn from the
-  agency's GTFS-Realtime feed and smoothly interpolated between updates so the
-  map reads as live rather than as a slideshow. Trains are square and buses
-  round, each carries an arrow showing which way it is heading, and the whole
-  route network sits underneath as a faint wash so vehicles read as following
-  lines rather than drifting. Zoomed out to the whole metro, each vehicle also
-  throws a tapering beam of its route colour upward, so a four-pixel dot becomes
-  something the eye can catch and busy corridors pool into a visible wash; the
-  beams fade away entirely as you zoom in on one, leaving just the marker, and
-  the legend carries a switch to turn them off for good.
-- **Door-to-door trip planning.** Enter a destination and get ranked itineraries
-  — walk, ride, transfer, walk — with realtime delays folded into the times.
-  Walking is real walking. Candidate trips are weighed with a fast geometric
-  estimate — a straight line corrected for street circuity — and then the ones
-  actually shown get their walking legs routed over the street network, so a
-  path follows pavements and crossings instead of cutting through a building
-  or over the river. The feed's own `transfers.txt` overrides geometry too, so
-  a connection the agency says is impossible is never offered, however close
-  the two stops look on a map.
-- **Watch the trip.** Pick an itinerary and play it back: a traveller walks to
-  the stop, waits on the platform for as long as the timetable says they will,
-  rides, changes, and walks to the door, with the clock running and the camera
-  following, while the rest of the network, every other vehicle and the stops
-  you are not using fade back so the route you are on is the only bright thing
-  on screen. The waits are the point — they are most of what makes a trip feel
-  long, and a list of legs hides them.
-- **Satellite or street, flat or tilted.** Two switches in the corner. The
-  aerial basemap is Esri's World Imagery, oversampled on high-density screens
-  and labelled from vector tiles so the type stays crisp instead of being a
-  photograph of lettering; 3D pitches the camera, frees up rotation, and
-  extrudes building footprints. Both basemaps are keyless.
-- **Departure boards.** Tap any stop for the next departures, counting down in
-  realtime, with both directions of a stop merged the way a rider thinks of it.
-- **Route browsing.** Every route, its shape, and only its vehicles on the map.
-- **A map you can actually see.** The side panel collapses out of the way (and
-  stays collapsed next time), and a legend explains every mark on the map —
-  including which colour is which line, derived from the agency's own feed.
-- **Service alerts** from the agency's alerts feed, attached to the stops and
-  routes they affect.
+**On the map**
+
+- **Every bus and train, live.** Drawn from the agency's GTFS-Realtime feed and
+  smoothly interpolated between updates, so the map reads as live rather than
+  as a slideshow. Trains are square and buses round, each with an arrow for its
+  heading, over a faint wash of the whole route network. Zoomed out, each
+  vehicle throws a tapering beam of its route colour so a four-pixel dot is
+  easy to find, and vehicles gather into counted groups (deep blue when mostly
+  trains) until there is room to show them one by one. Both can be switched
+  off in the legend.
+- **Tap a vehicle** to see who runs it, how late it is, whether it is
+  accessible, and the stops ahead with scheduled and predicted times. Its trip
+  is outlined on the map — the road ahead in bold, the road behind faded — and
+  a trail shows where it has actually been over the last twenty minutes.
+- **Tap a stop** for its departure board (scheduled time struck through when
+  the prediction differs, "not stopping" when the feed says so), step-free
+  access, platform and station details, lifts and stairs from `pathways.txt`,
+  its alerts, and every line that calls there — which light up on the map.
+- **Search stops and routes** by what is on the sign: "16", "Route 21",
+  "Blue", "Nicollet Mall", or the stop number off the pole.
+- **Service alerts** everywhere they matter: on the stops and routes they
+  actually affect (a single closed stop is not shown as a whole-route
+  problem), marked in the route list, and all together in an Alerts tab that
+  filters by kind and by route.
+- **Satellite or street, flat or tilted, light or dark.** The aerial basemap is
+  Esri's World Imagery, oversampled on high-density screens with crisp vector
+  labels; 3D pitches the camera and extrudes buildings; dark mode swaps in a
+  dark street map and follows the device by default. All keyless.
+
+**Getting somewhere**
+
+- **Door-to-door trip planning.** Ranked itineraries — walk, ride, transfer,
+  walk — with live delays, cancellations and skipped stops folded in.
+  Candidate trips are weighed with a quick walking estimate (a straight line
+  corrected for street circuity), and the ones shown get their walking legs
+  routed over real streets, so a path follows pavements and crossings rather
+  than cutting through a building. Where an agency publishes `transfers.txt`
+  it overrides geometry (Metro Transit currently does not publish one).
+- **Time to leave.** "Leave in 6 min", worked back from the live prediction
+  for that exact bus at the stop, less the walk. Ask for a reminder and it
+  goes off two minutes before, as a notification and a banner, while the tab
+  is open.
+- **Saved trips, and how reliable they really are.** Save the trips you make
+  often. While the app is open it notes how each of their buses and trains
+  actually ran as they left, and shows "on time 8 in 10 · usually 2 min late"
+  from what this device has seen.
+- **Watch the trip.** Play any itinerary back: a traveller walks to the stop,
+  waits on the platform, rides, changes and walks to the door, with the clock
+  running, the camera following and the rest of the map dimmed. The waits are
+  the point — they are most of what makes a trip feel long.
+- **Share it.** Trips, stops and routes are links (`?from=…&to=…`, `?stop=`,
+  `?route=`), and the address bar always describes what is on screen. "My
+  location" is never put into a link.
+
+**Around the edges**
+
+- **Several operators in one feed** are grouped and named: routes by operator,
+  "operated by" on every vehicle and route, and who runs what at a shared
+  stop.
+- **Offline.** A service worker keeps the app and the map you last looked at;
+  the timetable is already cached, so stops, departures and planning keep
+  working. The last vehicle positions seen are shown faded and dated, and old
+  realtime predictions are dropped rather than presented as live.
+- **Phones and desktops.** A side panel on a desktop, a bottom sheet on a
+  phone; the camera always centres in the part of the map you can see.
+- **A short first-run tour** that ends by playing a real trip across the
+  cities, replayable from the legend.
 
 No API key, no billing account, and no third-party signup: the transit feeds are
 public and the basemap is open.
@@ -309,9 +337,11 @@ environment.
 | `GET /api/routes/:id` | One route's stops, shape and alerts |
 | `GET /api/stops/nearby?lat&lon&radius` | Stops near a point, nearest first |
 | `GET /api/stops/within?bbox=w,s,e,n` | Stops in a viewport |
-| `GET /api/stops/:id` | Stop details plus its departure board |
+| `GET /api/stops/:id` | Stop details, lines, station pathways, alerts and departures |
 | `GET /api/vehicles?routeId&bbox` | Current vehicle positions |
 | `GET /api/vehicles/stream` | Server-Sent Events stream of positions |
+| `GET /api/vehicles/:id/trip` | The trip a vehicle is running: stops, times, shape |
+| `GET /api/search?q` | Stops and routes by name, number or stop code |
 | `GET /api/geocode?q` | Search stops, landmarks, coordinates |
 | `GET /api/reverse-geocode?lat&lon` | Name a dropped pin |
 | `GET /api/plan?fromLat&fromLon&toLat&toLon` | Ranked itineraries |
@@ -330,7 +360,7 @@ and reconnects without a heartbeat protocol to maintain.
 ```bash
 npm run dev          # API server + web client, both watching
 npm run dev:browser  # web client only, engine in the browser
-npm test             # server test suite
+npm test             # server and web test suites
 npm run typecheck    # both packages
 npm run build        # production build
 npm run fixtures     # write the demo feed as real .zip / .pb files
