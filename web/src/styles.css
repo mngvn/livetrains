@@ -972,8 +972,56 @@ button {
 
 .panel-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin: 12px 0;
+}
+
+/* "Watch this trip" and "Share", side by side under the chosen trip. */
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+
+.plan-actions .journey-start {
+  flex: 1 1 auto;
+  width: auto;
+  margin: 0;
+}
+
+.share {
+  display: contents;
+}
+
+.share > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.share__status {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.share__status:empty {
+  display: none;
+}
+
+.share__fallback {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
 }
 
 .vehicle-panel__title {

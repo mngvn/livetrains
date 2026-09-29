@@ -4,6 +4,8 @@ import { sortAlerts } from '../lib/alerts.ts';
 import { modeLabel } from '../lib/format.ts';
 import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
+import { ShareButton } from './ShareButton.tsx';
+import { shareUrl } from '../lib/shareLink.ts';
 
 /**
  * Every route, and the one being looked at.
@@ -95,9 +97,12 @@ export function RoutesTab({
           )}
           {activeDetail && alerts.length === 0 && <p className="panel-empty">No alerts on this route.</p>}
 
-          <button type="button" className="chip chip--primary" onClick={onClear}>
-            Show all routes again
-          </button>
+          <div className="panel-actions">
+            <button type="button" className="chip chip--primary" onClick={onClear}>
+              Show all routes again
+            </button>
+            <ShareButton url={shareUrl({ route: active.id })} title={`Route ${active.shortName} — live vehicles`} />
+          </div>
         </section>
       )}
 

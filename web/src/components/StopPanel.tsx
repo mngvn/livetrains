@@ -6,6 +6,8 @@ import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
 import { ScheduleTime } from './ScheduleTime.tsx';
 import { AccessibilityTag } from './AccessibilityTag.tsx';
+import { ShareButton } from './ShareButton.tsx';
+import { shareUrl } from '../lib/shareLink.ts';
 
 /** A departure carries its route's display fields inline; rebuild the badge's view of it. */
 function routeOf(departure: Departure): RouteSummary {
@@ -154,6 +156,7 @@ export function StopPanel({
         <button type="button" className="chip chip--primary" onClick={() => onPlanToHere(detail)}>
           Go here
         </button>
+        <ShareButton url={shareUrl({ stop: stop.id })} title={`${stop.name} — live departures`} />
       </div>
 
       {alerts.length > 0 && (

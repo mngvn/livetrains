@@ -37,6 +37,8 @@ import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
 import { useTheme } from './lib/theme.ts';
+import { hasSharedState, readSharedState, shareUrl, writeSharedState } from './lib/shareLink.ts';
+import { ShareButton } from './components/ShareButton.tsx';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
 
@@ -508,6 +510,51 @@ export function App() {
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
 
+  // --- Shared links ---------------------------------------------------------
+  /** What the page was opened with, read once. */
+  const shared = useMemo(() => readSharedState(window.location.search), []);
+  /** Until a link has been applied, the URL is left alone rather than wiped. */
+  const sharedApplied = useRef(!hasSharedState(shared));
+
+  useEffect(() => {
+    if (sharedApplied.current || engine.state !== 'ready' || !agency) return;
+    // A route can only be opened once the route list is in.
+    if (shared.route && routes.length === 0) return;
+    sharedApplied.current = true;
+    if (shared.from) setOrigin(shared.from);
+    if (shared.to) setDestination(shared.to);
+    if (shared.from || shared.to) setTab('plan');
+    if (shared.route) openRoute(shared.route);
+    if (shared.stop && !(shared.from && shared.to)) {
+      const stopId = shared.stop;
+      setSelectedStopId(stopId);
+      source
+        .stop(stopId, 1)
+        .then((detail) => setCameraTarget({ lon: detail.stop.lon, lat: detail.stop.lat, zoom: 16 }))
+        .catch(() => undefined);
+    }
+  }, [shared, engine.state, agency, routes.length, openRoute, source]);
+
+  // Keep the address bar describing what is on screen, so copying it from
+  // the browser shares exactly this view. Replaced, not pushed: every stop
+  // tapped should not become a step in the back button's history.
+  useEffect(() => {
+    if (!sharedApplied.current) return;
+    const query = writeSharedState(
+      {
+        from: origin ?? undefined,
+        to: destination ?? undefined,
+        stop: selectedStopId ?? undefined,
+        route: activeRouteId ?? undefined,
+      },
+      window.location.search,
+    );
+    const next = `${window.location.pathname}${query}${window.location.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+      window.history.replaceState(window.history.state, '', next);
+    }
+  }, [origin, destination, selectedStopId, activeRouteId]);
+
   const planFromStop = useCallback((detail: StopDetail, target: 'origin' | 'destination') => {
     const place: Place = {
       id: detail.stop.id,
@@ -792,10 +839,23 @@ export function App() {
 
                       {chosen && (
                         <>
-                          <button type="button" className="journey-start" onClick={startJourney}>
-                            <span aria-hidden="true">▶</span>
-                            Watch this trip
-                          </button>
+                          <div className="plan-actions">
+                            <button type="button" className="journey-start" onClick={startJourney}>
+                              <span aria-hidden="true">▶</span>
+                              Watch this trip
+                            </button>
+                            {origin && destination && (
+                              <ShareButton
+                                url={shareUrl({ from: origin, to: destination })}
+                                title={`${origin.name} to ${destination.name}`}
+                                note={
+                                  origin.kind === 'current-location'
+                                    ? 'your location is left out; they plan from theirs'
+                                    : undefined
+                                }
+                              />
+                            )}
+                          </div>
                           <ItineraryDetail
                             itinerary={chosen}
                             now={now}
