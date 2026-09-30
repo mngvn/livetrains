@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PlanRequest, Vehicle } from '../shared/api.js';
-import { stopWithRoutes } from '../departures.js';
+import { MAX_BOARD_DEPARTURES, stopWithRoutes } from '../departures.js';
 import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
@@ -111,10 +111,12 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
 
   app.get(
     '/api/stops/:stopId',
-    async (request: FastifyRequest<{ Params: { stopId: string }; Querystring: { limit?: string } }>) => {
+    async (request: FastifyRequest<{ Params: { stopId: string }; Querystring: { limit?: string; day?: string } }>) => {
       requireReady(service);
-      const limit = Math.min(numberParam(request.query.limit, 15), 50);
-      const detail = stopDetail(service.store, service.patterns, service.realtime, request.params.stopId, limit);
+      // `day=1` asks for the full departure board: everything left today.
+      const restOfDay = request.query.day === '1' || request.query.day === 'true';
+      const limit = Math.min(numberParam(request.query.limit, 15), restOfDay ? MAX_BOARD_DEPARTURES : 50);
+      const detail = stopDetail(service.store, service.patterns, service.realtime, request.params.stopId, limit, restOfDay);
       if (!detail) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
       return detail;
     },

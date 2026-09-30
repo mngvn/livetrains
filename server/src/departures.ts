@@ -12,9 +12,21 @@ export interface DeparturesOptions {
   routeIds?: string[];
   /** Look no further ahead than this many seconds. */
   horizonSeconds?: number;
+  /**
+   * Everything left in the service day instead of a fixed horizon: the rest
+   * of today's service, plus any of yesterday's that is still running past
+   * midnight. Tomorrow's service is not included.
+   */
+  restOfServiceDay?: boolean;
   /** Epoch seconds to treat as "now". */
   now?: number;
 }
+
+/** A vehicle this close to the stop, reporting it as its stop, is at it. */
+const AT_STOP_METERS = 40;
+
+/** Upper bound on a full day's board, so a hub cannot produce thousands of rows. */
+export const MAX_BOARD_DEPARTURES = 600;
 
 /**
  * Upcoming departures from a set of stops, merged and sorted.
@@ -32,8 +44,10 @@ export function departuresForStops(
   options: DeparturesOptions = {},
 ): Departure[] {
   const now = options.now ?? Math.floor(Date.now() / 1000);
-  const limit = options.limit ?? 12;
-  const horizon = options.horizonSeconds ?? 3 * 3600;
+  const limit = Math.min(options.limit ?? 12, MAX_BOARD_DEPARTURES);
+  const restOfDay = options.restOfServiceDay === true;
+  const horizon = restOfDay ? Infinity : (options.horizonSeconds ?? 3 * 3600);
+  const stopIds = new Set(stopIndices.map((i) => store.stops[i].id));
   const routeFilter = options.routeIds && options.routeIds.length > 0 ? new Set(options.routeIds) : null;
   const stopSet = new Set(stopIndices);
 
@@ -41,7 +55,11 @@ export function departuresForStops(
   // A trip can appear under more than one candidate service day; keep the first.
   const seen = new Set<string>();
 
-  for (const { date, secondsOfDay } of candidateServiceDays(now, store.timezone)) {
+  const days = candidateServiceDays(now, store.timezone);
+  // Yesterday and today: yesterday for its after-midnight trips, today for
+  // the rest. Tomorrow's service day only matters to a fixed horizon that
+  // reaches into it.
+  for (const { date, secondsOfDay } of restOfDay ? days.slice(0, 2) : days) {
     const activeTrips = patterns.activeTrips(date);
 
     for (const stopIndex of stopSet) {
@@ -84,13 +102,17 @@ export function departuresForStops(
           const scheduledTime = epochFor(date, scheduledSeconds, store.timezone);
           if (scheduledTime > now + horizon) break;
 
-          if (realtime.isCancelled(tripId)) continue;
-
-          const predicted = realtime.predictedDeparture(tripId, stop.id);
-          const delay = realtime.delayFor(tripId, stop.id);
+          // Listed rather than dropped: a rider waiting for the 7:40 needs to
+          // be told it is not coming, not left to wonder where it went.
+          const cancelled = realtime.isCancelled(tripId);
+          const predicted = cancelled ? null : realtime.predictedDeparture(tripId, stop.id);
+          const delay = cancelled ? null : realtime.delayFor(tripId, stop.id);
           const expectedTime = predicted ?? (delay !== null ? scheduledTime + delay : scheduledTime);
-          // Drop anything that has already gone, judged on the realtime time.
-          if (expectedTime < now - 60) continue;
+          const vehicle = cancelled ? undefined : realtime.vehicleForTrip(tripId);
+          const atStop = vehicle !== undefined && isAtStop(vehicle, stopIds, stop);
+          // Drop anything that has already gone, judged on the realtime time,
+          // unless it is standing at the stop with its doors open.
+          if (expectedTime < now - 60 && !atStop) continue;
 
           seen.add(tripId);
           found.push({
@@ -106,21 +128,47 @@ export function departuresForStops(
             expectedTime,
             delaySeconds: predicted !== null ? predicted - scheduledTime : delay,
             isRealtime: predicted !== null || delay !== null,
-            vehicleId: realtime.vehicleForTrip(tripId)?.id,
+            vehicleId: vehicle?.id,
             // Listed rather than dropped: "the 18 is not stopping here" is
             // exactly what someone standing at this stop needs to know.
             skipped: realtime.isSkipped(tripId, stop.id) || undefined,
             wheelchair: accessibility(store.tripWheelchair[tripIndex]),
+            cancelled: cancelled || undefined,
+            atStop: atStop || undefined,
           });
-          // A few per pattern is plenty; the merge below picks the real winners.
-          if (found.length > limit * 8) break;
+          // A few per pattern is plenty for a short board; the merge below
+          // picks the real winners. A full day wants every one.
+          if (!restOfDay && found.length > limit * 8) break;
         }
       }
     }
   }
 
-  found.sort((a, b) => a.expectedTime - b.expectedTime);
+  // A vehicle standing at the stop is leaving now, whatever its prediction
+  // says, so it heads the board.
+  const leavesAt = (d: Departure) => (d.atStop ? Math.min(d.expectedTime, now) : d.expectedTime);
+  found.sort((a, b) => leavesAt(a) - leavesAt(b));
   return found.slice(0, limit);
+}
+
+/**
+ * Whether a trip's vehicle is standing at this stop right now.
+ *
+ * The feed's own word when it gives one — "stopped at" this stop. Many
+ * feeds never send a status, so otherwise: it names this stop as its current
+ * one and is within a few metres of it.
+ */
+function isAtStop(
+  vehicle: { stopId?: string; currentStatus?: string; lat: number; lon: number },
+  stopIds: Set<string>,
+  stop: { lat: number; lon: number },
+): boolean {
+  if (!vehicle.stopId || !stopIds.has(vehicle.stopId)) return false;
+  if (vehicle.currentStatus === 'stopped') return true;
+  if (vehicle.currentStatus !== undefined) return false;
+  const dy = (vehicle.lat - stop.lat) * 111_320;
+  const dx = (vehicle.lon - stop.lon) * 111_320 * Math.cos((stop.lat * Math.PI) / 180);
+  return Math.hypot(dx, dy) <= AT_STOP_METERS;
 }
 
 /**

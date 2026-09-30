@@ -14,6 +14,15 @@ export function LeaveNudge({ state, now }: { state: LeaveState; now: number }) {
   const { leaveAt, leg, live, armed } = state;
   if (leaveAt === null || !leg) return null;
 
+  if (state.cancelled) {
+    return (
+      <p className="leave-nudge is-missed" role="status">
+        The {leg.route.shortName} this trip depends on has been cancelled. Pick another option above, or plan
+        again.
+      </p>
+    );
+  }
+
   const seconds = leaveAt - now;
   const minutes = Math.round(seconds / 60);
   // Missed it by more than the buffer: the plan needs redoing, not a nudge.

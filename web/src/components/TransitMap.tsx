@@ -74,6 +74,8 @@ interface Props {
    * lands where it can be seen rather than behind the bottom sheet.
    */
   padding: MapPadding;
+  /** The selected stop, marked with a pin that stays on it as the map moves. */
+  pin: { id: string; name: string; lat: number; lon: number } | null;
 }
 
 export interface MapPadding {
@@ -142,6 +144,20 @@ const GROUP_REFRESH_MS = 1_000;
 const INDIVIDUAL_VEHICLE_LAYERS = ['vehicles-heading', 'vehicles-dot', 'vehicles-hit'];
 
 /** The grouped view's layers. */
+/** The pin that marks the selected stop: a drop shape with a ring at its heart. */
+function createPinElement(): HTMLElement {
+  const element = document.createElement('div');
+  element.className = 'stop-pin';
+  element.setAttribute('role', 'img');
+  element.innerHTML =
+    '<svg viewBox="0 0 32 42" width="32" height="42" aria-hidden="true">' +
+    '<ellipse cx="16" cy="39.5" rx="6" ry="2" class="stop-pin__shadow"/>' +
+    '<path d="M16 2C8.3 2 3 7.7 3 15c0 9.3 10.6 20.4 12.2 22a1.1 1.1 0 0 0 1.6 0C18.4 35.4 29 24.3 29 15 29 7.7 23.7 2 16 2Z" class="stop-pin__body"/>' +
+    '<circle cx="16" cy="15" r="5.2" class="stop-pin__eye"/>' +
+    '</svg>';
+  return element;
+}
+
 /** How often the selected vehicle's trail is redrawn. */
 const TRAIL_REFRESH_MS = 1_000;
 
@@ -182,6 +198,7 @@ export function TransitMap({
   vehiclePosition,
   cameraTarget,
   padding,
+  pin,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -631,6 +648,37 @@ export function TransitMap({
       })),
     });
   }, [vehicleTrip, vehiclePosition, setData, styleEpoch]);
+
+  // --- The selected stop's pin ---------------------------------------------
+  // A DOM marker rather than a map layer: it is anchored to the stop's
+  // coordinates, so it rides along with every pan, zoom and tilt, it draws
+  // above everything including the 3D buildings, and it survives basemap
+  // swaps untouched because it is not part of the style.
+  const pinMarker = useRef<maplibregl.Marker | null>(null);
+  const pinLat = pin?.lat;
+  const pinLon = pin?.lon;
+  const pinName = pin?.name;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance) return;
+    if (pinLat === undefined || pinLon === undefined) {
+      pinMarker.current?.remove();
+      pinMarker.current = null;
+      return;
+    }
+    if (!pinMarker.current) {
+      pinMarker.current = new maplibregl.Marker({ element: createPinElement(), anchor: 'bottom' });
+    }
+    pinMarker.current.setLngLat([pinLon, pinLat]).addTo(instance);
+    pinMarker.current.getElement().setAttribute('aria-label', `Selected stop: ${pinName ?? ''}`);
+    pinMarker.current.getElement().title = pinName ?? '';
+  }, [pinLat, pinLon, pinName]);
+  useEffect(
+    () => () => {
+      pinMarker.current?.remove();
+    },
+    [],
+  );
 
   // --- The part of the map not covered by panels ---------------------------
   const { top: padTop, right: padRight, bottom: padBottom, left: padLeft } = padding;

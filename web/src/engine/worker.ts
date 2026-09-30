@@ -277,7 +277,14 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
 
     case 'stop': {
       const { store: s, planner: p } = requireReady();
-      const detail = stopDetail(s, p.patterns, realtime, String(params.stopId), num(params.limit, 15));
+      const detail = stopDetail(
+        s,
+        p.patterns,
+        realtime,
+        String(params.stopId),
+        num(params.limit, 15),
+        params.day === true,
+      );
       if (!detail) throw new Error(`Unknown stop "${String(params.stopId)}"`);
       return detail;
     }

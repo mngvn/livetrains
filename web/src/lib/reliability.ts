@@ -95,7 +95,9 @@ export function observationsFrom(stopId: string, departures: Departure[], watche
   for (const departure of departures) {
     if (!watched.has(routeDirection(departure.routeId, departure.directionId))) continue;
     // A timetable time is not an observation of anything.
-    if (!departure.isRealtime && !departure.skipped) continue;
+    // A cancellation or skipped stop is an observation in itself: it did not come.
+    const missed = Boolean(departure.skipped || departure.cancelled);
+    if (!departure.isRealtime && !missed) continue;
     const at = departure.expectedTime;
     if (at < now - WINDOW_AFTER_SECONDS || at > now + WINDOW_BEFORE_SECONDS) continue;
     rows.push({
@@ -104,7 +106,7 @@ export function observationsFrom(stopId: string, departures: Departure[], watche
       tripId: departure.tripId,
       scheduledTime: departure.scheduledTime,
       delaySeconds: departure.expectedTime - departure.scheduledTime,
-      skipped: Boolean(departure.skipped),
+      skipped: missed,
       at: now,
     });
   }

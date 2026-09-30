@@ -22,14 +22,26 @@ worldwide — adding another city is a config entry rather than a rewrite.
   easy to find, and vehicles gather into counted groups (deep blue when mostly
   trains) until there is room to show them one by one. Both can be switched
   off in the legend.
+- **A detail panel on the right.** Tapping a bus, train or stop opens it in
+  its own panel, separate from the planner on the left. It stays open and
+  updates in place as you tap from stop to vehicle to stop, and closes with ×
+  or Escape. On a phone or tablet there is only room for one panel, so it
+  slides the planner out of the way while it is open.
 - **Tap a vehicle** to see who runs it, how late it is, whether it is
   accessible, and the stops ahead with scheduled and predicted times. Its trip
   is outlined on the map — the road ahead in bold, the road behind faded — and
   a trail shows where it has actually been over the last twenty minutes.
-- **Tap a stop** for its departure board (scheduled time struck through when
-  the prediction differs, "not stopping" when the feed says so), step-free
-  access, platform and station details, lifts and stairs from `pathways.txt`,
-  its alerts, and every line that calls there — which light up on the map.
+- **Tap a stop** for its full departure board: every departure left in the
+  service day, in time order across all routes. The timetable fills the day,
+  and live predictions replace it where the feed has them — live rows are
+  marked with a green edge and a "Live" pulse, timetable rows say
+  "Timetable". A vehicle standing at the stop reads "At stop now"; a
+  cancelled trip stays on the board, greyed out and marked, so nobody waits
+  for it. Pin the board to particular routes or to trains or buses (it
+  remembers, per stop). It refreshes when opened and every 30 seconds. The
+  stop is marked on the map with a pin that stays on it as you pan, and the
+  panel also shows step-free access, lifts and stairs from `pathways.txt`,
+  alerts, and every line that calls there, which light up on the map.
 - **Search stops and routes** by what is on the sign: "16", "Route 21",
   "Blue", "Nicollet Mall", or the stop number off the pole.
 - **Service alerts** everywhere they matter: on the stops and routes they
@@ -337,7 +349,7 @@ environment.
 | `GET /api/routes/:id` | One route's stops, shape and alerts |
 | `GET /api/stops/nearby?lat&lon&radius` | Stops near a point, nearest first |
 | `GET /api/stops/within?bbox=w,s,e,n` | Stops in a viewport |
-| `GET /api/stops/:id` | Stop details, lines, station pathways, alerts and departures |
+| `GET /api/stops/:id?day=1` | Stop details, lines, station pathways, alerts and departures (`day=1`: the rest of the service day) |
 | `GET /api/vehicles?routeId&bbox` | Current vehicle positions |
 | `GET /api/vehicles/stream` | Server-Sent Events stream of positions |
 | `GET /api/vehicles/:id/trip` | The trip a vehicle is running: stops, times, shape |
