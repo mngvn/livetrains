@@ -55,6 +55,8 @@ export function StopPanel({
   onShowVehicle,
   onRoutesLoaded,
   onLoaded,
+  reachShown,
+  onReach,
 }: {
   stopId: string;
   now: number;
@@ -71,6 +73,10 @@ export function StopPanel({
   onRoutesLoaded: (routeIds: string[] | null) => void;
   /** The stop's own record once known, for the map pin. */
   onLoaded?: (detail: StopDetail) => void;
+  /** Whether the map is shading how far you can get from this stop. */
+  reachShown: boolean;
+  /** Shade it, or clear it. */
+  onReach: () => void;
 }) {
   const [detail, setDetail] = useState<StopDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,6 +167,9 @@ export function StopPanel({
           Go here
         </button>
         <ShareButton url={shareUrl({ stop: stop.id })} title={`${stop.name} — live departures`} />
+        <button type="button" className="chip" aria-pressed={reachShown} onClick={onReach}>
+          {reachShown ? 'Hide reach' : 'How far in 30 min'}
+        </button>
       </div>
 
       {alerts.length > 0 && (

@@ -6,6 +6,7 @@ import { AccessibilityTag } from './AccessibilityTag.tsx';
 import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
 import { ScheduleTime } from './ScheduleTime.tsx';
+import type { DelayExplanation } from '../lib/lateness.ts';
 
 /** How many stops ahead to show before "show all". */
 const STOPS_AHEAD = 8;
@@ -28,6 +29,7 @@ export function VehiclePanel({
   onShowRoute,
   ride,
   onRide,
+  explanation,
 }: {
   vehicle: Vehicle;
   trip: VehicleTrip | null;
@@ -40,6 +42,8 @@ export function VehiclePanel({
   ride: { stopId: string | null } | null;
   /** Start riding, change your stop, or (with null) stop riding. */
   onRide: (alightStopId: string | null | false) => void;
+  /** Why it is running late, when it is. */
+  explanation: DelayExplanation | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   const delay = delayText(vehicle.delaySeconds);
@@ -86,6 +90,20 @@ export function VehiclePanel({
         )}
         <span className="fact-tag fact-tag--muted">Position {relativeAge(vehicle.timestamp)}</span>
       </div>
+
+      {explanation && (
+        <section className="panel-section why-late" aria-label="Why it is late">
+          <h3 className="panel-section__title">Why is it {explanation.minutes} min late?</h3>
+          <ul className="why-late__reasons">
+            {explanation.reasons.map((reason) => (
+              <li key={`${reason.kind}-${reason.title}`} className={`why-late__reason is-${reason.kind}`}>
+                <span className="why-late__title">{reason.title}</span>
+                <span className="why-late__detail">{reason.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="panel-actions">
         {trip && (

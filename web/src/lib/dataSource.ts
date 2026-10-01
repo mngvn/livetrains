@@ -15,6 +15,7 @@ import type {
   FeedStatus,
   Place,
   PlanResponse,
+  Reachability,
   RouteSummary,
   ServiceAlert,
   StopSummary,
@@ -94,6 +95,8 @@ export interface DataSource {
   stopsWithin(bbox: [number, number, number, number], limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   /** Stations, interchanges and busy stops across the whole network. */
   majorStops(signal?: AbortSignal): Promise<StopSummary[]>;
+  /** Everywhere reachable from a stop within `minutes`, leaving now. */
+  reachable(stopId: string, minutes?: number, signal?: AbortSignal): Promise<Reachability>;
   stop(stopId: string, limit?: number, signal?: AbortSignal): Promise<StopDetail>;
   /** A stop with its full departure board: everything left in the service day. */
   stopBoard(stopId: string, signal?: AbortSignal): Promise<StopDetail>;
@@ -147,6 +150,7 @@ class BrowserSource implements DataSource {
   stopsWithin = (bbox: [number, number, number, number], limit = 300) =>
     this.engine.request<StopSummary[]>('stopsWithin', { bbox: bbox.join(','), limit });
   majorStops = () => this.engine.request<StopSummary[]>('majorStops');
+  reachable = (stopId: string, minutes = 30) => this.engine.request<Reachability>('reachable', { stopId, minutes });
   stop = (stopId: string, limit = 15) => this.engine.request<StopDetail>('stop', { stopId, limit });
   stopBoard = (stopId: string) =>
     this.engine.request<StopDetail>('stop', { stopId, limit: BOARD_LIMIT, day: true });
@@ -198,6 +202,7 @@ class ServerSource implements DataSource {
   nearbyStops = api.nearbyStops;
   stopsWithin = api.stopsWithin;
   majorStops = api.majorStops;
+  reachable = api.reachable;
   stop = api.stop;
   stopBoard = api.stopBoard;
   vehicleTrip = api.vehicleTrip;

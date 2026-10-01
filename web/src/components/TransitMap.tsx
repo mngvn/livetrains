@@ -102,6 +102,8 @@ interface Props {
   feedStale: boolean;
   /** The vehicle you are riding: the camera keeps it in view. */
   followVehicleId: string | null;
+  /** Everywhere reachable from a stop, as banded grid cells, while shown. */
+  isochrone: GeoJSON.FeatureCollection | null;
 }
 
 export interface MapPadding {
@@ -326,6 +328,7 @@ export function TransitMap({
   pin,
   feedStale,
   followVehicleId,
+  isochrone,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -958,9 +961,11 @@ export function TransitMap({
     const instance = map.current;
     if (!instance || !cameraTarget) return;
     if ('bounds' in cameraTarget) {
-      const pad = paddingRef.current;
+      // The map's own padding already keeps clear of the panels; this is
+      // only a margin inside what is left. Adding the panels again here asks
+      // for a box that cannot fit, and MapLibre then quietly does nothing.
       instance.fitBounds(cameraTarget.bounds as LngLatBoundsLike, {
-        padding: { top: pad.top + 40, right: pad.right + 40, bottom: pad.bottom + 40, left: pad.left + 40 },
+        padding: 40,
         bearing: 0,
         pitch: threeWanted.current ? PITCH_3D : 0,
         duration: 800,
@@ -1003,6 +1008,12 @@ export function TransitMap({
     if (!ready.current) return;
     setData('major-stops', stopFeatures(majorStops));
   }, [majorStops, setData, styleEpoch]);
+
+  // --- How far you can get ---------------------------------------------------
+  useEffect(() => {
+    if (!ready.current) return;
+    setData('isochrone', isochrone ?? EMPTY);
+  }, [isochrone, setData, styleEpoch]);
 
   // --- The whole route network ----------------------------------------------
   useEffect(() => {

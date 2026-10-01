@@ -50,6 +50,9 @@ import { DetailPanel } from './components/DetailPanel.tsx';
 import { NetworkStatus } from './components/NetworkStatus.tsx';
 import { RideBanner, askToNotify } from './components/RideBanner.tsx';
 import { rideProgress } from './lib/ride.ts';
+import { isochroneGrid, type IsochroneGrid } from './lib/isochrone.ts';
+import { ReachLegend } from './components/ReachLegend.tsx';
+import { explainDelay } from './lib/lateness.ts';
 import { networkHealth } from './lib/networkHealth.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
@@ -707,6 +710,46 @@ export function App() {
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
 
+  // --- Why the selected vehicle is late ---------------------------------------
+  const explanationTick = Math.floor(now / 5);
+  const lateness = useMemo(
+    () =>
+      selectedVehicle
+        ? explainDelay({
+            vehicle: selectedVehicle,
+            trip: vehicleTrip && vehicleTrip.vehicleId === selectedVehicle.id ? vehicleTrip : null,
+            others: tracker.snapshot(),
+            history: tracker.delayHistory(selectedVehicle.id),
+            now: Date.now() / 1000,
+          })
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedVehicle, vehicleTrip, tracker, explanationTick],
+  );
+
+  // --- How far you can get ------------------------------------------------------
+  /** The shaded map of everywhere reachable from a stop, while it is shown. */
+  const [reach, setReach] = useState<{ stopId: string; stopName: string; departAt: number; grid: IsochroneGrid } | null>(
+    null,
+  );
+  const toggleReach = useCallback(
+    (stopId: string) => {
+      if (reach?.stopId === stopId) {
+        setReach(null);
+        return;
+      }
+      source
+        .reachable(stopId, 30)
+        .then((result) => {
+          const grid = isochroneGrid(result);
+          setReach({ stopId, stopName: result.origin.name, departAt: result.departAt, grid });
+          if (grid.bounds) setCameraTarget({ bounds: grid.bounds });
+        })
+        .catch(() => undefined);
+    },
+    [reach?.stopId, source],
+  );
+
   // --- Riding along -----------------------------------------------------------
   /** The vehicle you are on, and the stop you are getting off at once chosen. */
   const [ride, setRide] = useState<{ vehicleId: string; stopId: string | null } | null>(null);
@@ -929,7 +972,12 @@ export function App() {
         pin={selectedStopId && stopPin ? stopPin : null}
         feedStale={feedStale}
         followVehicleId={ride?.vehicleId ?? null}
+        isochrone={reach?.grid.cells ?? null}
       />
+
+      {reach && (
+        <ReachLegend stopName={reach.stopName} departAt={reach.departAt} onClose={() => setReach(null)} />
+      )}
 
       {ride && progress && (
         <RideBanner
@@ -1301,6 +1349,7 @@ export function App() {
                 onShowStop={showStop}
                 onShowRoute={openRoute}
                 ride={ride && ride.vehicleId === selectedVehicleId ? ride : null}
+                explanation={lateness}
                 onRide={(stopId) => {
                   if (stopId === false) setRide(null);
                   else startRide(selectedVehicleId, stopId);
@@ -1326,6 +1375,8 @@ export function App() {
               onLoaded={(detail) =>
                 setStopPin({ id: detail.stop.id, name: detail.stop.name, lat: detail.stop.lat, lon: detail.stop.lon })
               }
+              reachShown={reach?.stopId === selectedStopId}
+              onReach={() => toggleReach(selectedStopId)}
             />
           ) : null}
         </DetailPanel>

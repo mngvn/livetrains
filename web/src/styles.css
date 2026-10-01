@@ -4070,3 +4070,159 @@ button.board-row__button:hover,
   gap: 6px;
   margin: 2px 0 4px;
 }
+
+/* --------------------------------------------------------------------------
+   How far you can get: the key to the shaded map
+   -------------------------------------------------------------------------- */
+
+.reach-legend {
+  position: absolute;
+  bottom: 12px;
+  left: calc(50% + (var(--sheet-width) + 12px) / 2);
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - var(--sheet-width) - 48px);
+  padding: 8px 8px 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  animation: ride-in var(--t-med) var(--ease-out);
+}
+
+.reach-legend__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reach-legend__label {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reach-legend__detail {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.reach-legend__bands {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: none;
+}
+
+.reach-legend__band {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The same tone and strengths as the map's own bands. */
+.reach-legend__swatch {
+  width: 14px;
+  height: 14px;
+  background: var(--text);
+  opacity: 0.6;
+}
+
+.reach-legend__band.is-20 .reach-legend__swatch {
+  opacity: 0.36;
+}
+
+.reach-legend__band.is-30 .reach-legend__swatch {
+  opacity: 0.18;
+}
+
+.app:has(.sheet.is-hidden) .reach-legend {
+  left: 50%;
+  max-width: calc(100vw - 24px);
+}
+
+.app.has-detail .reach-legend {
+  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
+  max-width: calc(100vw - var(--sheet-width) - var(--detail-width) - 72px);
+}
+
+@media (max-width: 1023px) {
+  .app.has-detail .reach-legend {
+    left: calc(50% - (var(--detail-width) + 12px) / 2);
+    max-width: calc(100vw - var(--detail-width) - 48px);
+  }
+}
+
+@media (max-width: 720px) {
+  .reach-legend,
+  .app.has-detail .reach-legend,
+  .app:has(.sheet.is-hidden) .reach-legend {
+    top: 60px;
+    bottom: auto;
+    left: 10px;
+    right: 10px;
+    max-width: none;
+    transform: none;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+
+  .app.is-riding .reach-legend {
+    top: 92px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Why is it late: the evidence, strongest first
+   -------------------------------------------------------------------------- */
+
+.why-late__reasons {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.why-late__reason {
+  --reason-tone: var(--late);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 0 9px 12px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 3px 0 0 var(--reason-tone);
+}
+
+.why-late__reason.is-alert {
+  --reason-tone: var(--danger);
+}
+
+.why-late__reason.is-unknown,
+.why-late__reason.is-start {
+  --reason-tone: var(--rule-strong);
+}
+
+.why-late__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.why-late__detail {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}

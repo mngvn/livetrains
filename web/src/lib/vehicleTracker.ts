@@ -44,6 +44,8 @@ interface TrailPoint {
   lon: number;
   /** The vehicle's own report time, Unix seconds. */
   t: number;
+  /** Its delay against the timetable at that report, when the feed gave one. */
+  delay?: number;
 }
 
 interface Track {
@@ -101,7 +103,10 @@ export interface StreamStatus {
  */
 function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
   const last = trail[trail.length - 1];
-  const next = last && last.t >= vehicle.timestamp ? trail : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }];
+  const next =
+    last && last.t >= vehicle.timestamp
+      ? trail
+      : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp, delay: vehicle.delaySeconds }];
   const cutoff = vehicle.timestamp - TRAIL_SECONDS;
   let start = 0;
   while (start < next.length - 1 && next[start].t < cutoff) start++;
@@ -251,6 +256,17 @@ export class VehicleTracker {
     return points;
   }
 
+  /**
+   * How late a vehicle has been over the last twenty minutes, oldest first:
+   * enough to tell a bus that is losing time from one that has been late
+   * since it set out.
+   */
+  delayHistory(id: string): { t: number; delay: number }[] {
+    const track = this.tracks.get(id);
+    if (!track) return [];
+    return track.trail.flatMap((p) => (p.delay === undefined ? [] : [{ t: p.t, delay: p.delay }]));
+  }
+
   /** Every vehicle's last reported position, for saving. */
   snapshot(): Vehicle[] {
     return [...this.tracks.values()].filter((t) => !t.restored).map((t) => t.vehicle);
@@ -361,7 +377,7 @@ export class VehicleTracker {
           startedAt: now,
           durationMs: 0,
           lastSeen: now,
-          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }],
+          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp, delay: vehicle.delaySeconds }],
         });
         continue;
       }

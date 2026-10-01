@@ -19,6 +19,7 @@ export type EngineMethod =
   | 'nearbyStops'
   | 'stopsWithin'
   | 'majorStops'
+  | 'reachable'
   | 'stop'
   | 'vehicleTrip'
   | 'search'

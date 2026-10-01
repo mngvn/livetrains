@@ -324,6 +324,21 @@ export interface VehicleTrip {
   alerts: ServiceAlert[];
 }
 
+/**
+ * Everywhere reachable from one stop within a time budget, leaving now:
+ * the stops reached by transit (and short walks between them), each with the
+ * seconds it took including the first wait.
+ */
+export interface Reachability {
+  origin: StopSummary;
+  /** Unix seconds the search left at. */
+  departAt: number;
+  minutes: number;
+  /** The walking pace assumed, metres per second, for the walk from each stop. */
+  walkSpeed: number;
+  stops: { id: string; lat: number; lon: number; seconds: number }[];
+}
+
 /** One result from searching routes and stops by name or number. */
 export type TransitSearchResult =
   | { kind: 'route'; route: RouteSummary }

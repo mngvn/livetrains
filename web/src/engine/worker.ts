@@ -4,6 +4,7 @@ import type { AgencyDefinition } from '../../../server/src/agencies/types.js';
 import { GtfsStore } from '../../../server/src/gtfs/store.js';
 import { Planner } from '../../../server/src/planner/index.js';
 import { majorStops, stopWithRoutes } from '../../../server/src/departures.js';
+import { reachableFrom } from '../../../server/src/reachability.js';
 import {
   routeDetail,
   searchTransit,
@@ -263,6 +264,13 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
       return s
         .nearbyStops(num(params.lat), num(params.lon), num(params.radius, 800), num(params.limit, 20))
         .map(({ index, distance }) => stopWithRoutes(s, index, distance));
+    }
+
+    case 'reachable': {
+      const { store: s, planner: p } = requireReady();
+      const result = reachableFrom(s, p, String(params.stopId), num(params.minutes, 30));
+      if (!result) throw new Error(`Unknown stop "${String(params.stopId)}"`);
+      return result;
     }
 
     case 'majorStops': {

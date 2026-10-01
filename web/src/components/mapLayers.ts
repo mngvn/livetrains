@@ -123,7 +123,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
 
   for (const id of [
     'network', 'itinerary', 'itinerary-points', 'stops', 'major-stops', 'vehicles', 'vehicle-groups',
-    'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops',
+    'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops', 'isochrone',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
@@ -131,6 +131,21 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   for (const id of ['route-shape', 'vehicle-trip-full', 'vehicle-trail']) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY, lineMetrics: true });
   }
+
+  // --- How far you can get, under everything else ---------------------------
+  // One neutral tone at three strengths: the network's reach is a question of
+  // how far, not of which line, so it borrows no route's colour.
+  map.addLayer({
+    id: 'isochrone-fill',
+    type: 'fill',
+    source: 'isochrone',
+    paint: {
+      'fill-color': p.text,
+      'fill-opacity': ['match', ['get', 'band'], 10, 0.26, 20, 0.15, 0.07],
+      // Neighbouring cells meet exactly; antialiasing would draw the seams.
+      'fill-antialias': false,
+    },
+  });
 
   // --- The network ----------------------------------------------------------
   map.addLayer({
@@ -612,6 +627,7 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     if (map.getLayer(layer)) map.setPaintProperty(layer, property, value);
   };
   set('network-casing', 'line-color', p.casing);
+  set('isochrone-fill', 'fill-color', p.text);
   set('vehicle-trip-casing', 'line-color', p.casing);
   set('itinerary-casing', 'line-color', p.casing);
   set('route-shape-casing', 'line-gradient', solid(p.casing));
