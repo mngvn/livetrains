@@ -3,7 +3,7 @@ import maplibregl, { type LngLatBoundsLike, type MapGeoJSONFeature } from 'mapli
 import type { AgencyInfo, Itinerary, RouteNetwork, RouteSummary, StopSummary, VehicleTrip } from '../lib/api.ts';
 import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
-import { readableTextColor } from '../lib/format.ts';
+import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
 import { registerVehicleIcons } from './mapIcons.ts';
@@ -226,7 +226,7 @@ function routeKey(routes: RouteSummary[] | undefined): string {
 
 /** The route numbers printed under a stop, longest lists cut short. */
 function badgeText(routes: RouteSummary[] | undefined): string {
-  const names = (routes ?? []).map((route) => (route.shortName || route.id).toUpperCase());
+  const names = (routes ?? []).map((route) => plateLabel(route.shortName || route.id).toUpperCase());
   if (names.length === 0) return '';
   const shown = names.slice(0, 6);
   return shown.join('  ') + (names.length > shown.length ? `  +${names.length - shown.length}` : '');
@@ -243,6 +243,7 @@ function stopFeatures(stops: StopSummary[]): GeoJSON.FeatureCollection {
         name: stop.name,
         major: stop.major === true,
         interchange: stop.interchange === true,
+        onLine: stop.onLine === true,
         routeKey: routeKey(stop.routes),
         badges: badgeText(stop.routes),
       },
@@ -293,6 +294,7 @@ const PICKABLE_LAYERS = [
   'vehicles-hit',
   'vehicle-groups-circle',
   'itinerary-stops',
+  'line-stops-circle',
   'major-stops-circle',
   'stops-circle',
   'vehicle-trip-stops',
@@ -617,7 +619,7 @@ export function TransitMap({
               routeId: v.routeId ?? '',
               color: stale ? grey(color) : color,
               textColor: textOn(v.color),
-              label: v.routeShortName ?? '',
+              label: v.routeShortName ? plateLabel(v.routeShortName) : '',
               bearing: v.displayBearing,
               mode: v.mode,
               // Only draw a heading when the feed actually reported one; an

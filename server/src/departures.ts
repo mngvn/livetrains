@@ -204,6 +204,7 @@ export function stopWithRoutes(store: GtfsStore, stopIndex: number, distance?: n
   const importance = stopImportance(store, stopIndex, routeIndices);
   if (importance.major) summary.major = true;
   if (importance.interchange) summary.interchange = true;
+  if (importance.onLine) summary.onLine = true;
   return summary;
 }
 
@@ -250,13 +251,17 @@ export function stopImportance(
   store: GtfsStore,
   stopIndex: number,
   routeIndices = routesServing(store, stopIndex),
-): { major: boolean; interchange: boolean } {
+): { major: boolean; interchange: boolean; onLine: boolean } {
   const tiers = lineTiers(store);
   const lines = routeIndices.filter((r) => tiers[r] !== 'bus').length;
   const isStation = childrenOf(store).has(stopIndex);
   const major = lines > 0 || routeIndices.length >= BUSY_STOP_ROUTES || isStation;
   const interchange = lines >= 2 || (lines >= 1 && routeIndices.length >= 4) || routeIndices.length >= 8;
-  return { major, interchange };
+  // A station, or a stop on a rail or branded line: the stops a network map
+  // shows from the widest view. Busy bus stops wait until you zoom in, or
+  // downtown alone would be a field of dots.
+  const onLine = lines > 0 || isStation;
+  return { major, interchange, onLine };
 }
 
 /**

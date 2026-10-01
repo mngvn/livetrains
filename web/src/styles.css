@@ -361,6 +361,11 @@ button {
   background: var(--surface-3);
 }
 
+.chip:disabled {
+  cursor: progress;
+  color: var(--text-muted);
+}
+
 .chip--primary {
   background: var(--accent);
   color: var(--accent-contrast);

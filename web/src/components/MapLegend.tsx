@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { RouteSummary } from '../lib/api.ts';
-import { modeLabel, readableTextColor } from '../lib/format.ts';
+import { modeLabel, plateLabel, readableTextColor } from '../lib/format.ts';
 import { splitBrandedLines } from '../lib/legend.ts';
 
 /**
@@ -161,7 +161,7 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                       className="legend__badge"
                       style={{ background: `#${route.color}`, color: readableTextColor(route.color) }}
                     >
-                      {route.shortName}
+                      {plateLabel(route.shortName)}
                     </span>
                     <span>
                       {/* Clamped to one line: a legend that wraps turns into a

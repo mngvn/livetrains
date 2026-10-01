@@ -46,6 +46,22 @@ describe('major stops', () => {
     expect(stopWithRoutes(store, govPlaza).interchange).toBe(true);
   });
 
+  it('shows stations and line stops from the widest view, and ordinary stops only closer in', () => {
+    const govPlaza = store.stopIndexById.get('BL04')!;
+    expect(stopImportance(store, govPlaza).onLine).toBe(true);
+
+    // Give the buses a house colour, as Metro Transit's local routes have:
+    // a stop served only by them is then not on a line, however busy.
+    const big = createMockStore();
+    for (const route of big.routes.filter((r) => r.mode === 'bus')) route.color = '0053A0';
+    for (let i = 0; i < 4; i++) big.routes.push({ ...big.routes.find((r) => r.mode === 'bus')!, id: `X${i}` });
+    const busOnly = big.stops.findIndex(
+      (_, i) => (stopWithRoutes(big, i).routes ?? []).length > 0 && stopWithRoutes(big, i).routes!.every((r) => r.mode === 'bus'),
+    );
+    expect(busOnly).toBeGreaterThanOrEqual(0);
+    expect(stopImportance(big, busOnly).onLine).toBe(false);
+  });
+
   it('gives a station the routes of its platforms', () => {
     const station = store.stopIndexById.get('NICOLLET-STN')!;
     const routes = stopWithRoutes(store, station).routes!.map((r) => r.id);

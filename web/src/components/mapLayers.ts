@@ -25,6 +25,9 @@ export const FONT_BOLD = ['Noto Sans Bold'];
 /** Below this zoom, vehicles that overlap on screen gather into counted discs. */
 export const GROUP_BELOW_ZOOM = 12;
 
+/** From this zoom the busiest bus stops are drawn too, not only line stops. */
+const MAJOR_STOPS_FROM_ZOOM = 12;
+
 /** Properties that are absent mean "no", not "error". */
 const flag = (name: string): Expr => ['boolean', ['get', name], false];
 const NOT_GROUPED: Expr = ['!', flag('grouped')];
@@ -291,18 +294,35 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 14.5, 0, 15, 1],
     },
   });
+  // From the widest view only stations and stops on rail or branded lines,
+  // the stops a printed network map shows; the busiest bus stops join them
+  // once there is room, or downtown alone would be a field of dots.
   map.addLayer({
-    id: 'major-stops-circle',
+    id: 'line-stops-circle',
     type: 'circle',
     source: 'major-stops',
     minzoom: 9.5,
+    maxzoom: MAJOR_STOPS_FROM_ZOOM,
+    filter: flag('onLine'),
     paint: {
       'circle-radius': MAJOR_STOP_RADIUS,
       'circle-color': p.stopFill,
       'circle-stroke-color': p.stopStroke,
       'circle-stroke-width': MAJOR_STOP_STROKE,
-      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 9.5, 0, 10.5, 1],
-      'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 9.5, 0, 10.5, 1],
+      'circle-opacity': majorFade(),
+      'circle-stroke-opacity': majorFade(),
+    },
+  });
+  map.addLayer({
+    id: 'major-stops-circle',
+    type: 'circle',
+    source: 'major-stops',
+    minzoom: MAJOR_STOPS_FROM_ZOOM,
+    paint: {
+      'circle-radius': MAJOR_STOP_RADIUS,
+      'circle-color': p.stopFill,
+      'circle-stroke-color': p.stopStroke,
+      'circle-stroke-width': MAJOR_STOP_STROKE,
     },
   });
   map.addLayer({
@@ -631,7 +651,7 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
   set('vehicle-trip-casing', 'line-color', p.casing);
   set('itinerary-casing', 'line-color', p.casing);
   set('route-shape-casing', 'line-gradient', solid(p.casing));
-  for (const layer of ['stops-circle', 'major-stops-circle']) {
+  for (const layer of ['stops-circle', 'line-stops-circle', 'major-stops-circle']) {
     set(layer, 'circle-color', p.stopFill);
     set(layer, 'circle-stroke-color', p.stopStroke);
   }
@@ -702,15 +722,19 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   set('vehicle-groups-count', 'text-opacity', ids ? 0.4 : 1);
 
   const stopOpacity = (base: Expr | number): unknown => (stopFocus ? ['case', stopFocus, base, 0.22] : base);
-  set('major-stops-circle', 'circle-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : majorFade());
-  set('major-stops-circle', 'circle-stroke-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : majorFade());
+  set('line-stops-circle', 'circle-opacity', majorFade(stopFocus));
+  set('line-stops-circle', 'circle-stroke-opacity', majorFade(stopFocus));
+  set('major-stops-circle', 'circle-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : 1);
+  set('major-stops-circle', 'circle-stroke-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : 1);
   set('major-stops-label', 'text-opacity', stopOpacity(1));
   set('major-stop-badges', 'text-opacity', stopOpacity(1));
   set('major-stop-badges', 'icon-opacity', stopOpacity(1));
 }
 
-function majorFade(): Expr {
-  return ['interpolate', ['linear'], ['zoom'], 9.5, 0, 10.5, 1];
+/** Line stops fade in over the first zoom level they are drawn at. */
+function majorFade(focus: Expr | null = null): Expr {
+  const at = (v: number): Expr | number => (focus ? ['case', focus, v, v * 0.25] : v);
+  return ['interpolate', ['linear'], ['zoom'], 9.5, at(0), 10.5, at(1)] as Expr;
 }
 
 function glyphOpacity(focus: Expr | null): Expr {
@@ -732,6 +756,8 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'route-shape-line', property: 'line-opacity', value: 0.08 },
   { layer: 'stops-circle', property: 'circle-opacity', value: 0.1 },
   { layer: 'stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
+  { layer: 'line-stops-circle', property: 'circle-opacity', value: 0.1 },
+  { layer: 'line-stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
   { layer: 'major-stops-circle', property: 'circle-opacity', value: 0.1 },
   { layer: 'major-stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
   { layer: 'stops-label', property: 'text-opacity', value: 0 },

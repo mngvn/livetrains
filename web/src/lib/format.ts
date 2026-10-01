@@ -136,3 +136,19 @@ export function relativeAge(epochSeconds: number | null): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
   return `${Math.round(seconds / 3600)} hr ago`;
 }
+
+/**
+ * A route's name as it fits on a plate: "Green" for "METRO Green Line", "A"
+ * for "A Line", "21" as it is.
+ *
+ * Feeds that leave route_short_name empty give their rail lines a long name
+ * as the only name, and "METRO GREEN LINE" on every train on the map is a
+ * sentence, not a sign. The agency's own signs say "Green".
+ */
+export function plateLabel(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= 4) return trimmed;
+  const short = trimmed.replace(/^METRO\s+/i, '').replace(/\s+Line$/i, '').trim();
+  if (short.length <= 9) return short;
+  return short.split(/\s+/)[0];
+}

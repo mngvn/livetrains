@@ -732,12 +732,15 @@ export function App() {
   const [reach, setReach] = useState<{ stopId: string; stopName: string; departAt: number; grid: IsochroneGrid } | null>(
     null,
   );
+  /** The stop whose reach is being worked out, while the search runs. */
+  const [reachLoading, setReachLoading] = useState<string | null>(null);
   const toggleReach = useCallback(
     (stopId: string) => {
       if (reach?.stopId === stopId) {
         setReach(null);
         return;
       }
+      setReachLoading(stopId);
       source
         .reachable(stopId, 30)
         .then((result) => {
@@ -745,7 +748,8 @@ export function App() {
           setReach({ stopId, stopName: result.origin.name, departAt: result.departAt, grid });
           if (grid.bounds) setCameraTarget({ bounds: grid.bounds });
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => setReachLoading((current) => (current === stopId ? null : current)));
     },
     [reach?.stopId, source],
   );
@@ -1376,6 +1380,7 @@ export function App() {
                 setStopPin({ id: detail.stop.id, name: detail.stop.name, lat: detail.stop.lat, lon: detail.stop.lon })
               }
               reachShown={reach?.stopId === selectedStopId}
+              reachLoading={reachLoading === selectedStopId}
               onReach={() => toggleReach(selectedStopId)}
             />
           ) : null}

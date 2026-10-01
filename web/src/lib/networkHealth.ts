@@ -1,5 +1,5 @@
 import type { RouteSummary, ServiceAlert, Vehicle } from './api.ts';
-import { effectMeta, isActive } from './alerts.ts';
+import { effectMeta, isActive, isTripNotice } from './alerts.ts';
 
 /**
  * The whole network, line by line: is it running, and is it running well?
@@ -66,6 +66,11 @@ export interface NetworkHealth {
   onTimeShare: number | null;
 }
 
+/** How bad an alert is for a whole line: a few cancelled trips rank below a detour. */
+function alertRank(alert: ServiceAlert): number {
+  return isTripNotice(alert) ? 4.5 : effectMeta(alert).rank;
+}
+
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -107,24 +112,33 @@ export function lineHealth(
   const measured = delays.length;
   const lateShare = measured > 0 ? late / measured : 0;
 
-  // From the vehicles alone.
+  // From the vehicles alone. A real network always has a late bus somewhere,
+  // so one straggler does not make a line's verdict: it takes a typical
+  // vehicle well behind, or a good share of several.
   let state: LineState = 'quiet';
   if (vehicles.length > 0) {
-    if ((medianDelay ?? 0) >= 10 * 60 || (measured >= 2 && lateShare >= 0.5)) state = 'severe';
-    else if ((medianDelay ?? 0) >= 4 * 60 || (measured >= 1 && lateShare >= 0.25)) state = 'minor';
+    if ((medianDelay ?? 0) >= 10 * 60 || (measured >= 3 && lateShare >= 0.6)) state = 'severe';
+    else if ((medianDelay ?? 0) >= LATE_SECONDS || (measured >= 3 && lateShare >= 0.34)) state = 'minor';
     else state = 'good';
   }
 
   // The agency's word can only make it worse.
-  const ranked = [...alerts].sort((a, b) => effectMeta(a).rank - effectMeta(b).rank);
-  const worst = ranked.find((a) => effectMeta(a).tone !== 'info' && !/ACCESSIBILITY/.test(a.effect ?? '')) ?? null;
+  const ranked = [...alerts]
+    .filter((a) => effectMeta(a).tone !== 'info' && !/ACCESSIBILITY/.test(a.effect ?? ''))
+    .sort((a, b) => alertRank(a) - alertRank(b));
+  const worst = ranked[0] ?? null;
   let label = STATE_LABEL[state];
   if (worst) {
-    const fromAlert: LineState =
-      worst.effect === 'NO_SERVICE' ? 'suspended' : worst.effect === 'SIGNIFICANT_DELAYS' ? 'severe' : 'disrupted';
+    const fromAlert: LineState = isTripNotice(worst)
+      ? 'disrupted'
+      : worst.effect === 'NO_SERVICE'
+        ? 'suspended'
+        : worst.effect === 'SIGNIFICANT_DELAYS'
+          ? 'severe'
+          : 'disrupted';
     if (STATE_ORDER.indexOf(fromAlert) < STATE_ORDER.indexOf(state)) {
       state = fromAlert;
-      label = fromAlert === 'disrupted' ? effectMeta(worst).label : STATE_LABEL[fromAlert];
+      label = isTripNotice(worst) ? 'Trips cancelled' : fromAlert === 'disrupted' ? effectMeta(worst).label : STATE_LABEL[fromAlert];
     }
   }
 

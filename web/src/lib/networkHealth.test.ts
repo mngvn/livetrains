@@ -42,16 +42,39 @@ describe('lineHealth', () => {
     expect(health.reason).toBe('3 buses running, on time');
   });
 
-  it('calls a line minor delays when a quarter of its vehicles are well behind', () => {
+  it('does not let one straggler give a line a bad name', () => {
     const health = lineHealth(route('21'), [vehicle('21', 400), vehicle('21', 30), vehicle('21', 60)], []);
-    expect(health.state).toBe('minor');
+    expect(health.state).toBe('good');
     expect(health.reason).toBe('1 of 3 buses over 5 min late');
   });
 
-  it('calls a line severe delays when half its vehicles are well behind', () => {
-    const health = lineHealth(route('BLUE', 'tram'), [vehicle('BLUE', 700), vehicle('BLUE', 400), vehicle('BLUE', 0)], []);
+  it('calls a line minor delays when a good share of its vehicles are well behind', () => {
+    const health = lineHealth(
+      route('21'),
+      [vehicle('21', 400), vehicle('21', 360), vehicle('21', 30), vehicle('21', 60), vehicle('21', 0)],
+      [],
+    );
+    expect(health.state).toBe('minor');
+    expect(health.reason).toBe('2 of 5 buses over 5 min late');
+  });
+
+  it('calls a line severe delays when most of its vehicles are well behind', () => {
+    const health = lineHealth(
+      route('BLUE', 'tram'),
+      [vehicle('BLUE', 700), vehicle('BLUE', 400), vehicle('BLUE', 500), vehicle('BLUE', 0)],
+      [],
+    );
     expect(health.state).toBe('severe');
-    expect(health.reason).toBe('2 of 3 trains over 5 min late');
+    expect(health.reason).toBe('3 of 4 trains over 5 min late');
+  });
+
+  it('reads a cancelled trip as trips cancelled, not the line suspended', () => {
+    const notice = alert('30', 'NO_SERVICE', {
+      header: 'Route 30 trip departing Westgate Station - Gate B at 1:04 PM and seven other trips canceled today',
+    });
+    const health = lineHealth(route('30'), [vehicle('30', 0)], [notice]);
+    expect(health.state).toBe('disrupted');
+    expect(health.label).toBe('Trips cancelled');
   });
 
   it('lets an alert make a line worse but never better', () => {
@@ -78,7 +101,7 @@ describe('networkHealth', () => {
     const routes = [route('5'), route('21'), route('BLUE', 'tram'), route('94')];
     const health = networkHealth(
       routes,
-      [vehicle('5', 0), vehicle('21', 900), vehicle('21', 700), vehicle('BLUE', 30)],
+      [vehicle('5', 0), vehicle('21', 900), vehicle('21', 700), vehicle('21', 650), vehicle('BLUE', 30)],
       [alert('5', 'DETOUR')],
       NOW,
     );
@@ -90,7 +113,7 @@ describe('networkHealth', () => {
     ]);
     expect(health.counts.quiet).toBe(1);
     expect(health.running).toBe(3);
-    expect(health.onTimeShare).toBe(0.5);
+    expect(health.onTimeShare).toBe(0.4);
   });
 
   it('ignores positions too old to be live', () => {

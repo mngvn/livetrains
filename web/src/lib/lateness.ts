@@ -1,5 +1,5 @@
 import type { ServiceAlert, Vehicle, VehicleTrip } from './api.ts';
-import { effectMeta, isAccessibilityAlert, isActive } from './alerts.ts';
+import { effectMeta, isAccessibilityAlert, isActive, isTripNotice } from './alerts.ts';
 import { projectOntoLine } from './geometry.ts';
 
 /**
@@ -75,7 +75,9 @@ export function explainDelay(input: {
 
   // 1. The agency's own word.
   const alerts: ServiceAlert[] = (trip?.alerts ?? []).filter(
-    (alert) => isActive(alert, now) && effectMeta(alert).tone !== 'info' && !isAccessibilityAlert(alert),
+    // Other trips' cancellations are news, but not why this one is late.
+    (alert) =>
+      isActive(alert, now) && effectMeta(alert).tone !== 'info' && !isAccessibilityAlert(alert) && !isTripNotice(alert),
   );
   for (const alert of alerts.slice(0, 2)) {
     reasons.push({ kind: 'alert', title: effectMeta(alert).label, detail: alert.header });

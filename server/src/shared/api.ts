@@ -77,6 +77,8 @@ export interface StopSummary {
   major?: boolean;
   /** A place to change lines, drawn as a larger hollow circle. */
   interchange?: boolean;
+  /** A station, or a stop on a rail or branded line: shown from the widest view. */
+  onLine?: boolean;
 }
 
 /** A way through a station — an elevator, a stair — from pathways.txt. */
