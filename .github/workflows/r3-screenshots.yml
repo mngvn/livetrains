@@ -10,12 +10,21 @@ on:
     paths:
       - .github/workflows/r3-screenshots.yml
       - .github/r3-shoot.mjs
+      - .github/r3-routes.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  routes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl -sSL -o /tmp/gtfs.zip https://svc.metrotransit.org/mtgtfs/gtfs.zip
+      - run: python3 .github/r3-routes.py /tmp/gtfs.zip
+
   shoot:
     runs-on: ubuntu-latest
     timeout-minutes: 25
