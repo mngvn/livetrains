@@ -14,14 +14,26 @@ worldwide — adding another city is a config entry rather than a rewrite.
 
 **On the map**
 
+- **A map drawn like a route diagram.** The street map is the app's own,
+  drawn from open vector tiles in a few quiet values of one blue-grey, so the
+  only colour on it is the agency's. METRO lines and other branded routes are
+  thick, in their official colours, with a casing that keeps crossings
+  legible; ordinary bus routes are a quiet wash until you zoom in. Stations
+  and busy stops show from metro scale (interchanges as larger hollow rings),
+  every other stop and every label appears as you get close enough to read
+  it, and each stop carries a plate listing its routes.
 - **Every bus and train, live.** Drawn from the agency's GTFS-Realtime feed and
-  smoothly interpolated between updates, so the map reads as live rather than
-  as a slideshow. Trains are square and buses round, each with an arrow for its
-  heading, over a faint wash of the whole route network. Zoomed out, each
-  vehicle throws a tapering beam of its route colour so a four-pixel dot is
-  easy to find, and vehicles gather into counted groups (deep blue when mostly
-  trains) until there is room to show them one by one. Both can be switched
+  gliding at constant speed between reports, so vehicles never stop and start
+  at each update. Each is a plate in its route's colour — round for a bus,
+  square for a train — with a nose pointing its way, a pictogram once there is
+  room, and its route number beside it. Zoomed out, vehicles that overlap on
+  screen gather into counted discs while the rest keep moving, and each throws
+  a beam of its route colour so a dot is easy to find. Both can be switched
   off in the legend.
+- **Select anything and the rest steps back.** A vehicle, a stop, a route or a
+  planned trip dims everything that is not about it. A vehicle's trip draws
+  itself on from end to end, then shows the road ahead bold and the road
+  behind faded.
 - **A detail panel on the right.** Tapping a bus, train or stop opens it in
   its own panel, separate from the planner on the left. It stays open and
   updates in place as you tap from stop to vehicle to stop, and closes with ×
@@ -37,21 +49,40 @@ worldwide — adding another city is a config entry rather than a rewrite.
   marked with a green edge and a "Live" pulse, timetable rows say
   "Timetable". A vehicle standing at the stop reads "At stop now"; a
   cancelled trip stays on the board, greyed out and marked, so nobody waits
-  for it. Pin the board to particular routes or to trains or buses (it
-  remembers, per stop). It refreshes when opened and every 30 seconds. The
+  for it. Each row hangs off a spine in its route's colour: a filled stop for
+  a live prediction, hollow for the timetable, struck through for a
+  cancellation. Arrow keys walk the list. Pin the board to particular routes
+  or to trains or buses (it remembers, per stop). It refreshes when opened
+  and every 30 seconds. The
   stop is marked on the map with a pin that stays on it as you pan, and the
   panel also shows step-free access, lifts and stairs from `pathways.txt`,
   alerts, and every line that calls there, which light up on the map.
+- **How far can I get?** From any stop, shade the map by everywhere you can
+  reach leaving now in 10, 20 and 30 minutes, by transit and on foot, using
+  live predictions.
+- **Why is it late?** A vehicle running behind says why, from what the app
+  can see: an alert from the agency, the bus in front it has caught up with,
+  whether its delay is growing or steady, or that it set out late. When
+  nothing explains it, it says so.
+- **Network status.** One board for the whole system: "Good service on 112
+  of 124 routes", the lines in trouble and why, every named line, and the
+  rest as a grid of route plates marked with their state. While it is open
+  the map draws the troubled lines bold.
 - **Search stops and routes** by what is on the sign: "16", "Route 21",
-  "Blue", "Nicollet Mall", or the stop number off the pole.
+  "Blue", "Nicollet Mall", or the stop number off the pole. `/` jumps to it.
 - **Service alerts** everywhere they matter: on the stops and routes they
   actually affect (a single closed stop is not shown as a whole-route
   problem), marked in the route list, and all together in an Alerts tab that
   filters by kind and by route.
-- **Satellite or street, flat or tilted, light or dark.** The aerial basemap is
-  Esri's World Imagery, oversampled on high-density screens with crisp vector
-  labels; 3D pitches the camera and extrudes buildings; dark mode swaps in a
-  dark street map and follows the device by default. All keyless.
+- **Always says how fresh it is.** "42 vehicles moving right now · Updated
+  8s ago", ticking. If the feed goes quiet the vehicles turn grey and the
+  status line says so; if the agency stops answering it says that too, and
+  counts down to the next retry.
+- **Satellite or street, flat or tilted, dark or light.** Dark is the
+  default; "Auto" switches to dark after sunset at the agency's location,
+  whatever the phone's own setting. The aerial basemap is Esri's World
+  Imagery with crisp vector labels; 3D pitches the camera and extrudes
+  buildings; a button brings the whole network back into view. All keyless.
 
 **Getting somewhere**
 
@@ -70,6 +101,11 @@ worldwide — adding another city is a config entry rather than a rewrite.
   often. While the app is open it notes how each of their buses and trains
   actually ran as they left, and shows "on time 8 in 10 · usually 2 min late"
   from what this device has seen.
+- **Ride along.** "Ride this bus", or "Ride it" on a planned trip, follows the
+  vehicle you are on. Choose your stop and a banner counts the stops down:
+  "get ready" two stops out, "your stop is next", then "get off here", with
+  a tap on the phone and a notification for the last two, so the phone can
+  stay in a pocket.
 - **Watch the trip.** Play any itinerary back: a traveller walks to the stop,
   waits on the platform, rides, changes and walks to the door, with the clock
   running, the camera following and the rest of the map dimmed. The waits are
@@ -349,6 +385,8 @@ environment.
 | `GET /api/routes/:id` | One route's stops, shape and alerts |
 | `GET /api/stops/nearby?lat&lon&radius` | Stops near a point, nearest first |
 | `GET /api/stops/within?bbox=w,s,e,n` | Stops in a viewport |
+| `GET /api/stops/major` | Stations, interchanges and busy stops, network-wide |
+| `GET /api/stops/:id/reachable?minutes=30` | Every stop reachable from this one, leaving now, with times |
 | `GET /api/stops/:id?day=1` | Stop details, lines, station pathways, alerts and departures (`day=1`: the rest of the service day) |
 | `GET /api/vehicles?routeId&bbox` | Current vehicle positions |
 | `GET /api/vehicles/stream` | Server-Sent Events stream of positions |
@@ -394,3 +432,7 @@ Basemap tiles from [OpenFreeMap](https://openfreemap.org/), map data ©
 [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors. If the
 basemap is unreachable the map falls back to a plain background and keeps
 drawing vehicles, stops and routes — only the street imagery is lost.
+
+Set in [Barlow and Barlow Condensed](https://tribby.com/fonts/barlow/) by
+Jeremy Tribby, under the SIL Open Font License, self-hosted through
+Fontsource so no font request leaves the app's own origin.
