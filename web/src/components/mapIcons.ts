@@ -12,7 +12,7 @@ import type maplibregl from 'maplibre-gl';
  * The shapes are deliberately blunt. At the size a vehicle occupies on a city
  * map — eight or ten pixels — a detailed train silhouette is mush, whereas a
  * square reads as "not a circle" instantly. So mode is carried by outline
- * shape, route by colour, and heading by a separate rotating arrow.
+ * shape, route by colour, and heading by a nose on the plate itself.
  */
 
 /** Marker artwork is drawn at this nominal CSS size; `icon-size` scales it. */
@@ -246,30 +246,27 @@ const drawFerry: Draw = (ctx, { width: size }) => {
 };
 
 /**
- * The heading arrow.
+ * A plate with its heading built in: the same disc or square, with a nose
+ * running out of the top edge towards where the vehicle is going.
  *
- * Drawn near the top of the canvas rather than at its centre, so that rotating
- * the icon about its own centre swings the arrow around the vehicle. Baking
- * the offset into the artwork this way avoids depending on how `icon-offset`
- * and `icon-rotate` compose.
+ * One silhouette rather than a plate and an arrow drawn separately, so the
+ * outline the map draws round it wraps both, and the nose reads as part of
+ * the vehicle instead of a mark floating beside it. The image is rotated to
+ * the vehicle's bearing; the pictogram on top stays upright.
  */
-const drawHeading: Draw = (ctx, { width: size }) => {
-  const c = size / 2;
-  const tip = size * 0.02;
-  // The base sits inside the plate, so the nose reads as part of the vehicle.
-  const base = size * 0.3;
-  const halfWidth = size * 0.17;
-  // A plain triangle rather than a notched chevron: the notch is invisible at
-  // the five or six pixels this occupies on screen, and only costs contrast.
-  // The base sits inside the marker so the arrow reads as attached to the
-  // vehicle rather than floating near it.
-  ctx.beginPath();
-  ctx.moveTo(c, tip);
-  ctx.lineTo(c + halfWidth, base);
-  ctx.lineTo(c - halfWidth, base);
-  ctx.closePath();
-  ctx.fill();
-};
+function withNose(plate: Draw): Draw {
+  return (ctx, box) => {
+    plate(ctx, box);
+    const size = box.width;
+    const c = size / 2;
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.035);
+    ctx.lineTo(c + size * 0.19, size * 0.34);
+    ctx.lineTo(c - size * 0.19, size * 0.34);
+    ctx.closePath();
+    ctx.fill();
+  };
+}
 
 /**
  * The beam: a shaft of the route's colour rising from the vehicle.
@@ -321,7 +318,9 @@ export const VEHICLE_ICONS: Record<string, IconSpec> = {
   'vehicle-bus': { draw: drawBus },
   'vehicle-rail': { draw: drawRail },
   'vehicle-ferry': { draw: drawFerry },
-  'vehicle-heading': { draw: drawHeading },
+  'vehicle-bus-dir': { draw: withNose(drawBus) },
+  'vehicle-rail-dir': { draw: withNose(drawRail) },
+  'vehicle-ferry-dir': { draw: withNose(drawFerry) },
   'glyph-bus': { draw: drawBusGlyph },
   'glyph-train': { draw: drawTrainGlyph },
   'vehicle-beam': { draw: drawBeam, box: { width: BEAM_WIDTH, height: BEAM_HEIGHT } },
@@ -372,4 +371,24 @@ export const MODE_TO_ICON: maplibregl.ExpressionSpecification = [
   'ferry',
   'vehicle-ferry',
   'vehicle-bus',
+];
+
+/**
+ * The marker for a vehicle: with a nose pointing its way when the feed says
+ * which way that is, and a plain plate when it does not — an arrow on a
+ * vehicle of unknown heading would be a confident lie.
+ */
+export const VEHICLE_ICON: maplibregl.ExpressionSpecification = [
+  'case',
+  ['boolean', ['get', 'hasHeading'], false],
+  [
+    'match',
+    ['get', 'mode'],
+    ['rail', 'tram', 'metro', 'funicular', 'cable'],
+    'vehicle-rail-dir',
+    'ferry',
+    'vehicle-ferry-dir',
+    'vehicle-bus-dir',
+  ],
+  MODE_TO_ICON,
 ];

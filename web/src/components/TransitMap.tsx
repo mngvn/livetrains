@@ -776,13 +776,16 @@ export function TransitMap({
       instance.touchZoomRotate.disableRotation();
     }
 
-    instance.easeTo({
-      pitch: three ? PITCH_3D : 0,
-      // Coming back to 2D also squares the map up, so "2D" always means the
-      // same thing rather than whatever heading you happened to leave behind.
-      bearing: three ? instance.getBearing() : 0,
-      duration: 600,
-    });
+    const pitch = three ? PITCH_3D : 0;
+    // Coming back to 2D also squares the map up, so "2D" always means the
+    // same thing rather than whatever heading you happened to leave behind.
+    const bearing = three ? instance.getBearing() : 0;
+    // Only when something would change: this also runs on every style load,
+    // and an ease that goes nowhere still cancels whatever the camera was
+    // doing — a flight to a shared stop, say.
+    if (Math.abs(instance.getPitch() - pitch) > 0.5 || Math.abs(instance.getBearing() - bearing) > 0.5) {
+      instance.easeTo({ pitch, bearing, duration: 600 });
+    }
     syncBuildings(instance, three, paletteRef.current);
   }, [three, styleEpoch]);
 
@@ -893,11 +896,23 @@ export function TransitMap({
 
   // --- The part of the map not covered by panels ---------------------------
   const { top: padTop, right: padRight, bottom: padBottom, left: padLeft } = padding;
+  const paddingRef = useRef(padding);
+  paddingRef.current = padding;
   useEffect(() => {
     const instance = map.current;
     if (!instance) return;
     // Eased, so opening the panel slides the view over rather than jumping it.
-    instance.easeTo({ padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, duration: 260 });
+    const apply = () =>
+      instance.easeTo({ padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft }, duration: 260 });
+    // A camera already in flight — to a stop from a shared link, say — must
+    // not be cut short by the panel opening; the padding follows once it lands.
+    if (instance.isMoving()) {
+      instance.once('moveend', apply);
+      return () => {
+        instance.off('moveend', apply);
+      };
+    }
+    apply();
   }, [padTop, padRight, padBottom, padLeft]);
 
   // --- Camera requests ------------------------------------------------------
@@ -907,8 +922,9 @@ export function TransitMap({
     const instance = map.current;
     if (!instance || !cameraTarget) return;
     if ('bounds' in cameraTarget) {
+      const pad = paddingRef.current;
       instance.fitBounds(cameraTarget.bounds as LngLatBoundsLike, {
-        padding: 40,
+        padding: { top: pad.top + 40, right: pad.right + 40, bottom: pad.bottom + 40, left: pad.left + 40 },
         bearing: 0,
         pitch: threeWanted.current ? PITCH_3D : 0,
         duration: 800,
@@ -918,6 +934,8 @@ export function TransitMap({
     instance.flyTo({
       center: [cameraTarget.lon, cameraTarget.lat],
       zoom: Math.max(instance.getZoom(), cameraTarget.zoom),
+      // Centred in whatever the panels leave uncovered, so it lands in view.
+      padding: paddingRef.current,
       // Not `essential`, so someone who has asked for reduced motion gets a cut
       // rather than a swoop.
       duration: 900,

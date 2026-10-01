@@ -1,6 +1,6 @@
 import type maplibregl from 'maplibre-gl';
 import type { Palette } from '../lib/palette.ts';
-import { MODE_TO_GLYPH, MODE_TO_ICON } from './mapIcons.ts';
+import { MODE_TO_GLYPH, VEHICLE_ICON } from './mapIcons.ts';
 
 /**
  * Everything this app draws on the map, in draw order, and how it changes
@@ -445,35 +445,17 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     },
   });
 
-  // The heading nose, then the plate, then the pictogram on the plate.
-  map.addLayer({
-    id: 'vehicles-heading',
-    type: 'symbol',
-    source: 'vehicles',
-    filter: ['all', ['get', 'hasHeading'], NOT_GROUPED],
-    layout: {
-      'icon-image': 'vehicle-heading',
-      'icon-rotate': ['get', 'bearing'],
-      'icon-rotation-alignment': 'map',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 13, 0.85, 16, 1.1],
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-    },
-    paint: {
-      'icon-color': ['get', 'color'],
-      'icon-halo-color': p.casing,
-      'icon-halo-width': 1.4,
-      'icon-opacity': vehicleOpacity(null),
-    },
-  });
+  // The plate, nose and all, then the pictogram upright on top of it.
   map.addLayer({
     id: 'vehicles-dot',
     type: 'symbol',
     source: 'vehicles',
     filter: NOT_GROUPED,
     layout: {
-      'icon-image': MODE_TO_ICON,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.42, 13, 0.85, 16, 1.1],
+      'icon-image': VEHICLE_ICON,
+      'icon-rotate': ['case', flag('hasHeading'), ['get', 'bearing'], 0],
+      'icon-rotation-alignment': 'map',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.46, 13, 0.9, 16, 1.15],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
@@ -492,7 +474,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     filter: NOT_GROUPED,
     layout: {
       'icon-image': MODE_TO_GLYPH,
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 12.5, 0.72, 13, 0.85, 16, 1.1],
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 12.5, 0.82, 13, 0.9, 16, 1.15],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
@@ -512,6 +494,8 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       'text-field': ['get', 'label'],
       'text-font': FONT_BOLD,
       'text-size': 10.5,
+      'text-transform': 'uppercase',
+      'text-letter-spacing': 0.03,
       'text-anchor': 'left',
       'text-offset': [1.35, 0],
       'icon-image': 'badge',
@@ -646,7 +630,7 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     set(layer, 'icon-color', p.badge);
     set(layer, 'icon-halo-color', p.rule);
   }
-  for (const layer of ['vehicles-heading', 'vehicles-dot', 'vehicles-label']) set(layer, 'icon-halo-color', p.casing);
+  for (const layer of ['vehicles-dot', 'vehicles-label']) set(layer, 'icon-halo-color', p.casing);
   set('vehicle-groups-circle', 'circle-color', p.surface2);
   set('vehicle-groups-circle', 'circle-stroke-color', [
     'case',
@@ -690,7 +674,7 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   }
   set('network-casing', 'line-opacity', lineFocus ? ['case', lineFocus, 1, 0.25] : 1);
 
-  for (const layer of ['vehicles-heading', 'vehicles-dot', 'vehicles-glyph']) {
+  for (const layer of ['vehicles-dot', 'vehicles-glyph']) {
     set(layer, 'icon-opacity', layer === 'vehicles-glyph' ? glyphOpacity(lineFocus) : vehicleOpacity(lineFocus));
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
@@ -741,7 +725,6 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'stop-badges', property: 'icon-opacity', value: 0 },
   { layer: 'vehicles-beam', property: 'icon-opacity', value: 0 },
   { layer: 'vehicles-selected', property: 'circle-opacity', value: 0 },
-  { layer: 'vehicles-heading', property: 'icon-opacity', value: 0.1 },
   { layer: 'vehicles-dot', property: 'icon-opacity', value: 0.16 },
   { layer: 'vehicles-glyph', property: 'icon-opacity', value: 0.1 },
   { layer: 'vehicles-label', property: 'text-opacity', value: 0 },
