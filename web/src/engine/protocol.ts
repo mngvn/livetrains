@@ -18,6 +18,8 @@ export type EngineMethod =
   | 'routeNetwork'
   | 'nearbyStops'
   | 'stopsWithin'
+  | 'majorStops'
+  | 'reachable'
   | 'stop'
   | 'vehicleTrip'
   | 'search'
@@ -89,6 +91,13 @@ export interface EngineVehicles {
   vehicles: Vehicle[];
   timestamp: number | null;
   error: string | null;
+  /**
+   * Whether the vehicle positions feed itself answered. A failing alerts or
+   * trip updates feed is worth reporting, but the map is still live.
+   */
+  vehiclesOk?: boolean;
+  /** When the feeds will next be asked, epoch milliseconds: the retry, after an error. */
+  nextPollAt?: number;
 }
 
 export type FromWorker = EngineProgress | EngineReady | EngineFailed | EngineResponse | EngineVehicles;

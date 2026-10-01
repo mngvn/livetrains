@@ -3,6 +3,7 @@ import type {
   FeedStatus,
   Place,
   PlanResponse,
+  Reachability,
   RouteDetail,
   RouteSummary,
   ServiceAlert,
@@ -25,6 +26,7 @@ export type {
   PathwaySummary,
   Place,
   PlanResponse,
+  Reachability,
   RouteDetail,
   RouteSummary,
   ServiceAlert,
@@ -139,6 +141,11 @@ export const api = {
 
   nearbyStops: (lat: number, lon: number, radius = 800, limit = 20, signal?: AbortSignal) =>
     get<StopSummary[]>('/api/stops/nearby', { lat, lon, radius, limit }, signal),
+
+  majorStops: (signal?: AbortSignal) => get<StopSummary[]>('/api/stops/major', undefined, signal),
+
+  reachable: (stopId: string, minutes = 30, signal?: AbortSignal) =>
+    get<Reachability>(`/api/stops/${encodeURIComponent(stopId)}/reachable`, { minutes }, signal),
 
   stopsWithin: (bbox: [number, number, number, number], limit = 300, signal?: AbortSignal) =>
     get<StopSummary[]>('/api/stops/within', { bbox: bbox.join(','), limit }, signal),

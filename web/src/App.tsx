@@ -20,7 +20,7 @@ import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
 import { StopPanel } from './components/StopPanel.tsx';
 import { VehiclePanel } from './components/VehiclePanel.tsx';
-import { StatusBar } from './components/StatusBar.tsx';
+import { FEED_STALE_SECONDS, StatusBar } from './components/StatusBar.tsx';
 import { RouteBadge } from './components/RouteBadge.tsx';
 import { MapLegend } from './components/MapLegend.tsx';
 import { usePersistedFlag } from './lib/persistedFlag.ts';
@@ -36,6 +36,7 @@ import { isActive } from './lib/alerts.ts';
 import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
+import type { MapFocus } from './components/mapLayers.ts';
 import { useTheme } from './lib/theme.ts';
 import { hasSharedState, readSharedState, shareUrl, writeSharedState } from './lib/shareLink.ts';
 import { ShareButton } from './components/ShareButton.tsx';
@@ -46,13 +47,21 @@ import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
 import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
 import { Onboarding } from './components/Onboarding.tsx';
 import { DetailPanel } from './components/DetailPanel.tsx';
+import { NetworkStatus } from './components/NetworkStatus.tsx';
+import { RideBanner, askToNotify } from './components/RideBanner.tsx';
+import { rideProgress } from './lib/ride.ts';
+import { isochroneGrid, type IsochroneGrid } from './lib/isochrone.ts';
+import { ReachLegend } from './components/ReachLegend.tsx';
+import { explainDelay } from './lib/lateness.ts';
+import { networkHealth } from './lib/networkHealth.ts';
 
-type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
+type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
 
 const TAB_LABELS: Record<Tab, string> = {
   plan: 'Plan',
   nearby: 'Nearby',
   routes: 'Routes',
+  status: 'Status',
   alerts: 'Alerts',
 };
 /** Which field a map tap should fill, when the user chose "pick on map". */
@@ -67,6 +76,8 @@ type MapPickTarget = 'origin' | 'destination' | null;
 const WELCOME_MS = 1_800;
 
 const BASEMAP_KEY = 'livetrains.basemap';
+
+
 
 /** Set once the introduction has been seen or skipped. */
 const ONBOARDED_KEY = 'livetrains.onboarded';
@@ -121,6 +132,8 @@ export function App() {
   const planRun = useRef(0);
 
   const [stops, setStops] = useState<StopSummary[]>([]);
+  /** Stations, METRO stops and the busiest corners: drawn from metro scale. */
+  const [majorStops, setMajorStops] = useState<StopSummary[]>([]);
   const [nearbyStops, setNearbyStops] = useState<StopSummary[]>([]);
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [activeRoute, setActiveRoute] = useState<{ geometry: [number, number][]; color: string } | null>(null);
@@ -194,7 +207,7 @@ export function App() {
     }
   }, []);
   const [three, toggleThree] = usePersistedFlag('livetrains.three');
-  const theme = useTheme();
+  const theme = useTheme(agency ? { lat: agency.center[1], lon: agency.center[0] } : null);
 
   /**
    * The journey playback clock.
@@ -455,9 +468,10 @@ export function App() {
   useEffect(() => {
     if (!viewport || !agency || engine.state !== 'ready') return;
     const [west, south, east, north] = viewport;
-    // Drawing every stop in a whole metro is unreadable and slow; only load
-    // them once the viewport is tight enough for them to mean something.
-    if (east - west > 0.35 || north - south > 0.3) {
+    // Ordinary stops only appear once you are looking at a street, so they
+    // are only loaded then. Stations and busy stops are drawn network-wide
+    // from their own list.
+    if (east - west > 0.14 || north - south > 0.1) {
       setStops([]);
       return;
     }
@@ -495,6 +509,14 @@ export function App() {
     source.routes(controller.signal).then(setRoutes).catch(() => undefined);
     return () => controller.abort();
   }, [routes.length, engine.state, source]);
+
+  // --- Major stops, once ------------------------------------------------------
+  useEffect(() => {
+    if (majorStops.length > 0 || engine.state !== 'ready') return;
+    const controller = new AbortController();
+    source.majorStops(controller.signal).then(setMajorStops).catch(() => undefined);
+    return () => controller.abort();
+  }, [majorStops.length, engine.state, source]);
 
   // --- The route network underlay -------------------------------------------
   useEffect(() => {
@@ -587,9 +609,18 @@ export function App() {
     );
   }, []);
 
+  const closeDetail = useCallback(() => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(null);
+  }, []);
+
   const handleMapClick = useCallback(
     (lat: number, lon: number) => {
-      if (!mapPickTarget) return;
+      // A tap on empty map is a click away from whatever the panel shows.
+      if (!mapPickTarget) {
+        closeDetail();
+        return;
+      }
       source
         .reverseGeocode(lat, lon)
         .then((place) => {
@@ -609,15 +640,14 @@ export function App() {
         })
         .finally(() => setMapPickTarget(null));
     },
-    [mapPickTarget],
+    [mapPickTarget, closeDetail, source],
   );
 
   const clearRoute = useCallback(() => {
     setActiveRouteId(null);
     setActiveRoute(null);
     setActiveRouteDetail(null);
-    tracker.setFilter({});
-  }, [tracker]);
+  }, []);
 
   const showRoute = useCallback(
     (route: RouteSummary) => {
@@ -627,8 +657,8 @@ export function App() {
       }
       setActiveRouteId(route.id);
       setActiveRouteDetail(null);
-      // Narrow the live stream to this route so the map shows only its vehicles.
-      tracker.setFilter({ routeId: route.id });
+      // Every other vehicle stays on the map, dimmed: the route reads against
+      // the rest of the network rather than floating on an empty one.
       source
         .route(route.id)
         .then((detail) => {
@@ -638,7 +668,7 @@ export function App() {
         })
         .catch(() => undefined);
     },
-    [activeRouteId, tracker, source, clearRoute],
+    [activeRouteId, source, clearRoute],
   );
 
   /** Routes by id, for drawing badges wherever only an id is at hand. */
@@ -650,11 +680,6 @@ export function App() {
   const showStop = useCallback((stopId: string) => {
     setSelectedVehicleId(null);
     setSelectedStopId(stopId);
-  }, []);
-
-  const closeDetail = useCallback(() => {
-    setSelectedStopId(null);
-    setSelectedVehicleId(null);
   }, []);
 
   /** Pinned under the selected stop; set once the stop's record has loaded. */
@@ -678,22 +703,93 @@ export function App() {
     [routesById, activeRouteId, showRoute, closeDetail],
   );
 
-  const showVehicle = useCallback(
-    (vehicleId: string, routeId?: string) => {
-      // A vehicle on another route than the one being browsed is not on the
-      // map; show every route again so it can be.
-      if (activeRouteId && routeId && routeId !== activeRouteId) clearRoute();
-      setSelectedStopId(null);
-      setSelectedVehicleId(vehicleId);
-    },
-    [activeRouteId, clearRoute],
-  );
+  const showVehicle = useCallback((vehicleId: string) => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(vehicleId);
+  }, []);
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
+
+  // --- Why the selected vehicle is late ---------------------------------------
+  const explanationTick = Math.floor(now / 5);
+  const lateness = useMemo(
+    () =>
+      selectedVehicle
+        ? explainDelay({
+            vehicle: selectedVehicle,
+            trip: vehicleTrip && vehicleTrip.vehicleId === selectedVehicle.id ? vehicleTrip : null,
+            others: tracker.snapshot(),
+            history: tracker.delayHistory(selectedVehicle.id),
+            now: Date.now() / 1000,
+          })
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedVehicle, vehicleTrip, tracker, explanationTick],
+  );
+
+  // --- How far you can get ------------------------------------------------------
+  /** The shaded map of everywhere reachable from a stop, while it is shown. */
+  const [reach, setReach] = useState<{ stopId: string; stopName: string; departAt: number; grid: IsochroneGrid } | null>(
+    null,
+  );
+  /** The stop whose reach is being worked out, while the search runs. */
+  const [reachLoading, setReachLoading] = useState<string | null>(null);
+  const toggleReach = useCallback(
+    (stopId: string) => {
+      if (reach?.stopId === stopId) {
+        setReach(null);
+        return;
+      }
+      setReachLoading(stopId);
+      source
+        .reachable(stopId, 30)
+        .then((result) => {
+          const grid = isochroneGrid(result);
+          setReach({ stopId, stopName: result.origin.name, departAt: result.departAt, grid });
+          if (grid.bounds) setCameraTarget({ bounds: grid.bounds });
+        })
+        .catch(() => undefined)
+        .finally(() => setReachLoading((current) => (current === stopId ? null : current)));
+    },
+    [reach?.stopId, source],
+  );
+
+  // --- Riding along -----------------------------------------------------------
+  /** The vehicle you are on, and the stop you are getting off at once chosen. */
+  const [ride, setRide] = useState<{ vehicleId: string; stopId: string | null } | null>(null);
+  const { trip: rideTrip } = useVehicleTrip(source.vehicleTrip, ride?.vehicleId ?? null);
+  const progress = useMemo(
+    () =>
+      ride && rideTrip && rideTrip.vehicleId === ride.vehicleId
+        ? rideProgress(rideTrip, ride.stopId, tracker.get(ride.vehicleId) ?? null, now)
+        : null,
+    [ride, rideTrip, tracker, now],
+  );
+  const startRide = useCallback((vehicleId: string, stopId: string | null) => {
+    setRide({ vehicleId, stopId });
+    // Asked now, while there is a tap to ask on and an obvious reason.
+    if (stopId) void askToNotify();
+  }, []);
+  // Once you are off, the ride winds itself up after a couple of minutes.
+  const arrived = progress?.phase === 'arrived';
+  useEffect(() => {
+    if (!arrived) return;
+    const timer = window.setTimeout(() => setRide(null), 120_000);
+    return () => window.clearTimeout(timer);
+  }, [arrived]);
 
   const alerts = useAlerts(source.alerts, engine.state === 'ready');
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
+
+  // The network's health, worked out only while someone is looking at it,
+  // and refreshed every few seconds rather than every tick of the clock.
+  const healthTick = Math.floor(now / 5);
+  const health = useMemo(
+    () => (tab === 'status' ? networkHealth(routes, tracker.snapshot(), alerts, Date.now() / 1000) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tab, routes, alerts, tracker, healthTick],
+  );
 
   // --- Saved trips, their history, and when to leave ------------------------
   const saved = useSavedTrips();
@@ -783,6 +879,33 @@ export function App() {
     setSelectedStopId(null);
   }, []);
 
+  /**
+   * The routes the map is about right now, most specific first: the selected
+   * vehicle's, else every line through the selected stop, else the route
+   * being browsed. Everything else on the map steps back.
+   */
+  const mapFocus = useMemo<MapFocus | null>(() => {
+    if (selectedVehicleId) {
+      return selectedVehicle?.routeId ? { kind: 'vehicle', routeIds: [selectedVehicle.routeId] } : null;
+    }
+    if (selectedStopId) {
+      return highlightRouteIds && highlightRouteIds.length > 0 ? { kind: 'stop', routeIds: highlightRouteIds } : null;
+    }
+    if (activeRouteId) return { kind: 'route', routeIds: [activeRouteId] };
+    // The status board: the map shows where the trouble is.
+    if (tab === 'status' && health) {
+      const trouble = health.lines.filter((line) => line.state !== 'good' && line.state !== 'quiet');
+      if (trouble.length > 0) return { kind: 'network', routeIds: trouble.map((line) => line.route.id) };
+    }
+    const tripRoutes = chosen
+      ? [...new Set(chosen.legs.flatMap((leg) => (leg.type === 'transit' ? [leg.route.id] : [])))]
+      : [];
+    return tripRoutes.length > 0 ? { kind: 'trip', routeIds: tripRoutes } : null;
+  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen, tab, health]);
+
+  /** The live feed has said nothing new for long enough that nothing on the map is live. */
+  const feedStale = stream.lastUpdate !== null && now - stream.lastUpdate > FEED_STALE_SECONDS;
+
   const mapCentre = useMemo(
     () =>
       viewport
@@ -820,18 +943,21 @@ export function App() {
 
 
   return (
-    <div className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}`}>
+    <div
+      className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}${ride ? ' is-riding' : ''}`}
+    >
       <TransitMap
         agency={agency}
         tracker={tracker}
         stops={stops}
+        majorStops={majorStops}
         itinerary={chosen}
         routeShape={activeRoute}
         network={network}
         selectedVehicleId={selectedVehicleId}
         origin={origin}
         destination={destination}
-        onSelectVehicle={(vehicleId) => vehicleId && showVehicle(vehicleId)}
+        onSelectVehicle={showVehicle}
         onSelectStop={showStop}
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
@@ -842,13 +968,29 @@ export function App() {
         three={three}
         playback={playback}
         focusJourney={playingJourney}
-        highlightRouteIds={selectedStopId ? highlightRouteIds : null}
+        focus={mapFocus}
         vehicleTrip={selectedVehicleId ? vehicleTrip : null}
         vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
         cameraTarget={cameraTarget}
         padding={mapPadding}
         pin={selectedStopId && stopPin ? stopPin : null}
+        feedStale={feedStale}
+        followVehicleId={ride?.vehicleId ?? null}
+        isochrone={reach?.grid.cells ?? null}
       />
+
+      {reach && (
+        <ReachLegend stopName={reach.stopName} departAt={reach.departAt} onClose={() => setReach(null)} />
+      )}
+
+      {ride && progress && (
+        <RideBanner
+          route={rideTrip?.route ?? null}
+          progress={progress}
+          onEnd={() => setRide(null)}
+          onShowVehicle={() => showVehicle(ride.vehicleId)}
+        />
+      )}
 
       <LeaveBanner
         state={leave}
@@ -968,7 +1110,14 @@ export function App() {
               <span className="visually-hidden">Hide panel</span>
             </button>
           </div>
-          <StatusBar status={status} stream={stream} online={online} lastKnownAt={lastKnownAt} />
+          <StatusBar
+            status={status}
+            stream={stream}
+            now={now}
+            agencyName={agency.name}
+            online={online}
+            lastKnownAt={lastKnownAt}
+          />
           <TransitSearch
             search={source.search}
             onRoute={(route) => openRoute(route.id)}
@@ -1099,6 +1248,10 @@ export function App() {
                         now={now}
                         onShowVehicle={(vehicleId) => showVehicle(vehicleId)}
                         onShowStop={showStop}
+                        onRide={(vehicleId, stopId) => {
+                          startRide(vehicleId, stopId);
+                          showVehicle(vehicleId);
+                        }}
                       />
                     </>
                   )}
@@ -1172,6 +1325,10 @@ export function App() {
             />
           )}
 
+          {tab === 'status' && health && (
+            <NetworkStatus health={health} onShowRoute={openRoute} />
+          )}
+
           {tab === 'alerts' && (
             <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
           )}
@@ -1195,6 +1352,12 @@ export function App() {
                 routes={routesById}
                 onShowStop={showStop}
                 onShowRoute={openRoute}
+                ride={ride && ride.vehicleId === selectedVehicleId ? ride : null}
+                explanation={lateness}
+                onRide={(stopId) => {
+                  if (stopId === false) setRide(null);
+                  else startRide(selectedVehicleId, stopId);
+                }}
               />
             ) : (
               <p className="panel-empty">
@@ -1216,6 +1379,9 @@ export function App() {
               onLoaded={(detail) =>
                 setStopPin({ id: detail.stop.id, name: detail.stop.name, lat: detail.stop.lat, lon: detail.stop.lon })
               }
+              reachShown={reach?.stopId === selectedStopId}
+              reachLoading={reachLoading === selectedStopId}
+              onReach={() => toggleReach(selectedStopId)}
             />
           ) : null}
         </DetailPanel>

@@ -2,6 +2,7 @@ import type { GtfsStore } from './gtfs/store.js';
 import type { PatternSet } from './planner/patterns.js';
 import { simplifyPath } from './geo.js';
 import { log } from './log.js';
+import { lineTiers, type LineTier } from './tiers.js';
 
 /**
  * The drawn shape of every route, as a GeoJSON FeatureCollection.
@@ -20,7 +21,7 @@ export interface RouteNetwork {
   features: {
     type: 'Feature';
     geometry: { type: 'LineString'; coordinates: [number, number][] };
-    properties: { routeId: string; color: string; mode: string; rail: boolean };
+    properties: { routeId: string; color: string; mode: string; rail: boolean; tier: LineTier };
   }[];
 }
 
@@ -30,6 +31,7 @@ const SIMPLIFY_TOLERANCE = 1e-4;
 export function buildRouteNetwork(store: GtfsStore, patterns: PatternSet): RouteNetwork {
   const started = Date.now();
   const features: RouteNetwork['features'] = [];
+  const tiers = lineTiers(store);
   let rawPoints = 0;
   let keptPoints = 0;
 
@@ -67,6 +69,8 @@ export function buildRouteNetwork(store: GtfsStore, patterns: PatternSet): Route
         // Rail is drawn a touch stronger: those lines are the spine of a
         // network and the ones riders navigate by.
         rail: route.mode === 'rail' || route.mode === 'tram' || route.mode === 'metro',
+        // Drawn by tier: METRO lines are the diagram, local buses the wash.
+        tier: tiers[pattern.routeIndex],
       },
     });
   }

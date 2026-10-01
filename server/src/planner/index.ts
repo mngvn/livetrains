@@ -34,6 +34,9 @@ const MAX_DIRECT_WALK_METERS = 2_000;
  */
 const MAX_TRANSFER_WALK_METERS = 800;
 
+/** How far around a starting stop counts as "at" it, for a reachability search. */
+const ORIGIN_WALK_METERS = 250;
+
 export interface PlannerOptions {
   maxWalkMeters: number;
   walkSpeed: number;
@@ -201,6 +204,50 @@ export class Planner {
       if (itinerary) itineraries.push(itinerary);
     }
     return itineraries;
+  }
+
+  /**
+   * Everywhere the network can take you from one stop within a time budget:
+   * the earliest arrival at every stop reached, as seconds after `departAt`.
+   *
+   * The same search as a trip plan with no destination: RAPTOR labels every
+   * stop it reaches on the way, so asking for all of them costs one search.
+   * Live delays and cancellations are applied as they are for a plan, so the
+   * answer is "from here, now", not "from here, on paper".
+   */
+  reachable(
+    stopIndex: number,
+    departAt: number,
+    maxSeconds: number,
+    maxTransfers = 2,
+  ): { index: number; seconds: number }[] {
+    const origin = this.store.stops[stopIndex];
+    // Starting at a stop includes the stops across the street from it: a
+    // rider at one corner of an intersection can board at any of the four.
+    const access = this.walkableStops(origin.lat, origin.lon, ORIGIN_WALK_METERS, this.options.walkSpeed);
+    access.set(stopIndex, { seconds: 0, meters: 0 });
+    const result = runRaptor(this.store, this.patterns, this.transfers, this.buildOverlay(), {
+      access,
+      egress: new Map(),
+      departAt,
+      maxRounds: maxTransfers + 1,
+      transferSlack: TRANSFER_SLACK,
+      searchWindowSeconds: maxSeconds,
+    });
+
+    const out: { index: number; seconds: number }[] = [];
+    const limit = departAt + maxSeconds;
+    for (let stop = 0; stop < this.store.stops.length; stop++) {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round <= result.rounds; round++) best = Math.min(best, result.arrivals[round][stop]);
+      if (best <= limit) out.push({ index: stop, seconds: Math.round(best - departAt) });
+    }
+    return out;
+  }
+
+  /** The walking pace the planner assumes, metres per second. */
+  get walkSpeed(): number {
+    return this.options.walkSpeed;
   }
 
   /**

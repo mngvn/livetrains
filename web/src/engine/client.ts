@@ -18,7 +18,13 @@ export interface EngineStatus {
 }
 
 type StatusListener = (status: EngineStatus) => void;
-type VehicleListener = (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void;
+type VehicleListener = (payload: {
+  vehicles: Vehicle[];
+  timestamp: number | null;
+  error: string | null;
+  vehiclesOk?: boolean;
+  nextPollAt?: number;
+}) => void;
 
 export class TransitEngine {
   private worker: Worker | null = null;

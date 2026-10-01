@@ -188,9 +188,9 @@ function ArtVehicles() {
         <g key={i}>
           <path d={`M${Number(x) - 2.5} ${y} L${Number(x) - 0.5} ${Number(y) - 48} L${Number(x) + 0.5} ${Number(y) - 48} L${Number(x) + 2.5} ${y} Z`} fill={String(color)} opacity="0.3" />
           {rail ? (
-            <rect x={Number(x) - 7} y={Number(y) - 7} width="14" height="14" rx="4" fill={String(color)} stroke="#fff" strokeWidth="2" />
+            <rect x={Number(x) - 7} y={Number(y) - 7} width="14" height="14" rx="1.5" fill={String(color)} stroke="var(--bg)" strokeWidth="2" />
           ) : (
-            <circle cx={Number(x)} cy={Number(y)} r="7" fill={String(color)} stroke="#fff" strokeWidth="2" />
+            <circle cx={Number(x)} cy={Number(y)} r="7" fill={String(color)} stroke="var(--bg)" strokeWidth="2" />
           )}
         </g>
       ))}
@@ -202,14 +202,14 @@ function ArtTap() {
   return (
     <svg viewBox="0 0 240 110" width="240" height="110">
       <path d="M20 70 L 220 70" stroke="#0b5fa5" strokeWidth="4" opacity="0.35" />
-      <circle cx="80" cy="70" r="6" fill="#fff" stroke="#334155" strokeWidth="2" />
+      <circle cx="80" cy="70" r="6" fill="var(--bg)" stroke="var(--text)" strokeWidth="2" />
       <circle cx="160" cy="70" r="18" fill="#0b5fa5" opacity="0.2" />
-      <circle cx="160" cy="70" r="8" fill="#0b5fa5" stroke="#fff" strokeWidth="2" />
-      <rect x="120" y="12" width="96" height="34" rx="8" fill="var(--surface, #fff)" stroke="var(--border, #dfe3ea)" />
+      <circle cx="160" cy="70" r="8" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="2" />
+      <rect x="120" y="12" width="96" height="34" rx="2" fill="var(--surface)" stroke="var(--border)" />
       <rect x="128" y="20" width="22" height="12" rx="3" fill="#0b5fa5" />
-      <rect x="156" y="22" width="50" height="4" rx="2" fill="var(--text-muted, #5b6775)" />
-      <rect x="156" y="30" width="34" height="4" rx="2" fill="#c2410c" opacity="0.8" />
-      <path d="M150 88 l6 -14 l4 10 l6 -2 z" fill="var(--text, #10151f)" />
+      <rect x="156" y="22" width="50" height="4" rx="2" fill="var(--text-muted)" />
+      <rect x="156" y="30" width="34" height="4" rx="1" fill="var(--late)" opacity="0.9" />
+      <path d="M150 88 l6 -14 l4 10 l6 -2 z" fill="var(--text)" />
     </svg>
   );
 }
@@ -217,12 +217,12 @@ function ArtTap() {
 function ArtPlan() {
   return (
     <svg viewBox="0 0 240 110" width="240" height="110">
-      <path d="M30 80 L 60 80" stroke="#64748b" strokeWidth="5" strokeDasharray="5 4" />
+      <path d="M30 80 L 60 80" stroke="var(--text-muted)" strokeWidth="5" strokeDasharray="5 4" />
       <path d="M60 80 C 100 80, 110 35, 160 35 L 190 35" stroke="#00a651" strokeWidth="5" fill="none" strokeLinecap="round" />
-      <path d="M190 35 L 212 35" stroke="#64748b" strokeWidth="5" strokeDasharray="5 4" />
-      <circle cx="28" cy="80" r="7" fill="#1d4ed8" stroke="#fff" strokeWidth="2.5" />
-      <circle cx="214" cy="35" r="7" fill="#be123c" stroke="#fff" strokeWidth="2.5" />
-      <text x="120" y="102" textAnchor="middle" fontSize="12" fontWeight="700" fill="#0a9e5c">
+      <path d="M190 35 L 212 35" stroke="var(--text-muted)" strokeWidth="5" strokeDasharray="5 4" />
+      <circle cx="28" cy="80" r="7" fill="var(--text)" stroke="var(--bg)" strokeWidth="2.5" />
+      <circle cx="214" cy="35" r="7" fill="var(--danger)" stroke="var(--bg)" strokeWidth="2.5" />
+      <text x="120" y="102" textAnchor="middle" fontSize="12" fontWeight="700" fill="var(--live)">
         Leave in 6 min
       </text>
     </svg>
@@ -235,9 +235,9 @@ function ArtPlay() {
       <path d="M20 80 C 80 80, 100 30, 170 30 L 220 30" stroke="#00a651" strokeWidth="4" fill="none" opacity="0.25" />
       <path d="M20 80 C 60 80, 80 62, 96 52" stroke="#00a651" strokeWidth="6" fill="none" strokeLinecap="round" />
       <circle cx="98" cy="51" r="14" fill="#00a651" opacity="0.22" className="onboarding__pulse" />
-      <circle cx="98" cy="51" r="7" fill="#00a651" stroke="#fff" strokeWidth="2.5" />
-      <circle cx="120" cy="96" r="10" fill="var(--accent, #1d4ed8)" />
-      <path d="M117 91 L 125 96 L 117 101 Z" fill="#fff" />
+      <circle cx="98" cy="51" r="7" fill="#00a651" stroke="var(--bg)" strokeWidth="2.5" />
+      <circle cx="120" cy="96" r="10" fill="var(--text)" />
+      <path d="M117 91 L 125 96 L 117 101 Z" fill="var(--bg)" />
     </svg>
   );
 }

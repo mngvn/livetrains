@@ -44,6 +44,20 @@ export function effectMeta(alert: ServiceAlert): EffectMeta {
   return meta;
 }
 
+/**
+ * An alert about particular trips — "Route 30 trip departing Westgate at
+ * 1:04 PM and seven other trips canceled today" — rather than the line.
+ *
+ * Metro Transit files these under NO_SERVICE, which is true of those buses
+ * and false of the route: the rest of its trips are running. Read as a
+ * line-wide effect, every route with one cancelled trip would show as
+ * suspended.
+ */
+export function isTripNotice(alert: ServiceAlert): boolean {
+  if (alert.informed.some((entity) => entity.tripId)) return true;
+  return /\btrips?\b[^.]*\bcancell?ed\b/i.test(alert.header);
+}
+
 /** True for alerts about lifts, ramps and step-free access. */
 export function isAccessibilityAlert(alert: ServiceAlert): boolean {
   if (alert.effect === 'ACCESSIBILITY_ISSUE') return true;

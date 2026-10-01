@@ -73,6 +73,12 @@ export interface StopSummary {
   platformCode?: string;
   /** Free-text location detail from the feed, e.g. "Nicollet Mall & 5th St". */
   description?: string;
+  /** Worth drawing before the rider zooms in: a station, a stop on a METRO line, a busy stop. */
+  major?: boolean;
+  /** A place to change lines, drawn as a larger hollow circle. */
+  interchange?: boolean;
+  /** A station, or a stop on a rail or branded line: shown from the widest view. */
+  onLine?: boolean;
 }
 
 /** A way through a station — an elevator, a stair — from pathways.txt. */
@@ -318,6 +324,21 @@ export interface VehicleTrip {
   /** Index into `stops` of the stop the vehicle is at or heading for. */
   nextStopIndex: number;
   alerts: ServiceAlert[];
+}
+
+/**
+ * Everywhere reachable from one stop within a time budget, leaving now:
+ * the stops reached by transit (and short walks between them), each with the
+ * seconds it took including the first wait.
+ */
+export interface Reachability {
+  origin: StopSummary;
+  /** Unix seconds the search left at. */
+  departAt: number;
+  minutes: number;
+  /** The walking pace assumed, metres per second, for the walk from each stop. */
+  walkSpeed: number;
+  stops: { id: string; lat: number; lon: number; seconds: number }[];
 }
 
 /** One result from searching routes and stops by name or number. */

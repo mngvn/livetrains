@@ -3,7 +3,8 @@ import type { AgencyInfo, FeedStatus, PlanRequest, Vehicle } from '../../../serv
 import type { AgencyDefinition } from '../../../server/src/agencies/types.js';
 import { GtfsStore } from '../../../server/src/gtfs/store.js';
 import { Planner } from '../../../server/src/planner/index.js';
-import { stopWithRoutes } from '../../../server/src/departures.js';
+import { majorStops, stopWithRoutes } from '../../../server/src/departures.js';
+import { reachableFrom } from '../../../server/src/reachability.js';
 import {
   routeDetail,
   searchTransit,
@@ -111,16 +112,20 @@ async function fetchFeed(url: string): Promise<Uint8Array> {
 async function poll(): Promise<void> {
   if (!agency || pollInFlight) return;
   pollInFlight = true;
+  // The next poll is due a fixed interval after this one started.
+  const nextPollAt = Date.now() + pollSeconds * 1000;
 
   const { vehiclePositions, tripUpdates, alerts } = agency.realtime;
   const errors: string[] = [];
   const tasks: Promise<void>[] = [];
+  let vehiclesOk = true;
 
   if (vehiclePositions) {
     tasks.push(
       fetchFeed(vehiclePositions)
         .then((buffer) => realtime.setVehicles(decodeVehiclePositions(buffer, store), store))
         .catch((err: unknown) => {
+          vehiclesOk = false;
           errors.push(`vehicles (${describe(err)})`);
         }),
     );
@@ -155,6 +160,8 @@ async function poll(): Promise<void> {
     vehicles: filterVehicles([...realtime.vehicles.values()], routeFilter),
     timestamp: realtime.lastVehicleUpdate,
     error: realtime.lastError,
+    vehiclesOk,
+    nextPollAt,
   });
 }
 
@@ -257,6 +264,18 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
       return s
         .nearbyStops(num(params.lat), num(params.lon), num(params.radius, 800), num(params.limit, 20))
         .map(({ index, distance }) => stopWithRoutes(s, index, distance));
+    }
+
+    case 'reachable': {
+      const { store: s, planner: p } = requireReady();
+      const result = reachableFrom(s, p, String(params.stopId), num(params.minutes, 30));
+      if (!result) throw new Error(`Unknown stop "${String(params.stopId)}"`);
+      return result;
+    }
+
+    case 'majorStops': {
+      const { store: s } = requireReady();
+      return majorStops(s);
     }
 
     case 'stopsWithin': {

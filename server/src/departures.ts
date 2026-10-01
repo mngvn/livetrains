@@ -4,6 +4,7 @@ import { candidateServiceDays, epochFor } from './gtfs/time.js';
 import type { PatternSet } from './planner/patterns.js';
 import type { RealtimeState } from './realtime/state.js';
 import { accessibility, leanRouteSummary, stopSummary } from './summaries.js';
+import { lineTiers } from './tiers.js';
 
 export interface DeparturesOptions {
   /** How many departures to return. */
@@ -198,6 +199,94 @@ export function groupedStopIndices(store: GtfsStore, stopIndex: number): number[
 export function stopWithRoutes(store: GtfsStore, stopIndex: number, distance?: number): StopSummary {
   const summary = stopSummary(store.stops[stopIndex]);
   if (distance !== undefined) summary.distance = Math.round(distance);
-  summary.routes = store.routesAtStop[stopIndex].map((routeIndex) => leanRouteSummary(store.routes[routeIndex]));
+  const routeIndices = routesServing(store, stopIndex);
+  summary.routes = routeIndices.map((routeIndex) => leanRouteSummary(store.routes[routeIndex]));
+  const importance = stopImportance(store, stopIndex, routeIndices);
+  if (importance.major) summary.major = true;
+  if (importance.interchange) summary.interchange = true;
+  if (importance.onLine) summary.onLine = true;
   return summary;
+}
+
+/** Child stops (platforms) of each station, built once per store. */
+const childrenCache = new WeakMap<GtfsStore, Map<number, number[]>>();
+
+function childrenOf(store: GtfsStore): Map<number, number[]> {
+  let map = childrenCache.get(store);
+  if (!map) {
+    map = new Map();
+    store.stops.forEach((stop, index) => {
+      if (stop.parent < 0) return;
+      const list = map!.get(stop.parent) ?? [];
+      list.push(index);
+      map!.set(stop.parent, list);
+    });
+    childrenCache.set(store, map);
+  }
+  return map;
+}
+
+/**
+ * The routes calling at a stop. A station has none of its own in GTFS — trips
+ * call at its platforms — so it gathers its platforms' routes.
+ */
+function routesServing(store: GtfsStore, stopIndex: number): number[] {
+  const own = store.routesAtStop[stopIndex] ?? [];
+  const children = childrenOf(store).get(stopIndex);
+  if (!children) return own;
+  const all = new Set(own);
+  for (const child of children) for (const r of store.routesAtStop[child] ?? []) all.add(r);
+  return [...all].sort((a, b) => a - b);
+}
+
+/** Stops served by this many routes are landmarks even with no branded line. */
+const BUSY_STOP_ROUTES = 6;
+
+/**
+ * Whether a stop is worth showing before the rider zooms in (`major`), and
+ * whether it is a place to change lines (`interchange`), drawn as the larger
+ * hollow circle that route diagrams use for one.
+ */
+export function stopImportance(
+  store: GtfsStore,
+  stopIndex: number,
+  routeIndices = routesServing(store, stopIndex),
+): { major: boolean; interchange: boolean; onLine: boolean } {
+  const tiers = lineTiers(store);
+  const lines = routeIndices.filter((r) => tiers[r] !== 'bus').length;
+  const isStation = childrenOf(store).has(stopIndex);
+  const major = lines > 0 || routeIndices.length >= BUSY_STOP_ROUTES || isStation;
+  const interchange = lines >= 2 || (lines >= 1 && routeIndices.length >= 4) || routeIndices.length >= 8;
+  // A station, or a stop on a rail or branded line: the stops a network map
+  // shows from the widest view. Busy bus stops wait until you zoom in, or
+  // downtown alone would be a field of dots.
+  const onLine = lines > 0 || isStation;
+  return { major, interchange, onLine };
+}
+
+/**
+ * Every stop worth drawing at network scale: stations and stops on rail or
+ * branded lines, and the busiest bus stops — a few hundred in a big metro,
+ * against tens of thousands of stops in all.
+ *
+ * Platforms fold into their station, and stops sharing a name across a
+ * street fold into one, because at this scale they are one place.
+ */
+export function majorStops(store: GtfsStore, limit = 2000): StopSummary[] {
+  const out: StopSummary[] = [];
+  const kept: { name: string; lat: number; lon: number }[] = [];
+  for (let i = 0; i < store.stops.length && out.length < limit; i++) {
+    const stop = store.stops[i];
+    if (stop.parent >= 0) continue;
+    const routes = routesServing(store, i);
+    if (routes.length === 0) continue;
+    if (!stopImportance(store, i, routes).major) continue;
+    const duplicate = kept.some(
+      (k) => k.name === stop.name && Math.abs(k.lat - stop.lat) < 0.0025 && Math.abs(k.lon - stop.lon) < 0.0035,
+    );
+    if (duplicate) continue;
+    kept.push({ name: stop.name, lat: stop.lat, lon: stop.lon });
+    out.push(stopWithRoutes(store, i));
+  }
+  return out;
 }

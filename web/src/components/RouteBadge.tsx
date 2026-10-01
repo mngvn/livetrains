@@ -1,5 +1,5 @@
 import type { RouteSummary } from '../lib/api.ts';
-import { readableTextColor } from '../lib/format.ts';
+import { plateLabel, readableTextColor } from '../lib/format.ts';
 
 /**
  * The coloured route pill.
@@ -16,7 +16,7 @@ export function RouteBadge({ route, size = 'normal' }: { route: RouteSummary; si
       style={{ background, color: readableTextColor(route.color) }}
       title={route.longName || route.shortName}
     >
-      {route.shortName}
+      {plateLabel(route.shortName)}
     </span>
   );
 }

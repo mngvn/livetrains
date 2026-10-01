@@ -44,6 +44,8 @@ interface TrailPoint {
   lon: number;
   /** The vehicle's own report time, Unix seconds. */
   t: number;
+  /** Its delay against the timetable at that report, when the feed gave one. */
+  delay?: number;
 }
 
 interface Track {
@@ -71,7 +73,13 @@ interface Track {
 export interface VehiclePushSource {
   mode: 'browser' | 'server';
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void;
   setRouteFilter(routeId?: string): void;
 }
@@ -85,6 +93,8 @@ export interface StreamStatus {
   /** Feed timestamp of the most recent message, in epoch seconds. */
   lastUpdate: number | null;
   error: string | null;
+  /** When the feed will next be tried, epoch milliseconds, if known. */
+  nextRetryAt?: number | null;
 }
 
 /**
@@ -93,17 +103,27 @@ export interface StreamStatus {
  */
 function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
   const last = trail[trail.length - 1];
-  const next = last && last.t >= vehicle.timestamp ? trail : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }];
+  const next =
+    last && last.t >= vehicle.timestamp
+      ? trail
+      : [...trail, { lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp, delay: vehicle.delaySeconds }];
   const cutoff = vehicle.timestamp - TRAIL_SECONDS;
   let start = 0;
   while (start < next.length - 1 && next[start].t < cutoff) start++;
   return start > 0 ? next.slice(start) : next;
 }
 
-/** Smoothstep easing; vehicles ease in and out rather than moving linearly. */
-function ease(t: number): number {
-  return t * t * (3 - 2 * t);
-}
+/**
+ * How much longer than the feed's cadence each glide is stretched.
+ *
+ * Vehicles move at constant speed from where they are drawn towards where they
+ * were last reported, timed to arrive a little *after* the next report is due.
+ * So when that report lands the vehicle is still moving, and simply turns
+ * towards the new target: one continuous glide rather than a series of hops.
+ * A report that is a few seconds late finds the vehicle still under way
+ * instead of parked and waiting to jump.
+ */
+const GLIDE_STRETCH = 1.2;
 
 /** Interpolates between two bearings the short way around the circle. */
 function lerpAngle(from: number, to: number, t: number): number {
@@ -159,15 +179,17 @@ export class VehicleTracker {
 
     if (source && source.mode === 'browser') {
       this.pushSource = source;
-      this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error }) => {
+      this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error, vehiclesOk, nextPollAt }) => {
         // A failed poll with nothing to show is not news that every vehicle
         // has left service; keep what is on the map (it fades as it ages).
         if (!(error !== null && vehicles.length === 0)) this.ingest(vehicles);
         this.setStatus({
-          connected: error === null,
+          // Live as long as positions are arriving, whatever the other feeds do.
+          connected: vehiclesOk ?? error === null,
           vehicleCount: vehicles.length,
           lastUpdate: timestamp,
           error,
+          nextRetryAt: nextPollAt ?? null,
         });
       });
       if (filter.routeId) source.setRouteFilter(filter.routeId);
@@ -232,6 +254,17 @@ export class VehicleTracker {
     if (points.length > 0 && track.durationMs > 0 && performance.now() - track.startedAt < track.durationMs) points.pop();
     points.push([here.lon, here.lat]);
     return points;
+  }
+
+  /**
+   * How late a vehicle has been over the last twenty minutes, oldest first:
+   * enough to tell a bus that is losing time from one that has been late
+   * since it set out.
+   */
+  delayHistory(id: string): { t: number; delay: number }[] {
+    const track = this.tracks.get(id);
+    if (!track) return [];
+    return track.trail.flatMap((p) => (p.delay === undefined ? [] : [{ t: p.t, delay: p.delay }]));
   }
 
   /** Every vehicle's last reported position, for saving. */
@@ -306,7 +339,11 @@ export class VehicleTracker {
       // after the server closes the stream deliberately. Manage it here so a
       // server restart does not turn into a tight reconnect loop.
       source.close();
-      this.setStatus({ connected: false, error: 'Reconnecting to the live feed…' });
+      this.setStatus({
+        connected: false,
+        error: 'Reconnecting to the live feed…',
+        nextRetryAt: Date.now() + this.reconnectDelay,
+      });
       if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = window.setTimeout(() => this.openStream(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
@@ -340,8 +377,22 @@ export class VehicleTracker {
           startedAt: now,
           durationMs: 0,
           lastSeen: now,
-          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp }],
+          trail: [{ lat: vehicle.lat, lon: vehicle.lon, t: vehicle.timestamp, delay: vehicle.delaySeconds }],
         });
+        continue;
+      }
+
+      // The feed repeating a report it has already sent is not a new
+      // position: restarting the glide towards the same point would only
+      // slow the vehicle down. Keep it moving; just note it is still there.
+      if (
+        existing.vehicle.timestamp === vehicle.timestamp &&
+        existing.vehicle.lat === vehicle.lat &&
+        existing.vehicle.lon === vehicle.lon
+      ) {
+        existing.vehicle = vehicle;
+        existing.lastSeen = now;
+        existing.restored = undefined;
         continue;
       }
 
@@ -352,7 +403,7 @@ export class VehicleTracker {
         fromLon: current.lon,
         fromBearing: current.bearing,
         startedAt: now,
-        durationMs: this.animationMs,
+        durationMs: this.animationMs * GLIDE_STRETCH,
         lastSeen: now,
         trail: extendTrail(existing.trail, vehicle),
       });
@@ -373,7 +424,7 @@ export class VehicleTracker {
     if (track.durationMs <= 0) {
       return { lat: track.vehicle.lat, lon: track.vehicle.lon, bearing: track.vehicle.bearing ?? track.fromBearing };
     }
-    const t = ease(Math.min(1, (now - track.startedAt) / track.durationMs));
+    const t = Math.min(1, (now - track.startedAt) / track.durationMs);
     return {
       lat: track.fromLat + (track.vehicle.lat - track.fromLat) * t,
       lon: track.fromLon + (track.vehicle.lon - track.fromLon) * t,

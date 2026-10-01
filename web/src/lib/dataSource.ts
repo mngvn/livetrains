@@ -15,6 +15,7 @@ import type {
   FeedStatus,
   Place,
   PlanResponse,
+  Reachability,
   RouteSummary,
   ServiceAlert,
   StopSummary,
@@ -74,7 +75,13 @@ export interface DataSource {
   onStatus(listener: (status: EngineStatus) => void): () => void;
   /** Live vehicle pushes. Only browser mode pushes; server mode uses SSE. */
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void;
   setRouteFilter(routeId?: string): void;
   refresh(hard?: boolean): void;
@@ -86,6 +93,10 @@ export interface DataSource {
   routeNetwork(signal?: AbortSignal): Promise<RouteNetwork>;
   nearbyStops(lat: number, lon: number, radius?: number, limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
   stopsWithin(bbox: [number, number, number, number], limit?: number, signal?: AbortSignal): Promise<StopSummary[]>;
+  /** Stations, interchanges and busy stops across the whole network. */
+  majorStops(signal?: AbortSignal): Promise<StopSummary[]>;
+  /** Everywhere reachable from a stop within `minutes`, leaving now. */
+  reachable(stopId: string, minutes?: number, signal?: AbortSignal): Promise<Reachability>;
   stop(stopId: string, limit?: number, signal?: AbortSignal): Promise<StopDetail>;
   /** A stop with its full departure board: everything left in the service day. */
   stopBoard(stopId: string, signal?: AbortSignal): Promise<StopDetail>;
@@ -112,7 +123,13 @@ class BrowserSource implements DataSource {
     return this.engine.onStatus(listener);
   }
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void {
     return this.engine.onVehicles(listener);
   }
@@ -132,6 +149,8 @@ class BrowserSource implements DataSource {
     this.engine.request<StopSummary[]>('nearbyStops', { lat, lon, radius, limit });
   stopsWithin = (bbox: [number, number, number, number], limit = 300) =>
     this.engine.request<StopSummary[]>('stopsWithin', { bbox: bbox.join(','), limit });
+  majorStops = () => this.engine.request<StopSummary[]>('majorStops');
+  reachable = (stopId: string, minutes = 30) => this.engine.request<Reachability>('reachable', { stopId, minutes });
   stop = (stopId: string, limit = 15) => this.engine.request<StopDetail>('stop', { stopId, limit });
   stopBoard = (stopId: string) =>
     this.engine.request<StopDetail>('stop', { stopId, limit: BOARD_LIMIT, day: true });
@@ -182,6 +201,8 @@ class ServerSource implements DataSource {
   routeNetwork = api.routeNetwork;
   nearbyStops = api.nearbyStops;
   stopsWithin = api.stopsWithin;
+  majorStops = api.majorStops;
+  reachable = api.reachable;
   stop = api.stop;
   stopBoard = api.stopBoard;
   vehicleTrip = api.vehicleTrip;

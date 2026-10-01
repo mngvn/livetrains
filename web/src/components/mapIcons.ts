@@ -12,7 +12,7 @@ import type maplibregl from 'maplibre-gl';
  * The shapes are deliberately blunt. At the size a vehicle occupies on a city
  * map — eight or ten pixels — a detailed train silhouette is mush, whereas a
  * square reads as "not a circle" instantly. So mode is carried by outline
- * shape, route by colour, and heading by a separate rotating arrow.
+ * shape, route by colour, and heading by a nose on the plate itself.
  */
 
 /** Marker artwork is drawn at this nominal CSS size; `icon-size` scales it. */
@@ -131,11 +131,17 @@ function makeSdf(draw: Draw, box: Box = { width: ICON_SIZE, height: ICON_SIZE })
 // The shapes
 // ---------------------------------------------------------------------------
 
-/** Buses and everything unclassified: a plain disc. */
+/**
+ * Buses and everything unclassified: a disc.
+ *
+ * The plate the pictogram sits on. At metro zoom the pictogram is dropped and
+ * the plate alone carries the mode by its outline — round for a bus, square
+ * for a train — because a silhouette at six pixels is mush.
+ */
 const drawBus: Draw = (ctx, { width: size }) => {
   const c = size / 2;
   ctx.beginPath();
-  ctx.arc(c, c, size * 0.26, 0, Math.PI * 2);
+  ctx.arc(c, c, size * 0.3, 0, Math.PI * 2);
   ctx.fill();
 };
 
@@ -147,10 +153,82 @@ const drawBus: Draw = (ctx, { width: size }) => {
  */
 const drawRail: Draw = (ctx, { width: size }) => {
   const c = size / 2;
-  const half = size * 0.24;
-  const radius = size * 0.07;
+  const half = size * 0.27;
+  const radius = size * 0.05;
   ctx.beginPath();
   ctx.roundRect(c - half, c - half, half * 2, half * 2, radius);
+  ctx.fill();
+};
+
+/**
+ * The bus pictogram, seen from the front as on every bus-stop sign: a body
+ * with a full-width windscreen, two headlamps, and wheels below.
+ *
+ * Drawn as an SDF like the plates, so it can be coloured per route — in the
+ * route's own text colour, which the agency chose to read on that route's
+ * colour, so a pale line like Gold still gets a legible glyph.
+ */
+const drawBusGlyph: Draw = (ctx, { width: size }) => {
+  const u = size / 40;
+  ctx.beginPath();
+  ctx.roundRect(13.4 * u, 11 * u, 13.2 * u, 15.4 * u, 2.6 * u);
+  ctx.fill();
+  // Wheels.
+  ctx.fillRect(14.6 * u, 25 * u, 2.6 * u, 3.4 * u);
+  ctx.fillRect(22.8 * u, 25 * u, 2.6 * u, 3.4 * u);
+  // Windscreen and lamps, cut out of the body.
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.roundRect(15 * u, 13.4 * u, 10 * u, 6.2 * u, 0.9 * u);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(16.4 * u, 22.6 * u, 1.05 * u, 0, Math.PI * 2);
+  ctx.arc(23.6 * u, 22.6 * u, 1.05 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+};
+
+/**
+ * The tram pictogram: a rounded front with a tall windscreen, a pantograph
+ * on the roof, and a bogie underneath — the light-rail symbol on Twin Cities
+ * station signs, reduced to what survives at icon size.
+ */
+const drawTrainGlyph: Draw = (ctx, { width: size }) => {
+  const u = size / 40;
+  // Pantograph: a shallow V over the roof.
+  ctx.lineWidth = 1.5 * u;
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(16.6 * u, 8.6 * u);
+  ctx.lineTo(20 * u, 11.6 * u);
+  ctx.lineTo(23.4 * u, 8.6 * u);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.roundRect(13.6 * u, 11.2 * u, 12.8 * u, 15.4 * u, [4.2 * u, 4.2 * u, 1.6 * u, 1.6 * u]);
+  ctx.fill();
+  ctx.fillRect(15.6 * u, 26 * u, 8.8 * u, 2.6 * u);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.roundRect(15.4 * u, 13.8 * u, 9.2 * u, 6.4 * u, [2.6 * u, 2.6 * u, 0.6 * u, 0.6 * u]);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(16.8 * u, 23 * u, 1 * u, 0, Math.PI * 2);
+  ctx.arc(23.2 * u, 23 * u, 1 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+};
+
+/**
+ * A small rectangular plate that stretches to fit text, for route numbers:
+ * the badge beside a vehicle and the row of routes under a stop.
+ *
+ * Near-square corners on purpose — transit signage plates are cut, not
+ * pillowed.
+ */
+const BADGE = { width: 20, height: 14 };
+const drawBadge: Draw = (ctx, { width, height }) => {
+  ctx.beginPath();
+  ctx.roundRect(1, 1, width - 2, height - 2, 1.6);
   ctx.fill();
 };
 
@@ -168,29 +246,27 @@ const drawFerry: Draw = (ctx, { width: size }) => {
 };
 
 /**
- * The heading arrow.
+ * A plate with its heading built in: the same disc or square, with a nose
+ * running out of the top edge towards where the vehicle is going.
  *
- * Drawn near the top of the canvas rather than at its centre, so that rotating
- * the icon about its own centre swings the arrow around the vehicle. Baking
- * the offset into the artwork this way avoids depending on how `icon-offset`
- * and `icon-rotate` compose.
+ * One silhouette rather than a plate and an arrow drawn separately, so the
+ * outline the map draws round it wraps both, and the nose reads as part of
+ * the vehicle instead of a mark floating beside it. The image is rotated to
+ * the vehicle's bearing; the pictogram on top stays upright.
  */
-const drawHeading: Draw = (ctx, { width: size }) => {
-  const c = size / 2;
-  const tip = size * 0.03;
-  const base = size * 0.28;
-  const halfWidth = size * 0.15;
-  // A plain triangle rather than a notched chevron: the notch is invisible at
-  // the five or six pixels this occupies on screen, and only costs contrast.
-  // The base sits inside the marker so the arrow reads as attached to the
-  // vehicle rather than floating near it.
-  ctx.beginPath();
-  ctx.moveTo(c, tip);
-  ctx.lineTo(c + halfWidth, base);
-  ctx.lineTo(c - halfWidth, base);
-  ctx.closePath();
-  ctx.fill();
-};
+function withNose(plate: Draw): Draw {
+  return (ctx, box) => {
+    plate(ctx, box);
+    const size = box.width;
+    const c = size / 2;
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.035);
+    ctx.lineTo(c + size * 0.19, size * 0.34);
+    ctx.lineTo(c - size * 0.19, size * 0.34);
+    ctx.closePath();
+    ctx.fill();
+  };
+}
 
 /**
  * The beam: a shaft of the route's colour rising from the vehicle.
@@ -227,14 +303,36 @@ const drawBeam: Draw = (ctx, { width, height }) => {
 interface IconSpec {
   draw: Draw;
   box?: Box;
+  /** For images that stretch to fit text: which bands stretch, and where text goes. */
+  stretch?: {
+    stretchX: [number, number][];
+    stretchY: [number, number][];
+    content: [number, number, number, number];
+  };
 }
+
+/** Stretch bands in buffer pixels, which are PIXEL_RATIO times the drawn size. */
+const px = (n: number) => n * PIXEL_RATIO;
 
 export const VEHICLE_ICONS: Record<string, IconSpec> = {
   'vehicle-bus': { draw: drawBus },
   'vehicle-rail': { draw: drawRail },
   'vehicle-ferry': { draw: drawFerry },
-  'vehicle-heading': { draw: drawHeading },
+  'vehicle-bus-dir': { draw: withNose(drawBus) },
+  'vehicle-rail-dir': { draw: withNose(drawRail) },
+  'vehicle-ferry-dir': { draw: withNose(drawFerry) },
+  'glyph-bus': { draw: drawBusGlyph },
+  'glyph-train': { draw: drawTrainGlyph },
   'vehicle-beam': { draw: drawBeam, box: { width: BEAM_WIDTH, height: BEAM_HEIGHT } },
+  badge: {
+    draw: drawBadge,
+    box: BADGE,
+    stretch: {
+      stretchX: [[px(4), px(BADGE.width - 4)]],
+      stretchY: [[px(4), px(BADGE.height - 4)]],
+      content: [px(3), px(2), px(BADGE.width - 3), px(BADGE.height - 2)],
+    },
+  },
 };
 
 /**
@@ -247,13 +345,22 @@ export function registerVehicleIcons(map: maplibregl.Map): void {
   for (const [id, spec] of Object.entries(VEHICLE_ICONS)) {
     if (map.hasImage(id)) continue;
     try {
-      map.addImage(id, makeSdf(spec.draw, spec.box), { sdf: true, pixelRatio: PIXEL_RATIO });
+      map.addImage(id, makeSdf(spec.draw, spec.box), { sdf: true, pixelRatio: PIXEL_RATIO, ...spec.stretch });
     } catch (err) {
       // A missing icon degrades the map; it should not break it.
       console.warn(`livetrains: could not register marker "${id}"`, err);
     }
   }
 }
+
+/** The pictogram for a mode, drawn on its plate once the plate is big enough. */
+export const MODE_TO_GLYPH: maplibregl.ExpressionSpecification = [
+  'match',
+  ['get', 'mode'],
+  ['rail', 'tram', 'metro', 'funicular', 'cable'],
+  'glyph-train',
+  'glyph-bus',
+];
 
 /** Maps a GTFS mode onto the marker shape that represents it. */
 export const MODE_TO_ICON: maplibregl.ExpressionSpecification = [
@@ -264,4 +371,24 @@ export const MODE_TO_ICON: maplibregl.ExpressionSpecification = [
   'ferry',
   'vehicle-ferry',
   'vehicle-bus',
+];
+
+/**
+ * The marker for a vehicle: with a nose pointing its way when the feed says
+ * which way that is, and a plain plate when it does not — an arrow on a
+ * vehicle of unknown heading would be a confident lie.
+ */
+export const VEHICLE_ICON: maplibregl.ExpressionSpecification = [
+  'case',
+  ['boolean', ['get', 'hasHeading'], false],
+  [
+    'match',
+    ['get', 'mode'],
+    ['rail', 'tram', 'metro', 'funicular', 'cable'],
+    'vehicle-rail-dir',
+    'ferry',
+    'vehicle-ferry-dir',
+    'vehicle-bus-dir',
+  ],
+  MODE_TO_ICON,
 ];

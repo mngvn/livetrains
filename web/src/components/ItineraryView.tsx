@@ -75,9 +75,11 @@ interface DetailProps {
   now: number;
   onShowVehicle: (vehicleId: string) => void;
   onShowStop: (stopId: string) => void;
+  /** Ride a leg's vehicle, with the stop to get off at already chosen. */
+  onRide: (vehicleId: string, alightStopId: string) => void;
 }
 
-export function ItineraryDetail({ itinerary, now, onShowVehicle, onShowStop }: DetailProps) {
+export function ItineraryDetail({ itinerary, now, onShowVehicle, onShowStop, onRide }: DetailProps) {
   return (
     <ol className="itinerary-detail">
       {itinerary.legs.map((leg, index) => (
@@ -87,6 +89,7 @@ export function ItineraryDetail({ itinerary, now, onShowVehicle, onShowStop }: D
           now={now}
           onShowVehicle={onShowVehicle}
           onShowStop={onShowStop}
+          onRide={onRide}
         />
       ))}
       <li className="leg leg--end">
@@ -107,11 +110,13 @@ function LegRow({
   now,
   onShowVehicle,
   onShowStop,
+  onRide,
 }: {
   leg: Leg;
   now: number;
   onShowVehicle: (vehicleId: string) => void;
   onShowStop: (stopId: string) => void;
+  onRide: (vehicleId: string, alightStopId: string) => void;
 }) {
   if (leg.type === 'walk') {
     return (
@@ -162,9 +167,14 @@ function LegRow({
         </div>
 
         {leg.vehicleId && (
-          <button type="button" className="leg__vehicle-link" onClick={() => onShowVehicle(leg.vehicleId!)}>
-            Track this vehicle on the map
-          </button>
+          <span className="leg__vehicle-actions">
+            <button type="button" className="leg__vehicle-link" onClick={() => onShowVehicle(leg.vehicleId!)}>
+              Track this vehicle on the map
+            </button>
+            <button type="button" className="chip leg__ride" onClick={() => onRide(leg.vehicleId!, leg.to.id)}>
+              Ride it · alert me at {leg.to.name}
+            </button>
+          </span>
         )}
 
         <button type="button" className="leg__stop-link" onClick={() => onShowStop(leg.to.id)}>

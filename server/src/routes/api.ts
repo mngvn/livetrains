@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PlanRequest, Vehicle } from '../shared/api.js';
-import { MAX_BOARD_DEPARTURES, stopWithRoutes } from '../departures.js';
+import { MAX_BOARD_DEPARTURES, majorStops, stopWithRoutes } from '../departures.js';
 import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
+import { reachableFrom } from '../reachability.js';
 
 function numberParam(value: unknown, fallback: number): number {
   const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
@@ -87,6 +88,12 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
     },
   );
 
+  /** Stations, interchanges and busy stops: what the map shows before you zoom in. */
+  app.get('/api/stops/major', async () => {
+    requireReady(service);
+    return majorStops(service.store);
+  });
+
   /** Stops inside a map viewport, so the client can draw them while panning. */
   app.get(
     '/api/stops/within',
@@ -119,6 +126,22 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       const detail = stopDetail(service.store, service.patterns, service.realtime, request.params.stopId, limit, restOfDay);
       if (!detail) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
       return detail;
+    },
+  );
+
+  /** Everywhere you can get to from a stop, leaving now, within `minutes`. */
+  app.get(
+    '/api/stops/:stopId/reachable',
+    async (request: FastifyRequest<{ Params: { stopId: string }; Querystring: { minutes?: string } }>) => {
+      requireReady(service);
+      const result = reachableFrom(
+        service.store,
+        service.planner,
+        request.params.stopId,
+        numberParam(request.query.minutes, 30),
+      );
+      if (!result) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
+      return result;
     },
   );
 

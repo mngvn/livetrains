@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { RouteSummary } from '../lib/api.ts';
-import { modeLabel, readableTextColor } from '../lib/format.ts';
+import { modeLabel, plateLabel, readableTextColor } from '../lib/format.ts';
 import { splitBrandedLines } from '../lib/legend.ts';
 
 /**
@@ -71,7 +71,7 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                 <Swatch kind="heading" />
                 <span>
                   Direction of travel
-                  <em>arrow leads the vehicle</em>
+                  <em>the nose points the way it is going</em>
                 </span>
               </li>
               <li className="legend__item">
@@ -121,15 +121,15 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
               <li className="legend__item">
                 <Swatch kind="network" />
                 <span>
-                  Route path
-                  <em>every line, drawn faintly</em>
+                  Lines
+                  <em>METRO and rail bold, local buses a quiet wash</em>
                 </span>
               </li>
               <li className="legend__item">
                 <Swatch kind="stop" />
                 <span>
-                  Stop
-                  <em>tap for departures</em>
+                  Stop, station, interchange
+                  <em>tap any of them for departures</em>
                 </span>
               </li>
               <li className="legend__item">
@@ -161,7 +161,7 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                       className="legend__badge"
                       style={{ background: `#${route.color}`, color: readableTextColor(route.color) }}
                     >
-                      {route.shortName}
+                      {plateLabel(route.shortName)}
                     </span>
                     <span>
                       {/* Clamped to one line: a legend that wraps turns into a
@@ -241,24 +241,24 @@ function Swatch({
     case 'rail':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <rect x="6.5" y="2.5" width="11" height="11" rx="3" fill="#003da5" stroke="#ffffff" strokeWidth="1.6" />
+          <rect x="6.5" y="2.5" width="11" height="11" rx="1.5" fill="#0053a0" stroke="var(--bg)" strokeWidth="1.6" />
         </svg>
       );
     case 'bus':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <circle cx="12" cy="8" r="5.5" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.6" />
+          <circle cx="12" cy="8" r="5.5" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.6" />
         </svg>
       );
+    // The plate and its nose are one shape on the map, so they are here too.
     case 'heading':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <circle cx="9" cy="8" r="4.5" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.4" />
           <path
-            d="M16.5 8 L20.5 5.6 L19.2 8 L20.5 10.4 Z"
+            d="M10.5 3.2A5 5 0 1 0 10.5 12.8L20.5 8Z"
             fill="#0b5fa5"
-            stroke="#ffffff"
-            strokeWidth="1"
+            stroke="var(--bg)"
+            strokeWidth="1.4"
             strokeLinejoin="round"
           />
         </svg>
@@ -273,7 +273,7 @@ function Swatch({
             </linearGradient>
           </defs>
           <path d="M1 12 C 6 12, 8 5, 14 6 S 18 8, 19 8" stroke="url(#legend-trail)" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <circle cx="19.5" cy="8" r="3.2" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
+          <circle cx="19.5" cy="8" r="3.2" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.2" />
         </svg>
       );
     case 'beam':
@@ -281,14 +281,14 @@ function Swatch({
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
           {/* The shaft tapers rather than fading, which is what the map does. */}
           <path d="M10.4 13 L11.7 1.5 L12.3 1.5 L13.6 13 Z" fill="#0b5fa5" opacity="0.45" />
-          <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="#ffffff" strokeWidth="1.2" />
+          <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.2" />
         </svg>
       );
     case 'group':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <circle cx="12" cy="8" r="6.8" fill="#334155" opacity="0.9" stroke="#ffffff" strokeWidth="1.4" />
-          <text x="12" y="10.6" textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#ffffff">
+          <circle cx="12" cy="8" r="6.8" fill="var(--surface-2)" stroke="var(--text-muted)" strokeWidth="1.4" />
+          <text x="12" y="10.6" textAnchor="middle" fontSize="7.5" fontWeight="700" fill="var(--text)">
             12
           </text>
         </svg>
@@ -296,37 +296,40 @@ function Swatch({
     case 'network':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <path d="M1 11 C 7 11, 8 5, 14 5 L23 5" stroke="#003da5" strokeWidth="2.2" fill="none" opacity="0.42" />
-          <path d="M1 5 C 6 5, 9 12, 15 12 L23 12" stroke="#0b5fa5" strokeWidth="1.6" fill="none" opacity="0.3" />
+          <path d="M1 12 L9 12 L15 5 L23 5" stroke="#0b5fa5" strokeWidth="1.2" fill="none" opacity="0.4" />
+          <path d="M1 5 L9 5 L15 12 L23 12" stroke="var(--bg)" strokeWidth="5.5" fill="none" />
+          <path d="M1 5 L9 5 L15 12 L23 12" stroke="#00a94f" strokeWidth="3" fill="none" />
         </svg>
       );
     case 'stop':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <circle cx="12" cy="8" r="4" fill="#ffffff" stroke="#334155" strokeWidth="1.5" />
+          <circle cx="4.5" cy="8" r="2" fill="var(--bg)" stroke="var(--text)" strokeWidth="1.2" />
+          <circle cx="11" cy="8" r="3" fill="var(--bg)" stroke="var(--text)" strokeWidth="1.5" />
+          <circle cx="19" cy="8" r="4.3" fill="var(--bg)" stroke="var(--text)" strokeWidth="2" />
         </svg>
       );
     case 'ride':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <path d="M2 8h20" stroke="#ffffff" strokeWidth="7" strokeLinecap="round" />
+          <path d="M2 8h20" stroke="var(--bg)" strokeWidth="7" strokeLinecap="round" />
           <path d="M2 8h20" stroke="#0b5fa5" strokeWidth="4" strokeLinecap="round" />
         </svg>
       );
     case 'walk':
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          <path d="M2 8h20" stroke="#ffffff" strokeWidth="7" strokeLinecap="round" />
-          <path d="M2 8h20" stroke="#64748b" strokeWidth="4" strokeDasharray="4 3.5" />
+          <path d="M2 8h20" stroke="var(--bg)" strokeWidth="7" strokeLinecap="round" />
+          <path d="M2 8h20" stroke="var(--text-muted)" strokeWidth="4" strokeDasharray="4 3.5" />
         </svg>
       );
     case 'origin':
     case 'destination': {
-      const color = kind === 'origin' ? '#1d4ed8' : '#be123c';
+      const color = kind === 'origin' ? 'var(--text)' : 'var(--danger)';
       return (
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
           <circle cx="12" cy="8" r="7" fill={color} opacity="0.22" />
-          <circle cx="12" cy="8" r="4" fill={color} stroke="#ffffff" strokeWidth="1.8" />
+          <circle cx="12" cy="8" r="4" fill={color} stroke="var(--bg)" strokeWidth="1.8" />
         </svg>
       );
     }
