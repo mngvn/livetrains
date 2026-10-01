@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RouteSummary, ServiceAlert, Vehicle } from './api.ts';
-import { houseColor, isTrunkLine, lineHealth, networkHealth } from './networkHealth.ts';
+import { isTrunkLine, lineHealth, networkHealth } from './networkHealth.ts';
 
 const NOW = 1_800_000_000;
 
@@ -134,12 +134,9 @@ describe('networkHealth', () => {
 });
 
 describe('trunk lines', () => {
-  it('treats rail and anything not in the house colour as a named line', () => {
-    const routes = ['2', '3', '4', '6'].map((id) => route(id)).concat(route('A', 'bus', 'ED1B2E'), route('BLUE', 'tram', '0053A0'));
-    const house = houseColor(routes);
-    expect(house).toBe('0053A0');
-    expect(isTrunkLine(routes[0], house)).toBe(false);
-    expect(isTrunkLine(routes[4], house)).toBe(true);
-    expect(isTrunkLine(routes[5], house)).toBe(true);
+  it('treats rail, and buses named as lines, as the named lines', () => {
+    expect(isTrunkLine(route('21'))).toBe(false);
+    expect(isTrunkLine(route('BLUE', 'tram'))).toBe(true);
+    expect(isTrunkLine({ ...route('C'), shortName: 'METRO C Line' })).toBe(true);
   });
 });

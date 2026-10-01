@@ -1326,7 +1326,7 @@ export function App() {
           )}
 
           {tab === 'status' && health && (
-            <NetworkStatus health={health} routes={routes} onShowRoute={openRoute} />
+            <NetworkStatus health={health} onShowRoute={openRoute} />
           )}
 
           {tab === 'alerts' && (

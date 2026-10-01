@@ -1,5 +1,6 @@
 import type { RouteSummary, ServiceAlert, Vehicle } from './api.ts';
 import { effectMeta, isActive, isTripNotice } from './alerts.ts';
+import { lineTier } from '@shared/lines.ts';
 
 /**
  * The whole network, line by line: is it running, and is it running well?
@@ -191,32 +192,7 @@ export function networkHealth(
   };
 }
 
-/** Whether a route is one of the network's named lines: rail, or a branded route. */
-export function isTrunkLine(route: RouteSummary, houseColor: string | null): boolean {
-  return RAIL_MODES.has(route.mode) || (houseColor !== null && route.color.toUpperCase() !== houseColor);
-}
-
-/**
- * The colour most ordinary buses wear, if the agency has one.
- *
- * Metro Transit paints its local routes one blue and its METRO lines their
- * own colours, so "not the usual blue" is a good test for a named line.
- * Mirrors the server's line tiers.
- */
-export function houseColor(routes: RouteSummary[]): string | null {
-  const counts = new Map<string, number>();
-  for (const route of routes) {
-    if (RAIL_MODES.has(route.mode)) continue;
-    const color = route.color.toUpperCase();
-    counts.set(color, (counts.get(color) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [color, count] of counts) {
-    if (count > bestCount) {
-      best = color;
-      bestCount = count;
-    }
-  }
-  return bestCount >= 4 ? best : null;
+/** Whether a route is one of the network's named lines: rail, or a bus sold as a line. */
+export function isTrunkLine(route: RouteSummary): boolean {
+  return lineTier(route) !== 'bus';
 }

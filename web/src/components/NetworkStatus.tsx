@@ -1,7 +1,4 @@
-import { useMemo } from 'react';
-import type { RouteSummary } from '../lib/api.ts';
 import {
-  houseColor,
   isTrunkLine,
   STATE_LABEL,
   STATE_ORDER,
@@ -22,19 +19,16 @@ import { RouteBadge } from './RouteBadge.tsx';
  */
 export function NetworkStatus({
   health,
-  routes,
   onShowRoute,
 }: {
   health: NetworkHealth;
-  routes: RouteSummary[];
   onShowRoute: (routeId: string) => void;
 }) {
-  const house = useMemo(() => houseColor(routes), [routes]);
   const { lines, counts, running, vehicles, onTimeShare } = health;
 
   const trouble = lines.filter((line) => line.state !== 'good' && line.state !== 'quiet');
-  const trunk = lines.filter((line) => isTrunkLine(line.route, house) && !trouble.includes(line));
-  const others = lines.filter((line) => !isTrunkLine(line.route, house) && line.state === 'good');
+  const trunk = lines.filter((line) => isTrunkLine(line.route) && !trouble.includes(line));
+  const others = lines.filter((line) => !isTrunkLine(line.route) && line.state === 'good');
   const quiet = lines.filter((line) => line.state === 'quiet' && !trunk.includes(line));
 
   const good = counts.good;
