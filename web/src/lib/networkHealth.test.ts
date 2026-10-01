@@ -68,6 +68,10 @@ describe('lineHealth', () => {
     expect(health.reason).toBe('3 of 4 trains over 5 min late');
   });
 
+  it('never calls a line severe on the strength of one bus', () => {
+    expect(lineHealth(route('215'), [vehicle('215', 900)], []).state).toBe('minor');
+  });
+
   it('reads a cancelled trip as trips cancelled, not the line suspended', () => {
     const notice = alert('30', 'NO_SERVICE', {
       header: 'Route 30 trip departing Westgate Station - Gate B at 1:04 PM and seven other trips canceled today',

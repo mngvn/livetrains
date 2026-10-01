@@ -117,7 +117,8 @@ export function lineHealth(
   // vehicle well behind, or a good share of several.
   let state: LineState = 'quiet';
   if (vehicles.length > 0) {
-    if ((medianDelay ?? 0) >= 10 * 60 || (measured >= 3 && lateShare >= 0.6)) state = 'severe';
+    // One vehicle is never enough evidence for "severe": that is a bus, not a line.
+    if ((measured >= 2 && (medianDelay ?? 0) >= 10 * 60) || (measured >= 3 && lateShare >= 0.6)) state = 'severe';
     else if ((medianDelay ?? 0) >= LATE_SECONDS || (measured >= 3 && lateShare >= 0.34)) state = 'minor';
     else state = 'good';
   }
