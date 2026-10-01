@@ -100,6 +100,8 @@ interface Props {
    * map can be called live. Every vehicle is drawn greyed until it recovers.
    */
   feedStale: boolean;
+  /** The vehicle you are riding: the camera keeps it in view. */
+  followVehicleId: string | null;
 }
 
 export interface MapPadding {
@@ -158,6 +160,12 @@ const GROUP_REFRESH_MOVING_MS = 120;
 
 /** Vehicles closer together on screen than this gather into a group. */
 const GROUP_RADIUS_PX = 26;
+
+/** While riding, the camera re-centres on the vehicle this often, gliding between. */
+const FOLLOW_RIDE_MS = 1_500;
+
+/** After the rider moves the map, following waits this long before resuming. */
+const FOLLOW_PAUSE_MS = 10_000;
 
 /** How often the selected vehicle's trail is redrawn. */
 const TRAIL_REFRESH_MS = 1_000;
@@ -317,6 +325,7 @@ export function TransitMap({
   padding,
   pin,
   feedStale,
+  followVehicleId,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -347,6 +356,10 @@ export function TransitMap({
   focusRef.current = new Set(focus?.routeIds ?? []);
   const feedStaleRef = useRef(feedStale);
   feedStaleRef.current = feedStale;
+  const followRef = useRef(followVehicleId);
+  followRef.current = followVehicleId;
+  /** When the rider last moved the map themselves; following waits for them. */
+  const lastTouched = useRef(0);
   const paletteRef = useRef(paletteFor(basemap, dark));
   paletteRef.current = paletteFor(basemap, dark);
   const threeWanted = useRef(three);
@@ -470,6 +483,12 @@ export function TransitMap({
     });
 
     instance.on('moveend', emitViewport);
+    // Only real gestures count: the follow camera's own moves have no event.
+    for (const type of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'] as const) {
+      instance.on(type, (event: { originalEvent?: Event }) => {
+        if (event.originalEvent) lastTouched.current = performance.now();
+      });
+    }
     instance.on('move', () => {
       cameraMoved.current = true;
     });
@@ -528,6 +547,7 @@ export function TransitMap({
   useEffect(() => {
     let lastGrouped = 0;
     let lastTrail = 0;
+    let lastFollow = 0;
     let grouping: Grouping | null = null;
     /** Text colour per route colour, worked out once rather than per frame. */
     const textColors = new Map<string, string>();
@@ -607,6 +627,22 @@ export function TransitMap({
           };
         }),
       });
+
+      // Riding: keep the vehicle in view, gliding with it, unless the rider
+      // has just moved the map to look at something else.
+      const follow = followRef.current;
+      if (follow && now - lastFollow >= FOLLOW_RIDE_MS && now - lastTouched.current >= FOLLOW_PAUSE_MS) {
+        const vehicle = vehicles.find((v) => v.id === follow);
+        if (vehicle) {
+          lastFollow = now;
+          instance.easeTo({
+            center: [vehicle.displayLon, vehicle.displayLat],
+            zoom: Math.max(instance.getZoom(), 14),
+            duration: FOLLOW_RIDE_MS,
+            easing: (t) => t,
+          });
+        }
+      }
 
       // The selected vehicle's trail, once a second: it grows by one point
       // per feed update, and only its head moves in between.

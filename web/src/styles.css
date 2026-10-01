@@ -316,12 +316,12 @@ button {
 
 .tab {
   flex: 1;
-  padding: 12px 8px 10px;
+  padding: 12px 4px 10px;
   font-family: var(--font-display);
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
   background: none;
   border: none;
@@ -3645,4 +3645,428 @@ button.board-row__button:hover,
   font-weight: 700;
   white-space: nowrap;
   color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Network status: the whole system on one board
+   -------------------------------------------------------------------------- */
+
+.network {
+  --state-good: var(--live);
+  --state-minor: var(--late);
+  --state-disrupted: var(--late);
+  --state-severe: var(--danger);
+  --state-suspended: var(--danger);
+  --state-quiet: var(--text-faint);
+}
+
+.network__head {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.network__verdict {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.02;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.network__sub {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+/* The network in one bar: a segment per state, as wide as its share. */
+.network__bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-top: 12px;
+}
+
+.network__bar-part {
+  min-width: 4px;
+  background: var(--state-good);
+}
+
+.network__bar-part.is-minor,
+.network__bar-part.is-disrupted {
+  background: var(--state-minor);
+}
+
+.network__bar-part.is-severe,
+.network__bar-part.is-suspended {
+  background: var(--state-severe);
+}
+
+.network__group {
+  margin-top: 18px;
+}
+
+.network__count {
+  margin-left: 6px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.network__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.status-row {
+  --state: var(--state-good);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 6px 10px 0;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.status-row:hover {
+  background: var(--surface-2);
+}
+
+.status-row.is-minor,
+.status-row.is-disrupted {
+  --state: var(--state-minor);
+}
+
+.status-row.is-severe,
+.status-row.is-suspended {
+  --state: var(--state-severe);
+}
+
+.status-row.is-quiet {
+  --state: var(--state-quiet);
+}
+
+.status-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.status-row__name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-row__detail {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* The verdict for the line: set like a status board's, in its state colour. */
+.status-row__state {
+  flex: none;
+  max-width: 9em;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--state);
+}
+
+/* A suspension is the one state that gets a filled plate: it is the news. */
+.status-row.is-suspended .status-row__state {
+  padding: 3px 6px;
+  color: #fff;
+  background: var(--state-severe);
+  border-radius: var(--radius-sm);
+}
+
+.plate-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plate-grid__item {
+  display: block;
+  padding: 0 0 3px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid var(--state-good);
+  border-radius: 0;
+}
+
+.plate-grid__item.is-quiet {
+  border-bottom-color: transparent;
+  opacity: 0.55;
+}
+
+.plate-grid__item:hover {
+  filter: brightness(1.12);
+}
+
+.network__quiet summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.network__quiet summary::-webkit-details-marker {
+  display: none;
+}
+
+.network__quiet summary::before {
+  content: '+';
+  display: inline-block;
+  width: 1em;
+}
+
+.network__quiet[open] summary::before {
+  content: '−';
+}
+
+.network__quiet[open] summary {
+  margin-bottom: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   Riding along: the trip you are on, getting louder as your stop comes up
+   -------------------------------------------------------------------------- */
+
+.ride-banner {
+  --ride-tone: var(--text);
+  position: absolute;
+  top: 12px;
+  left: calc(50% + (var(--sheet-width) + 12px) / 2);
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: min(460px, calc(100vw - var(--sheet-width) - 48px));
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ride-tone);
+  border-radius: var(--radius);
+  animation: ride-in var(--t-med) var(--ease-out);
+}
+
+.ride-banner.is-next,
+.ride-banner.is-arriving {
+  --ride-tone: var(--late);
+}
+
+.ride-banner.is-alight {
+  --ride-tone: var(--live);
+  background: color-mix(in srgb, var(--live) 14%, var(--surface));
+}
+
+.ride-banner.is-arriving {
+  background: color-mix(in srgb, var(--late) 10%, var(--surface));
+}
+
+.ride-banner__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+}
+
+.ride-banner__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ride-banner__label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+
+.ride-banner__headline {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  color: var(--ride-tone);
+}
+
+.ride-banner__detail {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ride-banner__end {
+  align-self: center;
+  flex: none;
+}
+
+@keyframes ride-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ride-banner {
+    animation: none;
+  }
+}
+
+/* Centred over whatever map the panels leave: both, either, or neither. */
+.app:has(.sheet.is-hidden) .ride-banner {
+  left: 50%;
+  width: min(460px, calc(100vw - 24px));
+}
+
+.app.has-detail .ride-banner {
+  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
+  width: min(460px, calc(100vw - var(--sheet-width) - var(--detail-width) - 72px));
+}
+
+.app.has-detail:has(.sheet.is-hidden) .ride-banner {
+  left: calc(50% - (var(--detail-width) + 12px) / 2);
+  width: min(460px, calc(100vw - var(--detail-width) - 48px));
+}
+
+/* Below this the detail panel pushes the planner away. */
+@media (max-width: 1023px) {
+  .app.has-detail .ride-banner {
+    left: calc(50% - (var(--detail-width) + 12px) / 2);
+    width: min(460px, calc(100vw - var(--detail-width) - 48px));
+  }
+}
+
+/* On a phone the banner takes the top edge and the map's switches step down. */
+@media (max-width: 720px) {
+  .ride-banner,
+  .app.has-detail .ride-banner,
+  .app:has(.sheet.is-hidden) .ride-banner {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    transform: none;
+  }
+
+  @keyframes ride-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .app.is-riding .legend {
+    top: 92px;
+  }
+
+  .app.is-riding .map-controls {
+    top: 134px;
+  }
+}
+
+.vehicle-panel__ride-hint {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--late);
+}
+
+.trip-stop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trip-stop > .trip-stop__button {
+  flex: 1;
+  min-width: 0;
+}
+
+.trip-stop__choose {
+  flex: none;
+  padding: 4px 8px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.trip-stop__choose:hover {
+  color: var(--text);
+  border-color: var(--rule-strong);
+}
+
+.trip-stop__choose[aria-pressed='true'] {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.trip-stop.is-mine .trip-stop__dot::after {
+  width: 16px;
+  height: 16px;
+  left: 1px;
+  top: calc(50% - 8px);
+  border-width: 4px;
+  background: var(--text);
+}
+
+.trip-stop.is-mine .trip-stop__name {
+  font-weight: 800;
+}
+
+.leg__vehicle-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 4px;
 }

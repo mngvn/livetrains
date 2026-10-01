@@ -47,13 +47,18 @@ import { LeaveBanner, LeaveNudge } from './components/LeaveNudge.tsx';
 import { loadLastVehicles, saveLastVehicles, useOnline } from './lib/offline.ts';
 import { Onboarding } from './components/Onboarding.tsx';
 import { DetailPanel } from './components/DetailPanel.tsx';
+import { NetworkStatus } from './components/NetworkStatus.tsx';
+import { RideBanner, askToNotify } from './components/RideBanner.tsx';
+import { rideProgress } from './lib/ride.ts';
+import { networkHealth } from './lib/networkHealth.ts';
 
-type Tab = 'plan' | 'nearby' | 'routes' | 'alerts';
+type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
 
 const TAB_LABELS: Record<Tab, string> = {
   plan: 'Plan',
   nearby: 'Nearby',
   routes: 'Routes',
+  status: 'Status',
   alerts: 'Alerts',
 };
 /** Which field a map tap should fill, when the user chose "pick on map". */
@@ -702,9 +707,42 @@ export function App() {
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
 
+  // --- Riding along -----------------------------------------------------------
+  /** The vehicle you are on, and the stop you are getting off at once chosen. */
+  const [ride, setRide] = useState<{ vehicleId: string; stopId: string | null } | null>(null);
+  const { trip: rideTrip } = useVehicleTrip(source.vehicleTrip, ride?.vehicleId ?? null);
+  const progress = useMemo(
+    () =>
+      ride && rideTrip && rideTrip.vehicleId === ride.vehicleId
+        ? rideProgress(rideTrip, ride.stopId, tracker.get(ride.vehicleId) ?? null, now)
+        : null,
+    [ride, rideTrip, tracker, now],
+  );
+  const startRide = useCallback((vehicleId: string, stopId: string | null) => {
+    setRide({ vehicleId, stopId });
+    // Asked now, while there is a tap to ask on and an obvious reason.
+    if (stopId) void askToNotify();
+  }, []);
+  // Once you are off, the ride winds itself up after a couple of minutes.
+  const arrived = progress?.phase === 'arrived';
+  useEffect(() => {
+    if (!arrived) return;
+    const timer = window.setTimeout(() => setRide(null), 120_000);
+    return () => window.clearTimeout(timer);
+  }, [arrived]);
+
   const alerts = useAlerts(source.alerts, engine.state === 'ready');
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
+
+  // The network's health, worked out only while someone is looking at it,
+  // and refreshed every few seconds rather than every tick of the clock.
+  const healthTick = Math.floor(now / 5);
+  const health = useMemo(
+    () => (tab === 'status' ? networkHealth(routes, tracker.snapshot(), alerts, Date.now() / 1000) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tab, routes, alerts, tracker, healthTick],
+  );
 
   // --- Saved trips, their history, and when to leave ------------------------
   const saved = useSavedTrips();
@@ -807,11 +845,16 @@ export function App() {
       return highlightRouteIds && highlightRouteIds.length > 0 ? { kind: 'stop', routeIds: highlightRouteIds } : null;
     }
     if (activeRouteId) return { kind: 'route', routeIds: [activeRouteId] };
+    // The status board: the map shows where the trouble is.
+    if (tab === 'status' && health) {
+      const trouble = health.lines.filter((line) => line.state !== 'good' && line.state !== 'quiet');
+      if (trouble.length > 0) return { kind: 'network', routeIds: trouble.map((line) => line.route.id) };
+    }
     const tripRoutes = chosen
       ? [...new Set(chosen.legs.flatMap((leg) => (leg.type === 'transit' ? [leg.route.id] : [])))]
       : [];
     return tripRoutes.length > 0 ? { kind: 'trip', routeIds: tripRoutes } : null;
-  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen]);
+  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen, tab, health]);
 
   /** The live feed has said nothing new for long enough that nothing on the map is live. */
   const feedStale = stream.lastUpdate !== null && now - stream.lastUpdate > FEED_STALE_SECONDS;
@@ -853,7 +896,9 @@ export function App() {
 
 
   return (
-    <div className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}`}>
+    <div
+      className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}${ride ? ' is-riding' : ''}`}
+    >
       <TransitMap
         agency={agency}
         tracker={tracker}
@@ -883,7 +928,17 @@ export function App() {
         padding={mapPadding}
         pin={selectedStopId && stopPin ? stopPin : null}
         feedStale={feedStale}
+        followVehicleId={ride?.vehicleId ?? null}
       />
+
+      {ride && progress && (
+        <RideBanner
+          route={rideTrip?.route ?? null}
+          progress={progress}
+          onEnd={() => setRide(null)}
+          onShowVehicle={() => showVehicle(ride.vehicleId)}
+        />
+      )}
 
       <LeaveBanner
         state={leave}
@@ -1141,6 +1196,10 @@ export function App() {
                         now={now}
                         onShowVehicle={(vehicleId) => showVehicle(vehicleId)}
                         onShowStop={showStop}
+                        onRide={(vehicleId, stopId) => {
+                          startRide(vehicleId, stopId);
+                          showVehicle(vehicleId);
+                        }}
                       />
                     </>
                   )}
@@ -1214,6 +1273,10 @@ export function App() {
             />
           )}
 
+          {tab === 'status' && health && (
+            <NetworkStatus health={health} routes={routes} onShowRoute={openRoute} />
+          )}
+
           {tab === 'alerts' && (
             <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
           )}
@@ -1237,6 +1300,11 @@ export function App() {
                 routes={routesById}
                 onShowStop={showStop}
                 onShowRoute={openRoute}
+                ride={ride && ride.vehicleId === selectedVehicleId ? ride : null}
+                onRide={(stopId) => {
+                  if (stopId === false) setRide(null);
+                  else startRide(selectedVehicleId, stopId);
+                }}
               />
             ) : (
               <p className="panel-empty">

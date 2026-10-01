@@ -26,6 +26,8 @@ export function VehiclePanel({
   routes,
   onShowStop,
   onShowRoute,
+  ride,
+  onRide,
 }: {
   vehicle: Vehicle;
   trip: VehicleTrip | null;
@@ -34,6 +36,10 @@ export function VehiclePanel({
   routes: Map<string, RouteSummary>;
   onShowStop: (stopId: string) => void;
   onShowRoute: (routeId: string) => void;
+  /** Whether you are riding this vehicle, and where you are getting off. */
+  ride: { stopId: string | null } | null;
+  /** Start riding, change your stop, or (with null) stop riding. */
+  onRide: (alightStopId: string | null | false) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const delay = delayText(vehicle.delaySeconds);
@@ -81,12 +87,25 @@ export function VehiclePanel({
         <span className="fact-tag fact-tag--muted">Position {relativeAge(vehicle.timestamp)}</span>
       </div>
 
-      {route.id && (
-        <div className="panel-actions">
+      <div className="panel-actions">
+        {trip && (
+          <button
+            type="button"
+            className={`chip${ride ? '' : ' chip--primary'}`}
+            aria-pressed={Boolean(ride)}
+            onClick={() => onRide(ride ? false : null)}
+          >
+            {ride ? 'Stop riding' : `Ride this ${modeLabel(vehicle.mode).toLowerCase()}`}
+          </button>
+        )}
+        {route.id && (
           <button type="button" className="chip" onClick={() => onShowRoute(route.id)}>
             Whole route {route.shortName}
           </button>
-        </div>
+        )}
+      </div>
+      {ride && !ride.stopId && trip && (
+        <p className="vehicle-panel__ride-hint">Where are you getting off? Choose a stop below.</p>
       )}
 
       {alerts.length > 0 && (
@@ -119,6 +138,9 @@ export function VehiclePanel({
                 isNext={index === 0}
                 now={now}
                 onShow={() => onShowStop(stop.stop.id)}
+                riding={Boolean(ride)}
+                mine={ride?.stopId === stop.stop.id}
+                onChoose={() => onRide(stop.stop.id)}
               />
             ))}
           </ol>
@@ -138,15 +160,22 @@ function TripStopRow({
   isNext,
   now,
   onShow,
+  riding,
+  mine,
+  onChoose,
 }: {
   stop: TripStop;
   isNext: boolean;
   now: number;
   onShow: () => void;
+  /** While riding, every stop offers itself as the one to get off at. */
+  riding: boolean;
+  mine: boolean;
+  onChoose: () => void;
 }) {
   const at = stop.predictedTime ?? stop.scheduledTime;
   return (
-    <li className={`trip-stop${isNext ? ' is-next' : ''}${stop.skipped ? ' is-skipped' : ''}`}>
+    <li className={`trip-stop${isNext ? ' is-next' : ''}${stop.skipped ? ' is-skipped' : ''}${mine ? ' is-mine' : ''}`}>
       <button type="button" className="trip-stop__button" onClick={onShow}>
         <span className="trip-stop__dot" aria-hidden="true" />
         <span className="trip-stop__text">
@@ -161,6 +190,17 @@ function TripStopRow({
         </span>
         {!stop.skipped && <span className="trip-stop__countdown">{countdown(at, now)}</span>}
       </button>
+      {riding && !stop.skipped && (
+        <button
+          type="button"
+          className="trip-stop__choose"
+          aria-pressed={mine}
+          onClick={onChoose}
+          title={mine ? 'Your stop' : 'Get off here'}
+        >
+          {mine ? 'Your stop' : 'Get off here'}
+        </button>
+      )}
     </li>
   );
 }

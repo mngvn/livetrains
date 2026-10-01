@@ -651,7 +651,8 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
  */
 export interface MapFocus {
   routeIds: string[];
-  kind: 'vehicle' | 'stop' | 'route' | 'trip';
+  /** `network`: the lines in trouble, while the status board is open. */
+  kind: 'vehicle' | 'stop' | 'route' | 'trip' | 'network';
 }
 
 /**
@@ -661,7 +662,7 @@ export interface MapFocus {
  */
 export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null): void {
   const ids = focus && focus.routeIds.length > 0 ? focus.routeIds : null;
-  const highlight = ids && focus?.kind === 'stop' ? ids : [];
+  const highlight = ids && (focus?.kind === 'stop' || focus?.kind === 'network') ? ids : [];
   const lineFocus = ids ? onRoutes(ids, 'routeId') : null;
   const stopFocus = ids ? onRoutes(ids, 'routeKey') : null;
   const set = (layer: string, property: string, value: unknown) => {
