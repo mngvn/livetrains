@@ -6,64 +6,65 @@
  * because the map is the thing riders are actually looking at.
  */
 
+/*
+ * The tokens.
+ *
+ * Dark is the ground this app is designed on, so it is the default; light is
+ * the same rules on paper. Chrome is a ramp of greys with a slight blue cast,
+ * stepped by value rather than lifted by shadows. Colour is reserved for what
+ * means something: a route's own line colour, live and late, and trouble.
+ * The map's layers mirror these values in lib/palette.ts.
+ */
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f1f3f7;
-  --text: #10151f;
-  --text-muted: #5b6775;
-  --border: #dfe3ea;
-  --accent: #1d4ed8;
-  --accent-contrast: #ffffff;
-  --live: #0a9e5c;
-  --late: #c2410c;
-  --early: #7c3aed;
-  --danger: #be123c;
-  --shadow: 0 8px 30px rgb(15 21 32 / 12%);
-  --radius: 14px;
+  --bg: #0b0e14;
+  --surface: #10141b;
+  --surface-2: #171c25;
+  --surface-3: #1e2430;
+  --text: #edf0f5;
+  --text-muted: #8e97a8;
+  --text-faint: #5e6677;
+  --border: #242a35;
+  --rule-strong: #343b48;
+  /* Interactive emphasis is the text colour itself: the chrome stays neutral. */
+  --accent: #edf0f5;
+  --accent-contrast: #0b0e14;
+  --live: #3fe0a0;
+  --late: #f5a524;
+  --early: #8fb8ff;
+  --danger: #f0443a;
+  /* Metro Transit's own blue and red, for the few places the brand speaks. */
+  --brand-blue: #0053a0;
+  --brand-red: #ed1b2e;
+  --shadow: none;
+  --radius: 3px;
+  --radius-sm: 2px;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  /* Quick and mechanical: things arrive, they do not float in. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-fast: 120ms;
+  --t-med: 200ms;
   --sheet-width: 400px;
-  color-scheme: light;
-}
-
-/* Dark tokens apply in two cases: the rider chose dark explicitly, or they
-   left it on "system" and the system is dark. An explicit "light" wins over a
-   dark system, which is the whole point of offering the choice. The values
-   are repeated because plain CSS has no way to share a block between a media
-   query and an attribute selector. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #0b1220;
-    --surface: #151c2b;
-    --surface-2: #1d2637;
-    --text: #eef2f8;
-    --text-muted: #9aa7b8;
-    --border: #2a3447;
-    --accent: #6f9bff;
-    --accent-contrast: #0b1220;
-    --live: #35d08a;
-    --late: #fb923c;
-    --early: #c4b5fd;
-    --danger: #fb7185;
-    --shadow: 0 8px 30px rgb(0 0 0 / 45%);
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme='dark'] {
-  --bg: #0b1220;
-  --surface: #151c2b;
-  --surface-2: #1d2637;
-  --text: #eef2f8;
-  --text-muted: #9aa7b8;
-  --border: #2a3447;
-  --accent: #6f9bff;
-  --accent-contrast: #0b1220;
-  --live: #35d08a;
-  --late: #fb923c;
-  --early: #c4b5fd;
-  --danger: #fb7185;
-  --shadow: 0 8px 30px rgb(0 0 0 / 45%);
   color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #e9ecf0;
+  --surface: #f6f7f9;
+  --surface-2: #eceff3;
+  --surface-3: #e2e6ec;
+  --text: #0b0e14;
+  --text-muted: #4e5768;
+  --text-faint: #7a8395;
+  --border: #d0d5dd;
+  --rule-strong: #b6bcc7;
+  --accent: #0b0e14;
+  --accent-contrast: #f6f7f9;
+  --live: #0b8f5e;
+  --late: #b26100;
+  --early: #2f5fb3;
+  --danger: #c8102e;
+  color-scheme: light;
 }
 
 * {
@@ -78,15 +79,30 @@ body,
 }
 
 body {
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
+  /* Numbers that tick — countdowns, times, counts — keep their width, so a
+     column of times stays a column and nothing shuffles as a second passes. */
+  font-variant-numeric: tabular-nums lining-nums;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Small capitals labels: the voice of a sign, not of a web page. */
+.label-caps {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 button {
@@ -135,19 +151,38 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+/* The wordmark: set like the name on a station sign. */
 .sheet__brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
-  margin: 0 0 8px;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* A line and a station: the mark is the map in miniature. */
+.sheet__brand::before {
+  content: '';
+  width: 18px;
+  height: 18px;
+  flex: none;
+  background:
+    radial-gradient(circle at 50% 50%, var(--surface) 0 2.5px, var(--text) 2.6px 4.6px, transparent 4.7px),
+    linear-gradient(var(--brand-red), var(--brand-red)) 50% 50% / 100% 4px no-repeat,
+    var(--brand-blue);
+  border-radius: var(--radius-sm);
 }
 
 .sheet__agency {
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -169,7 +204,8 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  min-height: 20px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -177,22 +213,22 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--text-faint);
   flex: none;
 }
 
 .status-bar__dot.is-live {
   background: var(--live);
-  box-shadow: 0 0 0 0 rgb(10 158 92 / 60%);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 60%, transparent);
   animation: pulse 2.4s ease-out infinite;
 }
 
 @keyframes pulse {
   70% {
-    box-shadow: 0 0 0 7px rgb(10 158 92 / 0%);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--live) 0%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(10 158 92 / 0%);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 0%, transparent);
   }
 }
 
@@ -203,37 +239,68 @@ button {
 }
 
 .status-bar__text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
 
-/* Offline is the one state worth colouring: every number on screen is
-   affected by it. */
-.status-bar--offline {
-  font-weight: 600;
-  color: var(--late);
+/* How old the data is: always there, ticking, set like a departure time. */
+.status-bar__age {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
 }
 
+.status-bar__count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* Quiet feed, failed feed, no connection: said in words and in colour. */
+.status-bar--stale .status-bar__dot,
 .status-bar--offline .status-bar__dot {
   background: var(--late);
 }
 
-.status-bar__badge {
-  flex: none;
-  padding: 2px 7px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-muted);
+.status-bar--stale .status-bar__text,
+.status-bar--stale .status-bar__age,
+.status-bar--offline {
+  color: var(--late);
 }
 
-.status-bar__badge--warn {
-  background: color-mix(in srgb, var(--late) 18%, transparent);
-  color: var(--late);
+.status-bar--offline {
+  font-weight: 600;
+}
+
+.status-bar--down .status-bar__dot {
+  background: var(--danger);
+}
+
+.status-bar--down .status-bar__text {
+  white-space: normal;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.status-bar__badge {
+  flex: none;
+  padding: 1px 6px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
 }
 
 /* --------------------------------------------------------------------------
@@ -242,31 +309,35 @@ button {
 
 .tabs {
   display: flex;
-  gap: 4px;
-  padding: 10px 12px 0;
+  gap: 0;
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
 }
 
 .tab {
   flex: 1;
-  padding: 9px 8px;
+  padding: 12px 8px 10px;
+  font-family: var(--font-display);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 6px 6px 0 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
   white-space: nowrap;
+  transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
 }
 
 .tab:hover {
-  background: var(--surface-2);
+  color: var(--text);
 }
 
 .tab.is-active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  border-bottom-color: var(--text);
 }
 
 /* --------------------------------------------------------------------------
@@ -275,17 +346,19 @@ button {
 
 .chip {
   padding: 6px 11px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  line-height: 1.2;
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
 }
 
 .chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--rule-strong);
+  background: var(--surface-3);
 }
 
 .chip--primary {
@@ -296,7 +369,9 @@ button {
 
 .chip--primary:hover {
   color: var(--accent-contrast);
-  filter: brightness(1.08);
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(0.92);
 }
 
 .icon-button {
@@ -309,7 +384,7 @@ button {
   color: var(--text-muted);
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   flex: none;
 }
 
@@ -327,12 +402,12 @@ button {
   color: var(--text-muted);
   background: none;
   border: 1px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .swap-button:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--text);
+  border-color: var(--rule-strong);
 }
 
 /* --------------------------------------------------------------------------
@@ -346,11 +421,12 @@ button {
 
 .place-search__label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 11px;
+  margin-bottom: 5px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
 }
 
@@ -366,12 +442,12 @@ button {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 
 .place-search__input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--text);
 }
 
 .place-search__chosen {
@@ -381,7 +457,7 @@ button {
   padding: 8px 8px 8px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 
 .place-search__chosen-text {
@@ -435,7 +511,7 @@ button {
   z-index: 10;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
@@ -464,7 +540,7 @@ button {
   text-align: left;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .place-search__result.is-active,
@@ -495,7 +571,8 @@ button {
 }
 
 .place-search__kind--stop {
-  background: var(--accent);
+  background: var(--surface);
+  border: 2px solid var(--text);
 }
 
 .place-search__kind--landmark {
@@ -530,12 +607,12 @@ button {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .transit-search__input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--text);
 }
 
 .transit-search__panel {
@@ -546,7 +623,7 @@ button {
   z-index: 20;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
@@ -568,7 +645,7 @@ button {
   text-align: left;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .transit-search__result.is-active,
@@ -606,7 +683,7 @@ button {
   margin: 0 7px;
   flex: none;
   background: var(--surface);
-  border: 3px solid var(--accent);
+  border: 3px solid var(--text);
   border-radius: 50%;
 }
 
@@ -624,10 +701,23 @@ button {
 }
 
 .transit-search__empty {
+  padding: 12px;
+}
+
+/* Said the way a sign says it: one plain line, set in capitals. */
+.transit-search__empty-sign {
   margin: 0;
-  padding: 10px 12px;
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.transit-search__empty-hint {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
@@ -650,26 +740,31 @@ button {
    Route badge
    -------------------------------------------------------------------------- */
 
+/* A route's plate: heavy condensed numerals on its own line colour, the way
+   the route is signed on the street. */
 .route-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 22px;
+  min-width: 34px;
+  height: 24px;
   padding: 0 7px;
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-size: 16px;
   font-weight: 800;
-  letter-spacing: -0.01em;
-  border-radius: 6px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-sm);
   flex: none;
 }
 
 .route-badge--small {
-  min-width: 24px;
-  height: 18px;
+  min-width: 26px;
+  height: 19px;
   padding: 0 5px;
-  font-size: 10px;
-  border-radius: 5px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
 }
 
 /* --------------------------------------------------------------------------
@@ -690,8 +785,10 @@ button {
   padding: 11px 12px;
   text-align: left;
   background: var(--surface-2);
-  border: 1.5px solid transparent;
-  border-radius: 11px;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
 }
 
 .itinerary-summary:hover {
@@ -699,8 +796,9 @@ button {
 }
 
 .itinerary-summary.is-selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  border-color: var(--rule-strong);
+  border-left-color: var(--text);
+  background: var(--surface-3);
 }
 
 .itinerary-summary__top {
@@ -711,14 +809,17 @@ button {
 }
 
 .itinerary-summary__leave {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 700;
+  line-height: 1.1;
 }
 
 .itinerary-summary__duration {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .itinerary-summary__legs {
@@ -747,7 +848,7 @@ button {
   color: var(--text-muted);
   background: var(--surface);
   border: 1px dashed var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .itinerary-summary__bottom {
@@ -817,7 +918,8 @@ button {
 }
 
 .leg__dot--end {
-  border-color: var(--danger);
+  border-color: var(--text);
+  background: var(--text);
 }
 
 .leg__line {
@@ -825,7 +927,7 @@ button {
   top: 12px;
   bottom: -6px;
   width: 4px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--text-muted);
 }
 
@@ -847,8 +949,10 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
 }
 
@@ -889,20 +993,23 @@ button {
 
 .leg__stop-link:hover,
 .leg__vehicle-link:hover {
-  color: var(--accent);
+  color: var(--text);
   text-decoration-color: currentcolor;
 }
 
 .leg__vehicle-link {
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text);
 }
 
 .delay-tag {
   padding: 1px 6px;
-  font-size: 10.5px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 700;
-  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--text-muted);
   white-space: nowrap;
@@ -970,9 +1077,11 @@ button {
 
 .panel-title {
   margin: 0;
-  font-size: 16px;
+  font-family: var(--font-display);
+  font-size: 22px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
 }
 
 .panel-subtitle {
@@ -1032,7 +1141,7 @@ button {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius);
 }
 
 .vehicle-panel__title {
@@ -1052,21 +1161,24 @@ button {
 .vehicle-fact {
   padding: 9px 11px;
   background: var(--surface-2);
-  border-radius: 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
 }
 
 .vehicle-fact dt {
-  font-size: 10.5px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
 }
 
 .vehicle-fact dd {
   margin: 3px 0 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
 }
 
 /* --- Departures --- */
@@ -1122,7 +1234,8 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 18px;
   font-weight: 700;
   flex: none;
   color: var(--text-muted);
@@ -1145,12 +1258,12 @@ button {
    is carried by a coloured edge and the chip, so a list of them reads as a
    scale from "closed" to "note" at a glance. */
 .alert-card {
-  --tone: var(--accent);
+  --tone: var(--text-muted);
   font-size: 12.5px;
   background: color-mix(in srgb, var(--tone) 7%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border));
   border-left: 3px solid var(--tone);
-  border-radius: 9px;
+  border-radius: var(--radius);
 }
 
 .alert-card--severe {
@@ -1181,13 +1294,14 @@ button {
 
 .alert-card__effect {
   padding: 1px 7px;
-  font-size: 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--tone);
   background: color-mix(in srgb, var(--tone) 14%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   flex: none;
 }
 
@@ -1236,7 +1350,7 @@ button {
 .alert-card__link {
   display: inline-block;
   margin-top: 8px;
-  color: var(--accent);
+  color: var(--text);
 }
 
 /* --------------------------------------------------------------------------
@@ -1260,7 +1374,7 @@ button {
   text-align: left;
   background: none;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius);
 }
 
 .stop-list__item:hover,
@@ -1269,7 +1383,8 @@ button {
 }
 
 .route-list__item.is-active {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--surface-3);
+  box-shadow: inset 3px 0 0 var(--text);
 }
 
 .stop-list__text,
@@ -1311,9 +1426,9 @@ button {
   flex: none;
   font-size: 11px;
   font-weight: 800;
-  color: var(--accent-contrast);
+  color: #0b0e14;
   background: var(--late);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .route-group + .route-group {
@@ -1336,7 +1451,7 @@ button {
   padding: 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 
 .route-card__header {
@@ -1353,7 +1468,7 @@ button {
 }
 
 .route-card__contact a {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .route-card .chip {
@@ -1373,10 +1488,11 @@ button {
 }
 
 .panel-section__title {
-  margin: 0 0 6px;
-  font-size: 11px;
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -1400,7 +1516,7 @@ button {
   font-weight: 600;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -1418,13 +1534,13 @@ button {
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
 .access-tag--yes {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  background: var(--surface-3);
 }
 
 .access-tag--no {
@@ -1448,7 +1564,7 @@ button {
   padding: 0;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .stop-panel__route:hover {
@@ -1456,7 +1572,7 @@ button {
 }
 
 .stop-panel__route:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--text);
   outline-offset: 2px;
 }
 
@@ -1473,7 +1589,7 @@ button {
   font-weight: 600;
   color: var(--late);
   background: color-mix(in srgb, var(--late) 10%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .pathways {
@@ -1500,7 +1616,7 @@ button {
 
 .pathway--elevator .pathway__mode,
 .pathway--moving-sidewalk .pathway__mode {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .pathway__description {
@@ -1510,9 +1626,12 @@ button {
 .text-button {
   margin-top: 6px;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
   background: none;
   border: none;
 }
@@ -1544,7 +1663,7 @@ button {
   text-align: left;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .trip-stop__button:hover {
@@ -1562,11 +1681,11 @@ button {
 .trip-stop__dot::before {
   content: '';
   position: absolute;
-  left: 8px;
+  left: 7px;
   top: 0;
   bottom: 0;
-  width: 2px;
-  background: var(--border);
+  width: 4px;
+  background: var(--route-color, var(--rule-strong));
 }
 
 .trip-stop:first-child .trip-stop__dot::before {
@@ -1580,20 +1699,19 @@ button {
 .trip-stop__dot::after {
   content: '';
   position: absolute;
-  left: 4px;
-  top: calc(50% - 5px);
-  width: 10px;
-  height: 10px;
+  left: 3px;
+  top: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
   background: var(--surface);
-  border: 2px solid var(--text-muted);
+  border: 2.5px solid var(--route-color, var(--text-muted));
   border-radius: 50%;
   box-sizing: border-box;
 }
 
 .trip-stop.is-next .trip-stop__dot::after {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--route-color, var(--text));
+  border-color: var(--route-color, var(--text));
 }
 
 .trip-stop.is-skipped .trip-stop__dot::after {
@@ -1628,13 +1746,14 @@ button {
 
 .trip-stop__countdown {
   flex: none;
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-muted);
 }
 
 .trip-stop.is-next .trip-stop__countdown {
-  color: var(--accent);
+  color: var(--live);
 }
 
 /* --------------------------------------------------------------------------
@@ -1672,12 +1791,12 @@ button {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius);
 }
 
 .alerts-view__search input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text);
 }
 
 .tab__count {
@@ -1685,11 +1804,12 @@ button {
   min-width: 17px;
   margin-left: 5px;
   padding: 0 5px;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 17px;
-  color: var(--accent-contrast);
+  letter-spacing: 0;
+  color: #0b0e14;
   background: var(--late);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 /* --------------------------------------------------------------------------
@@ -1710,7 +1830,7 @@ button {
   font-weight: 600;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
@@ -1732,7 +1852,13 @@ button {
 
 .boot-error h1 {
   margin: 0;
-  font-size: 22px;
+  max-width: 18ch;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .boot-error__hint {
@@ -1745,14 +1871,14 @@ button {
   padding: 2px 6px;
   font-size: 12px;
   background: var(--surface-2);
-  border-radius: 5px;
+  border-radius: var(--radius);
 }
 
 .spinner {
   width: 26px;
   height: 26px;
   border: 3px solid var(--border);
-  border-top-color: var(--accent);
+  border-top-color: var(--text);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -1769,7 +1895,7 @@ button {
     bottom: 0;
     width: auto;
     max-height: 62vh;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
     border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
   }
@@ -1802,37 +1928,33 @@ button {
    Browser mode downloads and parses a full metro timetable before it can
    answer anything, so this reports the real phase rather than spinning. */
 
-.boot-loading__brand {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
 /* The welcome. Letters rise into place one after another, which is the whole
-   reason each is its own span. */
+   reason each is its own span. Set like a station name on a platform sign. */
 .boot-loading__welcome {
-  margin: 0 0 4px;
-  font-size: clamp(22px, 6vw, 34px);
+  margin: 0 0 18px;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 7vw, 46px);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   text-align: center;
-  /* Keeps the descenders and the blur headroom from being clipped. */
-  padding: 0 2px 6px;
+  /* Keeps the blur headroom from being clipped. */
+  padding: 0 2px 4px;
 }
 
 .boot-loading__letter {
   display: inline-block;
   opacity: 0;
-  animation: boot-letter 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: boot-letter 520ms var(--ease-out) forwards;
 }
 
 @keyframes boot-letter {
   from {
     opacity: 0;
     /* Rises and resolves, as though settling out of motion. */
-    transform: translate3d(0, 0.5em, 0);
-    filter: blur(6px);
+    transform: translate3d(0, 0.45em, 0);
+    filter: blur(5px);
   }
   to {
     opacity: 1;
@@ -1841,101 +1963,126 @@ button {
   }
 }
 
-/* A line that draws itself under the words once they have landed. */
-.boot-loading__welcome::after {
-  content: '';
+/* The progress line: a route with stations, filling as a train runs along it. */
+.boot-track {
+  --progress: 0;
+  position: relative;
+  width: min(420px, 78vw);
+  height: 30px;
+  margin-top: 6px;
+}
+
+.boot-track__line,
+.boot-track__fill {
+  position: absolute;
+  left: 0;
+  bottom: 5px;
+  height: 4px;
+}
+
+.boot-track__line {
+  right: 0;
+  background: var(--rule-strong);
+}
+
+.boot-track__fill {
+  width: calc(var(--progress) * 100%);
+  height: 6px;
+  bottom: 4px;
+  background: var(--brand-blue);
+  transition: width 120ms linear;
+}
+
+.boot-track__station {
+  position: absolute;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: var(--bg);
+  border: 2.5px solid var(--rule-strong);
+  border-radius: 50%;
+  transition: border-color var(--t-med) var(--ease-out);
+}
+
+.boot-track__station.is-passed {
+  border-color: var(--text);
+}
+
+.boot-track__vehicle {
+  position: absolute;
+  left: calc(var(--progress) * 100%);
+  bottom: 9px;
+  transform: translateX(-100%);
+  transition: left 120ms linear;
+}
+
+.boot-track__train {
   display: block;
-  height: 2px;
-  /* The resting state, which `backwards` fill returns to once the draw ends. */
-  width: 70%;
-  margin: 8px auto 0;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: boot-underline 900ms cubic-bezier(0.22, 1, 0.36, 1) 700ms backwards;
 }
 
-@keyframes boot-underline {
-  from {
-    width: 0;
-    opacity: 0;
-  }
-  to {
-    width: 70%;
-    opacity: 1;
-  }
+.boot-track__train-body {
+  fill: var(--brand-blue);
 }
 
-/* Motion is decoration here: the progress bar already says it is working. */
+.boot-track__train-window {
+  fill: var(--bg);
+}
+
+.boot-track__train-wheel {
+  fill: var(--text);
+}
+
+/* Motion is decoration here: the line already says it is working. */
 @media (prefers-reduced-motion: reduce) {
   .boot-loading__letter {
     opacity: 1;
     animation: none;
   }
 
-  .boot-loading__welcome::after {
-    width: 70%;
-    animation: none;
-  }
-}
-
-.boot-loading__bar {
-  position: relative;
-  width: min(340px, 80vw);
-  height: 6px;
-  overflow: hidden;
-  background: var(--surface-2);
-  border-radius: 999px;
-}
-
-.boot-loading__fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width 0.25s ease-out;
-}
-
-/* The parsing phases are CPU-bound with no meaningful fraction to report. */
-.boot-loading__fill.is-indeterminate {
-  width: 35%;
-  animation: slide 1.3s ease-in-out infinite;
-}
-
-@keyframes slide {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(340%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .boot-loading__fill.is-indeterminate {
-    width: 100%;
-    animation: none;
-    opacity: 0.55;
+  .boot-track__fill,
+  .boot-track__vehicle {
+    transition: none;
   }
 }
 
 .boot-loading__phase {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
 }
 
 .boot-loading__detail {
   margin: -6px 0 0;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .boot-loading__note {
   max-width: 42ch;
-  margin: 6px 0 0;
-  font-size: 12.5px;
+  margin: 10px 0 0;
+  font-size: 13px;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+/* The sign that goes up when the agency cannot be reached. */
+.boot-error__sign {
+  margin: 0;
+  padding: 4px 10px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #fff;
+  background: var(--brand-red);
+  border-radius: var(--radius-sm);
 }
 
 /* --------------------------------------------------------------------------
@@ -1947,8 +2094,8 @@ button {
 
 .sheet {
   transition:
-    transform 0.24s ease,
-    opacity 0.18s ease;
+    transform var(--t-med) var(--ease-out),
+    opacity var(--t-med) var(--ease-out);
 }
 
 .sheet.is-hidden {
@@ -1984,18 +2131,31 @@ button {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
 .panel-reveal:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--rule-strong);
+  color: var(--text);
+}
+
+.network-view-button {
+  display: grid !important;
+  place-items: center;
+  color: #333;
+}
+
+:root:not([data-theme='light']) .network-view-button {
+  color: var(--text);
 }
 
 .visually-hidden {
@@ -2048,18 +2208,21 @@ button {
   align-items: center;
   gap: 6px;
   padding: 7px 12px;
-  font-size: 12.5px;
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
 .map-controls.is-open .map-controls__toggle {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--text);
+  border-color: var(--rule-strong);
 }
 
 .segmented {
@@ -2068,7 +2231,7 @@ button {
   gap: 2px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
@@ -2077,15 +2240,18 @@ button {
   align-items: center;
   justify-content: center;
   padding: 5px 11px;
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: var(--text-muted);
   background: none;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
 
 /* Icon-only segments (the theme switch) are squarer than worded ones. */
@@ -2095,30 +2261,41 @@ button {
 
 /* The map's own controls follow the theme. They carry their icons as dark
    background images, so dark mode inverts the icon rather than recolouring. */
-[data-scheme='dark'] .maplibregl-ctrl-group {
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--border);
+/* MapLibre's buttons, squared off and outlined like the rest of the chrome. */
+.maplibregl-ctrl-group,
+.maplibregl-ctrl-group:not(:empty) {
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  border: 1px solid var(--border);
 }
 
-[data-scheme='dark'] .maplibregl-ctrl-group button + button {
+.maplibregl-ctrl-group button {
+  border-radius: 0;
+}
+
+:root:not([data-theme='light']) .maplibregl-ctrl-group {
+  background: var(--surface);
+}
+
+:root:not([data-theme='light']) .maplibregl-ctrl-group button + button {
   border-top-color: var(--border);
 }
 
-[data-scheme='dark'] .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+:root:not([data-theme='light']) .maplibregl-ctrl-group .maplibregl-ctrl-icon {
   filter: invert(1) hue-rotate(180deg);
 }
 
-[data-scheme='dark'] .maplibregl-ctrl-attrib,
-[data-scheme='dark'] .maplibregl-ctrl-attrib.maplibregl-compact {
+:root:not([data-theme='light']) .maplibregl-ctrl-attrib,
+:root:not([data-theme='light']) .maplibregl-ctrl-attrib.maplibregl-compact {
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface) 85%, transparent);
 }
 
-[data-scheme='dark'] .maplibregl-ctrl-attrib a {
+:root:not([data-theme='light']) .maplibregl-ctrl-attrib a {
   color: var(--text-muted);
 }
 
-[data-scheme='dark'] .maplibregl-ctrl-attrib-button {
+:root:not([data-theme='light']) .maplibregl-ctrl-attrib-button {
   filter: invert(1);
 }
 
@@ -2159,23 +2336,26 @@ button {
   align-items: center;
   gap: 7px;
   padding: 8px 12px;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
 .legend__toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--rule-strong);
+  color: var(--text);
 }
 
 .legend.is-open .legend__toggle {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--rule-strong);
+  color: var(--text);
 }
 
 .legend__toggle-icon {
@@ -2198,33 +2378,7 @@ button {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 
-  /*
-   * Scrolling shadows.
-   *
-   * The panel caps its height and scrolls, which without a cue just looks like
-   * text clipped mid-word. These four layers put a soft shadow at whichever
-   * edge has more content beyond it: the cover layers scroll with the content
-   * (background-attachment: local) and hide the shadow layers, which do not.
-   * Pure CSS, so it needs no scroll listener and cannot fall out of sync.
-   */
-  background-color: var(--surface);
-  background-image:
-    linear-gradient(var(--surface) 30%, rgb(0 0 0 / 0%)),
-    linear-gradient(rgb(0 0 0 / 0%), var(--surface) 70%),
-    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 16%), rgb(0 0 0 / 0%)),
-    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 16%), rgb(0 0 0 / 0%));
-  background-repeat: no-repeat;
-  background-position:
-    center top,
-    center bottom,
-    center top,
-    center bottom;
-  background-size:
-    100% 30px,
-    100% 30px,
-    100% 11px,
-    100% 11px;
-  background-attachment: local, local, scroll, scroll;
+  background: var(--surface);
 }
 
 .legend__section + .legend__section {
@@ -2235,10 +2389,11 @@ button {
 
 .legend__heading {
   margin: 0 0 8px;
-  font-size: 10.5px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.14em;
   color: var(--text-muted);
 }
 
@@ -2289,26 +2444,25 @@ button {
   height: 20px;
   padding: 2px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   cursor: pointer;
   display: flex;
   align-items: center;
-  transition: background 0.15s ease;
+  transition: background var(--t-med) var(--ease-out);
 }
 
 .legend__switch[aria-checked='false'] {
-  background: #b7c0cb;
+  background: var(--rule-strong);
 }
 
 .legend__switch-knob {
   width: 16px;
   height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-contrast);
   transform: translateX(14px);
-  transition: transform 0.15s ease;
+  transition: transform var(--t-med) var(--ease-out);
 }
 
 .legend__switch[aria-checked='false'] .legend__switch-knob {
@@ -2337,18 +2491,20 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
-  height: 19px;
+  min-width: 32px;
+  height: 20px;
   padding: 0 6px;
-  font-size: 10.5px;
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 800;
-  border-radius: 5px;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
   flex: none;
 }
 
 .legend__badge--generic {
-  min-width: 24px;
-  font-size: 9px;
+  min-width: 26px;
+  font-size: 11px;
 }
 
 /* On a phone the bottom sheet owns the lower half, so the legend stays small
@@ -2464,8 +2620,10 @@ button {
 }
 
 .journey__caption strong {
-  font-size: 13.5px;
-  line-height: 1.25;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.15;
 }
 
 .journey__caption em {
@@ -2483,13 +2641,13 @@ button {
   color: var(--text-muted);
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
 .journey__close:hover {
   color: var(--text);
-  background: var(--surface-alt, rgb(0 0 0 / 0.05));
+  background: var(--surface-2);
 }
 
 .journey__transport {
@@ -2507,7 +2665,7 @@ button {
   color: var(--accent-contrast);
   background: var(--accent);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -2520,8 +2678,9 @@ button {
 
 .journey__clock {
   flex: none;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
   color: var(--text-muted);
 }
 
@@ -2550,13 +2709,13 @@ button {
   color: var(--text-muted);
   background: none;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .journey__speed[aria-pressed='true'] {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--text);
+  border-color: var(--rule-strong);
 }
 
 .journey__play:focus-visible,
@@ -2576,18 +2735,20 @@ button {
   width: 100%;
   margin: 10px 0 2px;
   padding: 9px 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--accent);
-  background: none;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-contrast);
+  background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .journey-start:hover {
-  color: var(--accent-contrast);
-  background: var(--accent);
+  filter: brightness(0.9);
 }
 
 .journey-start:focus-visible {
@@ -2630,7 +2791,7 @@ button {
   gap: 4px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: var(--radius);
 }
 
 .saved-trip__open {
@@ -2643,7 +2804,7 @@ button {
   text-align: left;
   background: none;
   border: none;
-  border-radius: 11px;
+  border-radius: var(--radius);
 }
 
 .saved-trip__open:hover .saved-trip__ends {
@@ -2705,7 +2866,7 @@ button {
   padding: 9px 11px;
   background: color-mix(in srgb, var(--live) 10%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--live) 30%, var(--border));
-  border-radius: 11px;
+  border-radius: var(--radius);
 }
 
 .leave-nudge.is-urgent {
@@ -2731,7 +2892,8 @@ button {
 }
 
 .leave-nudge__headline {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 19px;
   color: var(--live);
 }
 
@@ -2764,10 +2926,10 @@ button {
   color: var(--text);
   background: var(--surface);
   border: 2px solid var(--late);
-  border-radius: 14px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   transform: translateX(-50%);
-  animation: leave-banner-in 0.35s ease-out;
+  animation: leave-banner-in var(--t-med) var(--ease-out);
 }
 
 .leave-banner__text {
@@ -2801,7 +2963,7 @@ button {
   padding: 16px;
   background: color-mix(in srgb, var(--bg) 45%, transparent);
   backdrop-filter: blur(3px);
-  animation: onboarding-fade 0.3s ease-out;
+  animation: onboarding-fade var(--t-med) var(--ease-out);
 }
 
 .onboarding__card {
@@ -2813,9 +2975,9 @@ button {
   text-align: center;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
-  animation: onboarding-rise 0.35s ease-out;
+  animation: onboarding-rise var(--t-med) var(--ease-out);
 }
 
 .onboarding__skip {
@@ -2830,7 +2992,7 @@ button {
   height: 118px;
   margin: 4px 0 8px;
   background: var(--surface-2);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 
 .onboarding__art svg {
@@ -2840,17 +3002,22 @@ button {
 
 .onboarding__count {
   margin: 0;
-  font-size: 11px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
 .onboarding__title {
   margin: 4px 0 6px;
-  font-size: 19px;
-  line-height: 1.25;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.05;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .onboarding__body {
@@ -2872,12 +3039,12 @@ button {
   height: 6px;
   border-radius: 50%;
   background: var(--border);
-  transition: width 0.2s ease, background 0.2s ease;
+  transition: width var(--t-med) var(--ease-out), background var(--t-med) var(--ease-out);
 }
 
 .onboarding__dot.is-active {
   width: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
 }
 
@@ -2940,7 +3107,8 @@ button {
 }
 
 .detail {
-  --detail-accent: var(--accent);
+  --detail-accent: var(--rule-strong);
+  --detail-ink: var(--text);
   position: absolute;
   top: 12px;
   right: 12px;
@@ -2951,13 +3119,11 @@ button {
   flex-direction: column;
   overflow: hidden;
   background: var(--surface);
-  /* Set apart from the planner by its frame: a coloured top edge in the
-     selection's colour and a heavier outline. */
-  border: 1px solid color-mix(in srgb, var(--detail-accent) 35%, var(--border));
-  border-top: 4px solid var(--detail-accent);
+  /* Set apart from the planner by its frame, and for a vehicle by a header
+     band in its route's colour. */
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  animation: detail-in 0.24s ease-out;
+  animation: detail-in var(--t-med) var(--ease-out);
 }
 
 .detail__bar {
@@ -2965,20 +3131,32 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 8px 7px 14px;
-  background: color-mix(in srgb, var(--detail-accent) 9%, var(--surface));
+  padding: 6px 8px 6px 14px;
+  background: var(--surface-2);
   border-bottom: 1px solid var(--border);
+  border-top: 4px solid var(--detail-accent);
+}
+
+.detail.has-accent .detail__bar {
+  color: var(--detail-ink);
+  background: var(--detail-accent);
+  border-bottom-color: var(--detail-accent);
+}
+
+.detail.has-accent .detail__close {
+  color: inherit;
 }
 
 .detail__kind {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-family: var(--font-display);
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--detail-accent);
+  color: inherit;
 }
 
 .detail__body {
@@ -3004,7 +3182,7 @@ button {
 /* A new selection dims the old one until it has loaded, rather than blanking. */
 .stop-panel.is-stale {
   opacity: 0.45;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--t-med) var(--ease-out);
   pointer-events: none;
 }
 
@@ -3043,8 +3221,8 @@ button {
     pointer-events: none;
     visibility: hidden;
     transition:
-      transform 0.28s ease,
-      opacity 0.2s ease,
+      transform var(--t-med) var(--ease-out),
+      opacity var(--t-med) var(--ease-out),
       visibility 0s linear 0.28s;
   }
 
@@ -3069,12 +3247,12 @@ button {
     bottom: 0;
     width: auto;
     height: 62vh;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
-    animation: detail-in-phone 0.28s ease-out;
+    animation: detail-in-phone var(--t-med) var(--ease-out);
   }
 
   .app.has-detail .legend,
@@ -3117,7 +3295,10 @@ button {
 }
 
 .board__count {
-  font-size: 11.5px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 
@@ -3157,12 +3338,12 @@ button {
   padding: 2px;
   background: none;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   opacity: 0.55;
 }
 
 .board__route-chip[aria-pressed='true'] {
-  border-color: var(--accent);
+  border-color: var(--text);
   opacity: 1;
 }
 
@@ -3172,7 +3353,7 @@ button {
 }
 
 .board__route-chip:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--text);
   outline-offset: 1px;
 }
 
@@ -3183,59 +3364,125 @@ button {
 }
 
 .board__hour {
-  padding: 10px 0 3px;
-  font-size: 10.5px;
+  padding: 12px 0 4px 34px;
+  font-family: var(--font-display);
+  font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
 }
 
 .board-row {
+  --route-color: var(--rule-strong);
   /* A day's board can run to hundreds of rows; the browser skips laying out
      the ones scrolled out of view. */
   content-visibility: auto;
-  contain-intrinsic-size: auto 56px;
+  contain-intrinsic-size: auto 58px;
   border-bottom: 1px solid var(--border);
 }
 
 .board-row__button {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   width: 100%;
-  padding: 9px 6px 9px 8px;
+  padding: 0 6px 0 0;
   text-align: left;
   color: inherit;
   background: none;
   border: none;
-  border-left: 3px solid transparent;
 }
 
-button.board-row__button:hover {
+.board-row__button > :not(.board-row__spine) {
+  align-self: center;
+}
+
+.board-row__button > .board-row__text {
+  padding: 9px 0;
+}
+
+button.board-row__button:hover,
+.board-row__button:focus-visible {
   background: var(--surface-2);
 }
 
-.board-row.is-live .board-row__button,
-.board-row.is-at-stop .board-row__button {
-  border-left-color: var(--live);
-  background: color-mix(in srgb, var(--live) 5%, transparent);
+.board-row__button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+/* The spine: a length of the row's route line, with the stop on it. Filled
+   for a live prediction, hollow for the timetable, struck for a cancellation. */
+.board-row__spine {
+  position: relative;
+  flex: none;
+  width: 24px;
+}
+
+.board-row__spine::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: -1px;
+  bottom: -1px;
+  width: 4px;
+  background: var(--route-color);
+}
+
+.board-row__node {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--surface);
+  border: 3px solid var(--route-color);
+  border-radius: 50%;
+}
+
+.board-row.is-live .board-row__node,
+.board-row.is-at-stop .board-row__node {
+  background: var(--text);
+  border-color: var(--route-color);
+}
+
+.board-row.is-at-stop .board-row__node {
+  background: var(--live);
+}
+
+.board-row.is-cancelled .board-row__node::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--danger);
+  transform: rotate(45deg);
+}
+
+.board-row.is-timetable .board-row__spine::before,
+.board-row.is-skipped .board-row__spine::before {
+  opacity: 0.55;
 }
 
 .board-row__when {
   flex: none;
-  width: 68px;
+  width: 66px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  font-variant-numeric: tabular-nums;
+  gap: 0;
+  font-family: var(--font-display);
 }
 
 .board-row__countdown {
-  font-size: 15px;
+  font-size: 21px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.05;
 }
 
 .board-row.is-live .board-row__countdown {
@@ -3247,20 +3494,22 @@ button.board-row__button:hover {
 }
 
 .board-row__clock {
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 700;
 }
 
 .board-row__clock--small {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .board-row__at-stop {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--live);
 }
 
@@ -3273,7 +3522,7 @@ button.board-row__button:hover {
 }
 
 .board-row__headsign {
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3294,11 +3543,12 @@ button.board-row__button:hover {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  font-size: 9.5px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
   font-weight: 800;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .board-row__flag--live {
@@ -3358,28 +3608,23 @@ button.board-row__button:hover {
 
 .stop-pin {
   cursor: default;
-  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 30%));
 }
 
 /* On the drawing, not the marker: MapLibre positions the marker element
    itself with a transform, and animating that would fight it. */
 .stop-pin svg {
   display: block;
-  animation: stop-pin-drop 0.35s cubic-bezier(0.3, 1.4, 0.6, 1);
+  animation: stop-pin-drop 0.22s var(--ease-out);
 }
 
 .stop-pin__body {
-  fill: var(--accent);
-  stroke: #ffffff;
+  fill: var(--text);
+  stroke: var(--bg);
   stroke-width: 2;
 }
 
 .stop-pin__eye {
-  fill: #ffffff;
-}
-
-.stop-pin__shadow {
-  fill: rgb(0 0 0 / 22%);
+  fill: var(--bg);
 }
 
 @keyframes stop-pin-drop {
@@ -3396,7 +3641,7 @@ button.board-row__button:hover {
 }
 
 .board-row__when s {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
   color: var(--text-muted);

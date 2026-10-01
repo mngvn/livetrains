@@ -81,9 +81,9 @@ export function MapControls({
         <Segmented
           label="Theme"
           options={[
-            { value: 'light' as const, label: <SunIcon />, name: 'Light theme' },
-            { value: 'system' as const, label: <AutoIcon />, name: 'Match this device' },
-            { value: 'dark' as const, label: <MoonIcon />, name: 'Dark theme' },
+            { value: 'dark' as const, label: <MoonIcon />, name: 'Dark' },
+            { value: 'auto' as const, label: <AutoIcon />, name: 'Auto: dark after sunset' },
+            { value: 'light' as const, label: <SunIcon />, name: 'Light' },
           ]}
           value={theme}
           onChange={onTheme}

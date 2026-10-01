@@ -21,6 +21,7 @@ import {
   JOURNEY_DIMMING,
   ensureLayers,
   revealLines,
+  syncGroundTexture,
   syncOverlayTheme,
   syncSelectionFocus,
   type MapFocus,
@@ -239,6 +240,44 @@ function stopFeatures(stops: StopSummary[]): GeoJSON.FeatureCollection {
   };
 }
 
+/**
+ * A map button that brings the whole network back into view: after zooming
+ * into a corner of the city, one press and you are looking at the system
+ * again. Square-on and north-up too, since that is what "the network" looks
+ * like on every printed map of it.
+ */
+class NetworkViewControl implements maplibregl.IControl {
+  private container: HTMLElement | null = null;
+  constructor(private readonly bounds: () => [number, number, number, number]) {}
+
+  onAdd(map: maplibregl.Map): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'network-view-button';
+    button.title = 'Show the whole network';
+    button.setAttribute('aria-label', 'Show the whole network');
+    button.innerHTML =
+      '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
+      '<path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<path d="M6 13l3.5-3.5 2 2L14.5 7" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+      '<circle cx="9.5" cy="9.5" r="1.4" fill="currentColor"/><circle cx="11.5" cy="11.5" r="1.4" fill="currentColor"/>' +
+      '</svg>';
+    button.addEventListener('click', () => {
+      map.fitBounds(this.bounds() as LngLatBoundsLike, { padding: 40, bearing: 0, duration: 700 });
+    });
+    container.appendChild(button);
+    this.container = container;
+    return container;
+  }
+
+  onRemove(): void {
+    this.container?.remove();
+    this.container = null;
+  }
+}
+
 /** Layers a tap can land on, most specific first. */
 const PICKABLE_LAYERS = [
   'vehicles-hit',
@@ -353,6 +392,7 @@ export function TransitMap({
     // For anyone poking at the map from the console, and the browser tests.
     (window as unknown as { __livetrainsMap?: maplibregl.Map }).__livetrainsMap = instance;
 
+    instance.addControl(new NetworkViewControl(() => agency.bbox), 'bottom-right');
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     instance.addControl(
       new maplibregl.AttributionControl({ compact: true, customAttribution: agency.name }),
@@ -395,6 +435,7 @@ export function TransitMap({
       try {
         registerVehicleIcons(instance);
         if (ensureLayers(instance, paletteRef.current, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+        syncGroundTexture(instance, paletteRef.current);
         syncBuildings(instance, threeWanted.current, paletteRef.current);
       } catch (err) {
         // The style was not as ready as it looked; `styledata` fires again.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { RouteSummary, TripStop, Vehicle, VehicleTrip } from '../lib/api.ts';
 import { sortAlerts } from '../lib/alerts.ts';
 import { countdown, delayText, modeLabel, occupancyLabel, relativeAge } from '../lib/format.ts';
@@ -111,7 +111,7 @@ export function VehiclePanel({
           <p className="panel-empty">This vehicle is not reporting a trip, so its stops are not known.</p>
         )}
         {trip && (
-          <ol className="trip-stops">
+          <ol className="trip-stops" style={{ '--route-color': `#${vehicle.color}` } as CSSProperties}>
             {shown.map((stop, index) => (
               <TripStopRow
                 key={`${stop.stop.id}-${stop.scheduledTime}`}

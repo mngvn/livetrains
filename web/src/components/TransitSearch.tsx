@@ -163,9 +163,10 @@ export function TransitSearch({
               ))}
             </ul>
           ) : (
-            <p className="transit-search__empty">
-              No stop or route matches “{query.trim()}”. Try a route number, a line colour, or a stop name.
-            </p>
+            <div className="transit-search__empty" role="status">
+              <p className="transit-search__empty-sign">No stops or routes match that</p>
+              <p className="transit-search__empty-hint">Try a route number, a line colour, or part of a stop name.</p>
+            </div>
           )}
         </div>
       )}

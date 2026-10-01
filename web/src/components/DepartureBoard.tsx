@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Departure, RouteSummary } from '../lib/api.ts';
 import {
   applyFilter,
@@ -30,10 +30,30 @@ const KIND_LABEL: Record<VehicleKind, string> = { train: 'Trains', bus: 'Buses',
  * long evening without reordering anything.
  *
  * Live predictions and timetable times look different on purpose. A live
- * row has a green edge and a pulsing "Live" mark; a timetable row says
- * "Timetable" and nothing more. Someone deciding whether to run for the bus
- * needs to know which kind of number they are looking at.
+ * row has a filled stop on the spine and a pulsing "Live" mark; a timetable
+ * row a hollow one and the word "Timetable". Someone deciding whether to run
+ * for the bus needs to know which kind of number they are looking at.
+ *
+ * The rows hang off a spine, each segment in its route's own colour, the way
+ * a line diagram strings stops along a route.
  */
+
+/** Up and down arrows walk the list, one departure at a time. */
+function moveThroughRows(event: KeyboardEvent<HTMLOListElement>): void {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('.board-row__button')];
+  if (rows.length === 0) return;
+  const current = rows.indexOf(document.activeElement as HTMLElement);
+  const next =
+    current === -1
+      ? event.key === 'ArrowDown'
+        ? 0
+        : rows.length - 1
+      : Math.max(0, Math.min(rows.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1)));
+  event.preventDefault();
+  rows[next].focus();
+  rows[next].scrollIntoView({ block: 'nearest' });
+}
 export function DepartureBoard({
   stopId,
   departures,
@@ -121,7 +141,7 @@ export function DepartureBoard({
             : 'Nothing left today for the routes chosen. Tap All to see every route.'}
         </p>
       ) : (
-        <ol className="board__list">
+        <ol className="board__list" onKeyDown={moveThroughRows}>
           {shown.map((departure, index) => {
             const previous = index > 0 ? shown[index - 1] : null;
             const hour = hourOf(departure.expectedTime);
@@ -171,6 +191,9 @@ function BoardRow({
 
   const body = (
     <>
+      <span className="board-row__spine" aria-hidden="true">
+        <span className="board-row__node" />
+      </span>
       <span className="board-row__when">
         {cancelled || skipped ? (
           <s>{clockTime(departure.scheduledTime)}</s>
@@ -222,7 +245,7 @@ function BoardRow({
 
   // A live row with a vehicle opens that vehicle, in the same panel.
   return (
-    <li className={`board-row ${state}`}>
+    <li className={`board-row ${state}`} style={{ '--route-color': `#${departure.color}` } as CSSProperties}>
       {departure.vehicleId && !cancelled ? (
         <button
           type="button"
@@ -233,7 +256,10 @@ function BoardRow({
           {body}
         </button>
       ) : (
-        <div className="board-row__button">{body}</div>
+        // Not a link anywhere, but still a stop on the arrow keys' walk.
+        <div className="board-row__button" tabIndex={-1}>
+          {body}
+        </div>
       )}
     </li>
   );

@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { readableTextColor } from '../lib/format.ts';
 
 /**
  * The right-hand panel: one stop or one vehicle, whatever was last chosen.
@@ -50,9 +51,15 @@ export function DetailPanel({
 
   return (
     <aside
-      className={`detail detail--${kind}`}
+      className={`detail detail--${kind}${accent ? ' has-accent' : ''}`}
       aria-label={kind === 'stop' ? 'Stop details' : 'Vehicle details'}
-      style={accent ? ({ '--detail-accent': `#${accent}` } as React.CSSProperties) : undefined}
+      // A vehicle's panel wears its route's colour as its header band, the
+      // way the line is signed on the vehicle itself.
+      style={
+        accent
+          ? ({ '--detail-accent': `#${accent}`, '--detail-ink': readableTextColor(accent) } as CSSProperties)
+          : undefined
+      }
     >
       <div className="detail__bar">
         <span className="detail__kind">

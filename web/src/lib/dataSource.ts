@@ -74,7 +74,13 @@ export interface DataSource {
   onStatus(listener: (status: EngineStatus) => void): () => void;
   /** Live vehicle pushes. Only browser mode pushes; server mode uses SSE. */
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void;
   setRouteFilter(routeId?: string): void;
   refresh(hard?: boolean): void;
@@ -114,7 +120,13 @@ class BrowserSource implements DataSource {
     return this.engine.onStatus(listener);
   }
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void {
     return this.engine.onVehicles(listener);
   }

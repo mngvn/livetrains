@@ -20,7 +20,7 @@ import { PlaceSearch } from './components/PlaceSearch.tsx';
 import { ItineraryDetail, ItinerarySummary } from './components/ItineraryView.tsx';
 import { StopPanel } from './components/StopPanel.tsx';
 import { VehiclePanel } from './components/VehiclePanel.tsx';
-import { StatusBar } from './components/StatusBar.tsx';
+import { FEED_STALE_SECONDS, StatusBar } from './components/StatusBar.tsx';
 import { RouteBadge } from './components/RouteBadge.tsx';
 import { MapLegend } from './components/MapLegend.tsx';
 import { usePersistedFlag } from './lib/persistedFlag.ts';
@@ -69,13 +69,7 @@ const WELCOME_MS = 1_800;
 
 const BASEMAP_KEY = 'livetrains.basemap';
 
-/**
- * After this long without a new feed message, nothing on the map is live.
- *
- * Metro Transit publishes every 15 seconds or so; a minute and a half is
- * several missed updates in a row, past any ordinary hiccup.
- */
-const FEED_STALE_SECONDS = 90;
+
 
 /** Set once the introduction has been seen or skipped. */
 const ONBOARDED_KEY = 'livetrains.onboarded';
@@ -205,7 +199,7 @@ export function App() {
     }
   }, []);
   const [three, toggleThree] = usePersistedFlag('livetrains.three');
-  const theme = useTheme();
+  const theme = useTheme(agency ? { lat: agency.center[1], lon: agency.center[0] } : null);
 
   /**
    * The journey playback clock.
@@ -812,8 +806,12 @@ export function App() {
     if (selectedStopId) {
       return highlightRouteIds && highlightRouteIds.length > 0 ? { kind: 'stop', routeIds: highlightRouteIds } : null;
     }
-    return activeRouteId ? { kind: 'route', routeIds: [activeRouteId] } : null;
-  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId]);
+    if (activeRouteId) return { kind: 'route', routeIds: [activeRouteId] };
+    const tripRoutes = chosen
+      ? [...new Set(chosen.legs.flatMap((leg) => (leg.type === 'transit' ? [leg.route.id] : [])))]
+      : [];
+    return tripRoutes.length > 0 ? { kind: 'trip', routeIds: tripRoutes } : null;
+  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen]);
 
   /** The live feed has said nothing new for long enough that nothing on the map is live. */
   const feedStale = stream.lastUpdate !== null && now - stream.lastUpdate > FEED_STALE_SECONDS;
@@ -1005,7 +1003,14 @@ export function App() {
               <span className="visually-hidden">Hide panel</span>
             </button>
           </div>
-          <StatusBar status={status} stream={stream} online={online} lastKnownAt={lastKnownAt} />
+          <StatusBar
+            status={status}
+            stream={stream}
+            now={now}
+            agencyName={agency.name}
+            online={online}
+            lastKnownAt={lastKnownAt}
+          />
           <TransitSearch
             search={source.search}
             onRoute={(route) => openRoute(route.id)}

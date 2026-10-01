@@ -47,6 +47,8 @@ export interface Palette {
   streetLabel: string;
   /** Halo around map text: the ground colour, so labels knock out what is under them. */
   halo: string;
+  /** The faint halftone on bare ground. */
+  textureDot: string;
 
   // --- Overlays drawn by the app -------------------------------------------
   stopFill: string;
@@ -84,6 +86,7 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     neighbourhoodLabel: '#596274',
     streetLabel: '#4F5869',
     halo: '#0B0E14',
+    textureDot: '#151A23',
 
     stopFill: '#0B0E14',
     stopStroke: '#E2E7EF',
@@ -117,6 +120,7 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     neighbourhoodLabel: '#7A8395',
     streetLabel: '#7F8899',
     halo: '#E9ECF0',
+    textureDot: '#DCE0E6',
 
     stopFill: '#FFFFFF',
     stopStroke: '#0B0E14',

@@ -111,16 +111,20 @@ async function fetchFeed(url: string): Promise<Uint8Array> {
 async function poll(): Promise<void> {
   if (!agency || pollInFlight) return;
   pollInFlight = true;
+  // The next poll is due a fixed interval after this one started.
+  const nextPollAt = Date.now() + pollSeconds * 1000;
 
   const { vehiclePositions, tripUpdates, alerts } = agency.realtime;
   const errors: string[] = [];
   const tasks: Promise<void>[] = [];
+  let vehiclesOk = true;
 
   if (vehiclePositions) {
     tasks.push(
       fetchFeed(vehiclePositions)
         .then((buffer) => realtime.setVehicles(decodeVehiclePositions(buffer, store), store))
         .catch((err: unknown) => {
+          vehiclesOk = false;
           errors.push(`vehicles (${describe(err)})`);
         }),
     );
@@ -155,6 +159,8 @@ async function poll(): Promise<void> {
     vehicles: filterVehicles([...realtime.vehicles.values()], routeFilter),
     timestamp: realtime.lastVehicleUpdate,
     error: realtime.lastError,
+    vehiclesOk,
+    nextPollAt,
   });
 }
 

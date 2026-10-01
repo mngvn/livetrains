@@ -71,7 +71,13 @@ interface Track {
 export interface VehiclePushSource {
   mode: 'browser' | 'server';
   onVehicles(
-    listener: (payload: { vehicles: Vehicle[]; timestamp: number | null; error: string | null }) => void,
+    listener: (payload: {
+      vehicles: Vehicle[];
+      timestamp: number | null;
+      error: string | null;
+      vehiclesOk?: boolean;
+      nextPollAt?: number;
+    }) => void,
   ): () => void;
   setRouteFilter(routeId?: string): void;
 }
@@ -85,6 +91,8 @@ export interface StreamStatus {
   /** Feed timestamp of the most recent message, in epoch seconds. */
   lastUpdate: number | null;
   error: string | null;
+  /** When the feed will next be tried, epoch milliseconds, if known. */
+  nextRetryAt?: number | null;
 }
 
 /**
@@ -166,15 +174,17 @@ export class VehicleTracker {
 
     if (source && source.mode === 'browser') {
       this.pushSource = source;
-      this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error }) => {
+      this.unsubscribePush = source.onVehicles(({ vehicles, timestamp, error, vehiclesOk, nextPollAt }) => {
         // A failed poll with nothing to show is not news that every vehicle
         // has left service; keep what is on the map (it fades as it ages).
         if (!(error !== null && vehicles.length === 0)) this.ingest(vehicles);
         this.setStatus({
-          connected: error === null,
+          // Live as long as positions are arriving, whatever the other feeds do.
+          connected: vehiclesOk ?? error === null,
           vehicleCount: vehicles.length,
           lastUpdate: timestamp,
           error,
+          nextRetryAt: nextPollAt ?? null,
         });
       });
       if (filter.routeId) source.setRouteFilter(filter.routeId);
@@ -313,7 +323,11 @@ export class VehicleTracker {
       // after the server closes the stream deliberately. Manage it here so a
       // server restart does not turn into a tight reconnect loop.
       source.close();
-      this.setStatus({ connected: false, error: 'Reconnecting to the live feed…' });
+      this.setStatus({
+        connected: false,
+        error: 'Reconnecting to the live feed…',
+        nextRetryAt: Date.now() + this.reconnectDelay,
+      });
       if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = window.setTimeout(() => this.openStream(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);

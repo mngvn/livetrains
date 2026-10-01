@@ -661,13 +661,13 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
  * What the map is about: the routes in question, and why.
  *
  * A stop's lines are redrawn bold, because the stop is the subject and its
- * lines are what it offers. A vehicle's and a browsed route's are not: each
- * has its own outline drawn on top, and a bold copy of the whole route
- * underneath would only smother it.
+ * lines are what it offers. A vehicle's, a browsed route's and a planned
+ * trip's are not: each has its own outline drawn on top, and a bold copy of
+ * the whole route underneath would only smother it.
  */
 export interface MapFocus {
   routeIds: string[];
-  kind: 'vehicle' | 'stop' | 'route';
+  kind: 'vehicle' | 'stop' | 'route' | 'trip';
 }
 
 /**
@@ -750,3 +750,40 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'vehicle-groups-circle', property: 'circle-stroke-opacity', value: 0.12 },
   { layer: 'vehicle-groups-count', property: 'text-opacity', value: 0.15 },
 ];
+
+const TEXTURE_LAYER = 'ground-texture';
+const TEXTURE_IMAGE = 'ground-dots';
+/** Pixels between dots in the ground texture, at 1x. */
+const TEXTURE_PITCH = 9;
+
+/**
+ * A faint dot grid on the bare ground of the street map.
+ *
+ * Empty land on a flat dark map reads as "nothing loaded"; a fine halftone
+ * says "ground, deliberately quiet", the way a printed network map screens
+ * its background. It sits under parks, water and roads, so it only shows
+ * where there is nothing else, and it is far too faint to compete with a line.
+ */
+export function syncGroundTexture(map: maplibregl.Map, p: Palette): void {
+  // Only the app's own street map has a plain ground to texture, and once
+  // is enough: a new style (which a theme change brings) arrives without it.
+  if (map.getLayer(TEXTURE_LAYER) || !map.getLayer('landcover') || !map.getLayer('background')) return;
+  const ratio = 2;
+  const size = TEXTURE_PITCH * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.fillStyle = p.textureDot;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, 0.75 * ratio, 0, Math.PI * 2);
+  ctx.fill();
+  const image = ctx.getImageData(0, 0, size, size);
+  if (map.hasImage(TEXTURE_IMAGE)) map.updateImage(TEXTURE_IMAGE, image);
+  else map.addImage(TEXTURE_IMAGE, image, { pixelRatio: ratio });
+  map.addLayer(
+    { id: TEXTURE_LAYER, type: 'background', paint: { 'background-pattern': TEXTURE_IMAGE } },
+    'landcover',
+  );
+}
