@@ -18,6 +18,7 @@ export type EngineMethod =
   | 'routeNetwork'
   | 'nearbyStops'
   | 'stopsWithin'
+  | 'majorStops'
   | 'stop'
   | 'vehicleTrip'
   | 'search'

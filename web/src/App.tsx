@@ -36,6 +36,7 @@ import { isActive } from './lib/alerts.ts';
 import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
+import type { MapFocus } from './components/mapLayers.ts';
 import { useTheme } from './lib/theme.ts';
 import { hasSharedState, readSharedState, shareUrl, writeSharedState } from './lib/shareLink.ts';
 import { ShareButton } from './components/ShareButton.tsx';
@@ -67,6 +68,14 @@ type MapPickTarget = 'origin' | 'destination' | null;
 const WELCOME_MS = 1_800;
 
 const BASEMAP_KEY = 'livetrains.basemap';
+
+/**
+ * After this long without a new feed message, nothing on the map is live.
+ *
+ * Metro Transit publishes every 15 seconds or so; a minute and a half is
+ * several missed updates in a row, past any ordinary hiccup.
+ */
+const FEED_STALE_SECONDS = 90;
 
 /** Set once the introduction has been seen or skipped. */
 const ONBOARDED_KEY = 'livetrains.onboarded';
@@ -121,6 +130,8 @@ export function App() {
   const planRun = useRef(0);
 
   const [stops, setStops] = useState<StopSummary[]>([]);
+  /** Stations, METRO stops and the busiest corners: drawn from metro scale. */
+  const [majorStops, setMajorStops] = useState<StopSummary[]>([]);
   const [nearbyStops, setNearbyStops] = useState<StopSummary[]>([]);
   const [routes, setRoutes] = useState<RouteSummary[]>([]);
   const [activeRoute, setActiveRoute] = useState<{ geometry: [number, number][]; color: string } | null>(null);
@@ -455,9 +466,10 @@ export function App() {
   useEffect(() => {
     if (!viewport || !agency || engine.state !== 'ready') return;
     const [west, south, east, north] = viewport;
-    // Drawing every stop in a whole metro is unreadable and slow; only load
-    // them once the viewport is tight enough for them to mean something.
-    if (east - west > 0.35 || north - south > 0.3) {
+    // Ordinary stops only appear once you are looking at a street, so they
+    // are only loaded then. Stations and busy stops are drawn network-wide
+    // from their own list.
+    if (east - west > 0.14 || north - south > 0.1) {
       setStops([]);
       return;
     }
@@ -495,6 +507,14 @@ export function App() {
     source.routes(controller.signal).then(setRoutes).catch(() => undefined);
     return () => controller.abort();
   }, [routes.length, engine.state, source]);
+
+  // --- Major stops, once ------------------------------------------------------
+  useEffect(() => {
+    if (majorStops.length > 0 || engine.state !== 'ready') return;
+    const controller = new AbortController();
+    source.majorStops(controller.signal).then(setMajorStops).catch(() => undefined);
+    return () => controller.abort();
+  }, [majorStops.length, engine.state, source]);
 
   // --- The route network underlay -------------------------------------------
   useEffect(() => {
@@ -587,9 +607,18 @@ export function App() {
     );
   }, []);
 
+  const closeDetail = useCallback(() => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(null);
+  }, []);
+
   const handleMapClick = useCallback(
     (lat: number, lon: number) => {
-      if (!mapPickTarget) return;
+      // A tap on empty map is a click away from whatever the panel shows.
+      if (!mapPickTarget) {
+        closeDetail();
+        return;
+      }
       source
         .reverseGeocode(lat, lon)
         .then((place) => {
@@ -609,15 +638,14 @@ export function App() {
         })
         .finally(() => setMapPickTarget(null));
     },
-    [mapPickTarget],
+    [mapPickTarget, closeDetail, source],
   );
 
   const clearRoute = useCallback(() => {
     setActiveRouteId(null);
     setActiveRoute(null);
     setActiveRouteDetail(null);
-    tracker.setFilter({});
-  }, [tracker]);
+  }, []);
 
   const showRoute = useCallback(
     (route: RouteSummary) => {
@@ -627,8 +655,8 @@ export function App() {
       }
       setActiveRouteId(route.id);
       setActiveRouteDetail(null);
-      // Narrow the live stream to this route so the map shows only its vehicles.
-      tracker.setFilter({ routeId: route.id });
+      // Every other vehicle stays on the map, dimmed: the route reads against
+      // the rest of the network rather than floating on an empty one.
       source
         .route(route.id)
         .then((detail) => {
@@ -638,7 +666,7 @@ export function App() {
         })
         .catch(() => undefined);
     },
-    [activeRouteId, tracker, source, clearRoute],
+    [activeRouteId, source, clearRoute],
   );
 
   /** Routes by id, for drawing badges wherever only an id is at hand. */
@@ -650,11 +678,6 @@ export function App() {
   const showStop = useCallback((stopId: string) => {
     setSelectedVehicleId(null);
     setSelectedStopId(stopId);
-  }, []);
-
-  const closeDetail = useCallback(() => {
-    setSelectedStopId(null);
-    setSelectedVehicleId(null);
   }, []);
 
   /** Pinned under the selected stop; set once the stop's record has loaded. */
@@ -678,16 +701,10 @@ export function App() {
     [routesById, activeRouteId, showRoute, closeDetail],
   );
 
-  const showVehicle = useCallback(
-    (vehicleId: string, routeId?: string) => {
-      // A vehicle on another route than the one being browsed is not on the
-      // map; show every route again so it can be.
-      if (activeRouteId && routeId && routeId !== activeRouteId) clearRoute();
-      setSelectedStopId(null);
-      setSelectedVehicleId(vehicleId);
-    },
-    [activeRouteId, clearRoute],
-  );
+  const showVehicle = useCallback((vehicleId: string) => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(vehicleId);
+  }, []);
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
 
@@ -783,6 +800,24 @@ export function App() {
     setSelectedStopId(null);
   }, []);
 
+  /**
+   * The routes the map is about right now, most specific first: the selected
+   * vehicle's, else every line through the selected stop, else the route
+   * being browsed. Everything else on the map steps back.
+   */
+  const mapFocus = useMemo<MapFocus | null>(() => {
+    if (selectedVehicleId) {
+      return selectedVehicle?.routeId ? { kind: 'vehicle', routeIds: [selectedVehicle.routeId] } : null;
+    }
+    if (selectedStopId) {
+      return highlightRouteIds && highlightRouteIds.length > 0 ? { kind: 'stop', routeIds: highlightRouteIds } : null;
+    }
+    return activeRouteId ? { kind: 'route', routeIds: [activeRouteId] } : null;
+  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId]);
+
+  /** The live feed has said nothing new for long enough that nothing on the map is live. */
+  const feedStale = stream.lastUpdate !== null && now - stream.lastUpdate > FEED_STALE_SECONDS;
+
   const mapCentre = useMemo(
     () =>
       viewport
@@ -825,13 +860,14 @@ export function App() {
         agency={agency}
         tracker={tracker}
         stops={stops}
+        majorStops={majorStops}
         itinerary={chosen}
         routeShape={activeRoute}
         network={network}
         selectedVehicleId={selectedVehicleId}
         origin={origin}
         destination={destination}
-        onSelectVehicle={(vehicleId) => vehicleId && showVehicle(vehicleId)}
+        onSelectVehicle={showVehicle}
         onSelectStop={showStop}
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
@@ -842,12 +878,13 @@ export function App() {
         three={three}
         playback={playback}
         focusJourney={playingJourney}
-        highlightRouteIds={selectedStopId ? highlightRouteIds : null}
+        focus={mapFocus}
         vehicleTrip={selectedVehicleId ? vehicleTrip : null}
         vehiclePosition={selectedVehicle ? [selectedVehicle.lon, selectedVehicle.lat] : null}
         cameraTarget={cameraTarget}
         padding={mapPadding}
         pin={selectedStopId && stopPin ? stopPin : null}
+        feedStale={feedStale}
       />
 
       <LeaveBanner

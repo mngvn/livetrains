@@ -73,6 +73,10 @@ export interface StopSummary {
   platformCode?: string;
   /** Free-text location detail from the feed, e.g. "Nicollet Mall & 5th St". */
   description?: string;
+  /** Worth drawing before the rider zooms in: a station, a stop on a METRO line, a busy stop. */
+  major?: boolean;
+  /** A place to change lines, drawn as a larger hollow circle. */
+  interchange?: boolean;
 }
 
 /** A way through a station — an elevator, a stair — from pathways.txt. */

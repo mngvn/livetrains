@@ -1,4 +1,6 @@
 import type maplibregl from 'maplibre-gl';
+import { PALETTES } from '../lib/palette.ts';
+import { transitBasemap } from './mapStyle.ts';
 
 /**
  * The backgrounds the map can wear.
@@ -28,16 +30,6 @@ const OPENFREEMAP_TILES = 'https://tiles.openfreemap.org/planet';
  * guessing at whatever a hosted style happened to call its own.
  */
 export const VECTOR_SOURCE_ID = 'livetrains-vector';
-
-/** Street basemap: a pale style that lets route colours carry the map. */
-export const STREETS_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
-
-/**
- * The street basemap after dark: OpenFreeMap's near-black style, from the
- * same tiles and glyphs as positron, so switching theme costs one style
- * document and no new tile downloads.
- */
-export const DARK_STREETS_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 
 /**
  * Esri's World Imagery, the standard keyless aerial basemap.
@@ -103,13 +95,13 @@ const IMAGERY_TILE_SIZE = typeof window !== 'undefined' && window.devicePixelRat
 export const FALLBACK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},
-  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#e9edf2' } }],
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': PALETTES.light.land } }],
 };
 
 export const DARK_FALLBACK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},
-  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0f1624' } }],
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': PALETTES.dark.land } }],
 };
 
 /**
@@ -230,22 +222,33 @@ export interface Basemap {
 }
 
 export const BASEMAPS: Record<BasemapId, Basemap> = {
-  streets: { id: 'streets', label: 'Map', style: STREETS_STYLE_URL },
+  streets: { id: 'streets', label: 'Map', style: transitBasemap(PALETTES.light, VECTOR_SOURCE_ID) },
   satellite: { id: 'satellite', label: 'Satellite', style: SATELLITE_STYLE },
+};
+
+/**
+ * The livetrains street map in each theme, built once and reused, so asking
+ * for the same one twice hands MapLibre the same object and nothing reloads.
+ */
+const STREETS: Record<'dark' | 'light', maplibregl.StyleSpecification> = {
+  dark: transitBasemap(PALETTES.dark, VECTOR_SOURCE_ID),
+  light: transitBasemap(PALETTES.light, VECTOR_SOURCE_ID),
 };
 
 /**
  * The style to load for a basemap in a theme.
  *
- * Only the street map changes with the theme. Satellite imagery is the same
- * photograph at any hour, and already sits on a dark background.
+ * The street map is the app's own, drawn in its palette. Satellite imagery is
+ * the same photograph at any hour, and already sits on a dark background.
  */
 export function styleFor(basemap: BasemapId, dark: boolean): string | maplibregl.StyleSpecification {
-  if (basemap === 'streets' && dark) return DARK_STREETS_STYLE_URL;
+  if (basemap === 'streets') return STREETS[dark ? 'dark' : 'light'];
   return BASEMAPS[basemap].style;
 }
 
 /** Whether a basemap in a theme is a dark map, for the overlays drawn on it. */
 export function isDarkMap(basemap: BasemapId, dark: boolean): boolean {
-  return basemap === 'streets' && dark;
+  // Aerial imagery is dark ground whatever the theme, so it takes the dark
+  // overlays: light stop rings and dark halos.
+  return basemap === 'satellite' || dark;
 }

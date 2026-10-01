@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PlanRequest, Vehicle } from '../shared/api.js';
-import { MAX_BOARD_DEPARTURES, stopWithRoutes } from '../departures.js';
+import { MAX_BOARD_DEPARTURES, majorStops, stopWithRoutes } from '../departures.js';
 import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
@@ -86,6 +86,12 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
         .map(({ index, distance }) => stopWithRoutes(service.store!, index, distance));
     },
   );
+
+  /** Stations, interchanges and busy stops: what the map shows before you zoom in. */
+  app.get('/api/stops/major', async () => {
+    requireReady(service);
+    return majorStops(service.store);
+  });
 
   /** Stops inside a map viewport, so the client can draw them while panning. */
   app.get(

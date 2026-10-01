@@ -140,6 +140,8 @@ export const api = {
   nearbyStops: (lat: number, lon: number, radius = 800, limit = 20, signal?: AbortSignal) =>
     get<StopSummary[]>('/api/stops/nearby', { lat, lon, radius, limit }, signal),
 
+  majorStops: (signal?: AbortSignal) => get<StopSummary[]>('/api/stops/major', undefined, signal),
+
   stopsWithin: (bbox: [number, number, number, number], limit = 300, signal?: AbortSignal) =>
     get<StopSummary[]>('/api/stops/within', { bbox: bbox.join(','), limit }, signal),
 

@@ -3,7 +3,7 @@ import type { AgencyInfo, FeedStatus, PlanRequest, Vehicle } from '../../../serv
 import type { AgencyDefinition } from '../../../server/src/agencies/types.js';
 import { GtfsStore } from '../../../server/src/gtfs/store.js';
 import { Planner } from '../../../server/src/planner/index.js';
-import { stopWithRoutes } from '../../../server/src/departures.js';
+import { majorStops, stopWithRoutes } from '../../../server/src/departures.js';
 import {
   routeDetail,
   searchTransit,
@@ -257,6 +257,11 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
       return s
         .nearbyStops(num(params.lat), num(params.lon), num(params.radius, 800), num(params.limit, 20))
         .map(({ index, distance }) => stopWithRoutes(s, index, distance));
+    }
+
+    case 'majorStops': {
+      const { store: s } = requireReady();
+      return majorStops(s);
     }
 
     case 'stopsWithin': {

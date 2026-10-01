@@ -100,10 +100,17 @@ function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
   return start > 0 ? next.slice(start) : next;
 }
 
-/** Smoothstep easing; vehicles ease in and out rather than moving linearly. */
-function ease(t: number): number {
-  return t * t * (3 - 2 * t);
-}
+/**
+ * How much longer than the feed's cadence each glide is stretched.
+ *
+ * Vehicles move at constant speed from where they are drawn towards where they
+ * were last reported, timed to arrive a little *after* the next report is due.
+ * So when that report lands the vehicle is still moving, and simply turns
+ * towards the new target: one continuous glide rather than a series of hops.
+ * A report that is a few seconds late finds the vehicle still under way
+ * instead of parked and waiting to jump.
+ */
+const GLIDE_STRETCH = 1.2;
 
 /** Interpolates between two bearings the short way around the circle. */
 function lerpAngle(from: number, to: number, t: number): number {
@@ -345,6 +352,20 @@ export class VehicleTracker {
         continue;
       }
 
+      // The feed repeating a report it has already sent is not a new
+      // position: restarting the glide towards the same point would only
+      // slow the vehicle down. Keep it moving; just note it is still there.
+      if (
+        existing.vehicle.timestamp === vehicle.timestamp &&
+        existing.vehicle.lat === vehicle.lat &&
+        existing.vehicle.lon === vehicle.lon
+      ) {
+        existing.vehicle = vehicle;
+        existing.lastSeen = now;
+        existing.restored = undefined;
+        continue;
+      }
+
       const current = this.positionAt(existing, now);
       this.tracks.set(vehicle.id, {
         vehicle,
@@ -352,7 +373,7 @@ export class VehicleTracker {
         fromLon: current.lon,
         fromBearing: current.bearing,
         startedAt: now,
-        durationMs: this.animationMs,
+        durationMs: this.animationMs * GLIDE_STRETCH,
         lastSeen: now,
         trail: extendTrail(existing.trail, vehicle),
       });
@@ -373,7 +394,7 @@ export class VehicleTracker {
     if (track.durationMs <= 0) {
       return { lat: track.vehicle.lat, lon: track.vehicle.lon, bearing: track.vehicle.bearing ?? track.fromBearing };
     }
-    const t = ease(Math.min(1, (now - track.startedAt) / track.durationMs));
+    const t = Math.min(1, (now - track.startedAt) / track.durationMs);
     return {
       lat: track.fromLat + (track.vehicle.lat - track.fromLat) * t,
       lon: track.fromLon + (track.vehicle.lon - track.fromLon) * t,
