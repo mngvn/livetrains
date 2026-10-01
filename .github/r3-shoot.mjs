@@ -100,7 +100,7 @@ const drawn = (page, label) =>
       const ids = [
         'water', 'park', 'landcover', 'building', 'road-major', 'road-mid', 'road-minor', 'railway',
         'label-water', 'label-street', 'label-neighbourhood', 'label-city', 'ground-texture',
-        'network-line', 'network-casing', 'network-highlight', 'major-stops-circle', 'major-stops-label',
+        'network-line', 'network-casing', 'network-highlight', 'line-stops-circle', 'major-stops-circle', 'major-stops-label',
         'major-stop-badges', 'stops-circle', 'stops-label', 'vehicles-dot', 'vehicles-glyph', 'vehicles-label',
         'vehicle-groups-circle', 'isochrone-fill', 'vehicle-trip-line',
       ];
