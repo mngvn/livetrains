@@ -2117,13 +2117,18 @@ button {
 }
 
 .sheet__title-row .sheet__brand {
+  /* Let a long agency name give way, so it never pushes the close button out. */
+  min-width: 0;
   margin-bottom: 8px;
 }
 
 .sheet__collapse {
   flex: none;
-  font-size: 15px;
-  margin-top: -2px;
+  margin-top: -4px;
+  margin-right: -4px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 /* The way back to a collapsed panel. */
@@ -2569,13 +2574,6 @@ button {
 
 .sheet__collapse svg {
   display: block;
-}
-
-/* On a phone the panel slides down, so the chevron should point down too. */
-@media (max-width: 720px) {
-  .sheet__collapse svg {
-    transform: rotate(-90deg);
-  }
 }
 
 /* --- Journey playback ---------------------------------------------------- */

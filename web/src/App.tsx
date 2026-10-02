@@ -1094,20 +1094,18 @@ export function App() {
               onClick={togglePanel}
               aria-expanded={!panelHidden}
               aria-controls="livetrains-panel"
-              title="Hide this panel"
+              title="Close this panel"
             >
-              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                 <path
-                  d="M9.5 3.5 5 8l4.5 4.5"
+                  d="M4 4l8 8M12 4l-8 8"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.8"
                   strokeLinecap="round"
-                  strokeLinejoin="round"
                 />
-                <path d="M12.4 3.2v9.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
-              <span className="visually-hidden">Hide panel</span>
+              <span className="visually-hidden">Close panel</span>
             </button>
           </div>
           <StatusBar
