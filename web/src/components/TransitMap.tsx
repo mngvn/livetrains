@@ -21,6 +21,7 @@ import {
   JOURNEY_DIMMING,
   ensureLayers,
   revealLines,
+  stopBadgeFilter,
   syncGroundTexture,
   syncOverlayTheme,
   syncSelectionFocus,
@@ -693,6 +694,16 @@ export function TransitMap({
       ]);
     }
   }, [selectedVehicleId, styleEpoch, setData, tracker]);
+
+  // The selected stop's routes, on a plate above its pin.
+  const pinId = pin?.id ?? null;
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready.current || !instance) return;
+    for (const layer of ['major-stop-badges', 'stop-badges'] as const) {
+      if (instance.getLayer(layer)) instance.setFilter(layer, stopBadgeFilter(layer, pinId));
+    }
+  }, [pinId, styleEpoch]);
 
   // --- The animated journey -------------------------------------------------
   // Driven straight from the playback clock rather than through React: the

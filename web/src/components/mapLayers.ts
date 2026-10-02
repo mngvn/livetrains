@@ -32,6 +32,15 @@ const MAJOR_STOPS_FROM_ZOOM = 12;
 const flag = (name: string): Expr => ['boolean', ['get', name], false];
 const NOT_GROUPED: Expr = ['!', flag('grouped')];
 
+/**
+ * The filter for a stop-badge layer: the selected stop only, or nothing. A
+ * major stop is drawn from both sources, so the minor layer leaves it out.
+ */
+export function stopBadgeFilter(layer: 'major-stop-badges' | 'stop-badges', stopId: string | null): Expr {
+  const selected: Expr = ['==', ['get', 'id'], stopId ?? ''];
+  return layer === 'stop-badges' ? ['all', ['!', flag('major')], selected] : selected;
+}
+
 const TIER: Expr = ['get', 'tier'];
 
 /** A per-tier value: rail, branded bus line, ordinary bus. */
@@ -363,25 +372,28 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     },
     paint: { 'text-color': p.stopLabel, 'text-halo-color': p.halo, 'text-halo-width': 1.5 },
   });
-  // Which routes call here, on a plate above the stop with the name below it,
-  // so a stop can be read without tapping it and neither crowds the other.
-  for (const [id, source, minzoom, filter] of [
-    ['major-stop-badges', 'major-stops', 14.5, null],
-    ['stop-badges', 'stops', 16.5, ['!', flag('major')]],
+  // Which routes call here, on a plate above the selected stop's pin. Only the
+  // selected stop: a plate on every stop turned the map into a scatter of
+  // route numbers. TransitMap points the filters at the selection.
+  for (const [id, source] of [
+    ['major-stop-badges', 'major-stops'],
+    ['stop-badges', 'stops'],
   ] as const) {
     map.addLayer({
       id,
       type: 'symbol',
       source,
-      minzoom,
-      ...(filter ? { filter: filter as Expr } : {}),
+      filter: stopBadgeFilter(id, null),
       layout: {
         'text-field': ['get', 'badges'],
         'text-font': FONT_BOLD,
         'text-size': 9.5,
         'text-letter-spacing': 0.04,
-        'text-offset': [0, -1.05],
+        // Clear of the 42px pin, which stands on the stop.
+        'text-offset': [0, -4.9],
         'text-anchor': 'bottom',
+        'text-allow-overlap': true,
+        'icon-allow-overlap': true,
         'icon-image': 'badge',
         'icon-text-fit': 'both',
         'icon-text-fit-padding': [1, 4, 1, 4],
