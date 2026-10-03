@@ -4,6 +4,9 @@ import { bearingDegrees } from '../geo.js';
 import { candidateServiceDays, epochFor } from '../gtfs/time.js';
 import type { StopPrediction, TripUpdate } from '../realtime/state.js';
 
+/** How long a simulated vehicle stands at each stop before moving on. */
+const DWELL_SECONDS = 20;
+
 /**
  * Drives synthetic vehicles along the mock timetable.
  *
@@ -75,9 +78,14 @@ export class MockSimulator {
         const b = store.stops[store.stopTimeStop[segment + 1]];
         if (!a || !b) continue;
 
-        const span = Math.max(1, arrival - departure);
-        const progress = Math.min(1, Math.max(0, (secondsOfDay - departure) / span));
+        // Timetables often give a stop the same arrival and departure minute,
+        // but a real vehicle stands there a while: spend the first stretch of
+        // each segment still at its first stop, as a real feed would show it.
+        const dwell = Math.min(DWELL_SECONDS, (arrival - departure) / 4);
+        const span = Math.max(1, arrival - departure - dwell);
+        const progress = Math.min(1, Math.max(0, (secondsOfDay - departure - dwell) / span));
 
+        const dwelling = progress <= 0 || progress >= 1;
         const route = store.routes[store.tripRoute[trip]];
         const lat = a.lat + (b.lat - a.lat) * progress;
         const lon = a.lon + (b.lon - a.lon) * progress;
@@ -93,7 +101,10 @@ export class MockSimulator {
           lon,
           bearing: bearingDegrees(a.lat, a.lon, b.lat, b.lon),
           // Dwelling at a stop reads as zero speed, as it would in a real feed.
-          speed: progress >= 1 ? 0 : Math.round(((b.lat - a.lat) ** 2 + (b.lon - a.lon) ** 2) ** 0.5 * 111_320) / span,
+          speed: dwelling ? 0 : Math.round(((b.lat - a.lat) ** 2 + (b.lon - a.lon) ** 2) ** 0.5 * 111_320) / span,
+          // The stop it is at or heading for, as GTFS-Realtime reports it.
+          stopId: progress <= 0 ? a.id : b.id,
+          currentStatus: dwelling ? 'stopped' : progress > 0.8 ? 'incoming' : 'in-transit',
           headsign: store.tripHeadsigns[trip],
           directionId: store.tripDirection[trip],
           timestamp: now,

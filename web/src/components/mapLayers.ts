@@ -27,6 +27,8 @@ export const GROUP_BELOW_ZOOM = 12;
 
 /** From this zoom the busiest bus stops are drawn too, not only line stops. */
 const MAJOR_STOPS_FROM_ZOOM = 12;
+/** Vehicles pulling in to stops are linked to them from this zoom in. */
+export const APPROACH_FROM_ZOOM = 15;
 
 /** Properties that are absent mean "no", not "error". */
 const flag = (name: string): Expr => ['boolean', ['get', name], false];
@@ -136,6 +138,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   for (const id of [
     'network', 'itinerary', 'itinerary-points', 'stops', 'major-stops', 'vehicles', 'vehicle-groups',
     'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops', 'isochrone',
+    'approach-lines', 'approach-rings',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
@@ -401,6 +404,52 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       paint: { 'text-color': p.badgeText, 'icon-color': p.badge, 'icon-halo-color': p.rule, 'icon-halo-width': 1 },
     });
   }
+
+  // --- Vehicles pulling in to a stop -------------------------------------------
+  // A connector from each arriving vehicle to its stop: faint and dashed at
+  // the edge of range, bolder as it closes in, solid green while it stands
+  // at the stop. Beneath the vehicles, so the connector runs out from under one.
+  // In the text colour, not the route's: a vehicle runs along its own line to
+  // the stop, so a route-coloured connector would vanish into the track.
+  map.addLayer({
+    id: 'approach-line',
+    type: 'line',
+    source: 'approach-lines',
+    minzoom: APPROACH_FROM_ZOOM,
+    filter: ['!', ['get', 'stopped']],
+    layout: { 'line-cap': 'round' },
+    paint: {
+      'line-color': p.text,
+      'line-width': ['interpolate', ['linear'], ['get', 'closeness'], 0, 2, 1, 4],
+      'line-opacity': ['interpolate', ['linear'], ['get', 'closeness'], 0, 0.35, 1, 1],
+      'line-dasharray': [1.5, 1.5],
+    },
+  });
+  map.addLayer({
+    id: 'approach-line-stopped',
+    type: 'line',
+    source: 'approach-lines',
+    minzoom: APPROACH_FROM_ZOOM,
+    filter: ['get', 'stopped'],
+    layout: { 'line-cap': 'round' },
+    paint: { 'line-color': p.live, 'line-width': 5 },
+  });
+  map.addLayer({
+    id: 'approach-ring',
+    type: 'circle',
+    source: 'approach-rings',
+    minzoom: APPROACH_FROM_ZOOM,
+    paint: {
+      // Standing at the stop, the ring opens out past the vehicle's own
+      // marker, with a soft green glow, so it shows around the vehicle.
+      'circle-radius': ['case', ['get', 'stopped'], 20, 12],
+      'circle-color': ['case', ['get', 'stopped'], p.live, 'transparent'],
+      'circle-opacity': 0.18,
+      'circle-stroke-color': ['case', ['get', 'stopped'], p.live, p.text],
+      'circle-stroke-width': ['case', ['get', 'stopped'], 3, 2],
+      'circle-stroke-opacity': ['interpolate', ['linear'], ['get', 'closeness'], 0, 0.3, 1, 1],
+    },
+  });
 
   // --- Ends of a planned trip ---------------------------------------------------
   map.addLayer({
@@ -679,6 +728,10 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     set(layer, 'icon-halo-color', p.rule);
   }
   for (const layer of ['vehicles-dot', 'vehicles-label']) set(layer, 'icon-halo-color', p.casing);
+  set('approach-line-stopped', 'line-color', p.live);
+  set('approach-line', 'line-color', p.text);
+  set('approach-ring', 'circle-color', ['case', ['get', 'stopped'], p.live, 'transparent']);
+  set('approach-ring', 'circle-stroke-color', ['case', ['get', 'stopped'], p.live, p.text]);
   set('vehicle-groups-circle', 'circle-color', p.surface2);
   set('vehicle-groups-circle', 'circle-stroke-color', [
     'case',
@@ -778,6 +831,10 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'major-stop-badges', property: 'icon-opacity', value: 0 },
   { layer: 'stop-badges', property: 'text-opacity', value: 0 },
   { layer: 'stop-badges', property: 'icon-opacity', value: 0 },
+  { layer: 'approach-line', property: 'line-opacity', value: 0 },
+  { layer: 'approach-line-stopped', property: 'line-opacity', value: 0 },
+  { layer: 'approach-ring', property: 'circle-opacity', value: 0 },
+  { layer: 'approach-ring', property: 'circle-stroke-opacity', value: 0 },
   { layer: 'vehicles-beam', property: 'icon-opacity', value: 0 },
   { layer: 'vehicles-selected', property: 'circle-opacity', value: 0 },
   { layer: 'vehicles-dot', property: 'icon-opacity', value: 0.16 },

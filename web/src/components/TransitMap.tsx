@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl, { type LngLatBoundsLike, type MapGeoJSONFeature } from 'maplibre-gl';
 import type { AgencyInfo, Itinerary, RouteNetwork, RouteSummary, StopSummary, VehicleTrip } from '../lib/api.ts';
+import { approachFeatures, findApproaches, type ApproachStop } from '../lib/approach.ts';
 import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
@@ -16,6 +17,7 @@ import {
   type BasemapId,
 } from './basemaps.ts';
 import {
+  APPROACH_FROM_ZOOM,
   EMPTY,
   GROUP_BELOW_ZOOM,
   JOURNEY_DIMMING,
@@ -360,6 +362,7 @@ export function TransitMap({
   selectedRef.current = selectedVehicleId;
   const focusRef = useRef<Set<string>>(new Set());
   focusRef.current = new Set(focus?.routeIds ?? []);
+  const approachStopsRef = useRef<Map<string, ApproachStop>>(new Map());
   const feedStaleRef = useRef(feedStale);
   feedStaleRef.current = feedStale;
   const followRef = useRef(followVehicleId);
@@ -569,6 +572,7 @@ export function TransitMap({
       return value;
     };
 
+    let approachesDrawn = false;
     return tracker.onFrame((vehicles: TrackedVehicle[]) => {
       const instance = map.current;
       if (!ready.current || !instance) return;
@@ -633,6 +637,36 @@ export function TransitMap({
           };
         }),
       });
+
+      // Vehicles pulling in to a stop, linked to it — only zoomed in, where a
+      // street's worth of stops is on screen and the links can be told apart.
+      if (instance.getZoom() >= APPROACH_FROM_ZOOM) {
+        const bounds = instance.getBounds();
+        const inView = vehicles.filter((v) => bounds.contains([v.displayLon, v.displayLat]));
+        const { lines, rings } = approachFeatures(
+          findApproaches(
+            inView.map((v) => ({
+              id: v.id,
+              routeId: v.routeId,
+              lat: v.displayLat,
+              lon: v.displayLon,
+              bearing: v.bearing === undefined ? undefined : v.displayBearing,
+              speed: v.speed,
+              stopId: v.stopId,
+              currentStatus: v.currentStatus,
+              stale: v.stale || feedQuiet,
+            })),
+            approachStopsRef.current,
+          ),
+        );
+        setData('approach-lines', lines);
+        setData('approach-rings', rings);
+        approachesDrawn = true;
+      } else if (approachesDrawn) {
+        setData('approach-lines', EMPTY);
+        setData('approach-rings', EMPTY);
+        approachesDrawn = false;
+      }
 
       // Riding: keep the vehicle in view, gliding with it, unless the rider
       // has just moved the map to look at something else.
@@ -1016,6 +1050,20 @@ export function TransitMap({
     if (!ready.current) return;
     setData('stops', stopFeatures(stops));
   }, [stops, setData, styleEpoch]);
+
+  // Every stop drawn, by id, for linking arriving vehicles to their stops.
+  useEffect(() => {
+    const index = new Map<string, ApproachStop>();
+    for (const stop of [...majorStops, ...stops]) {
+      index.set(stop.id, {
+        id: stop.id,
+        lat: stop.lat,
+        lon: stop.lon,
+        routeIds: new Set((stop.routes ?? []).map((route) => route.id)),
+      });
+    }
+    approachStopsRef.current = index;
+  }, [stops, majorStops]);
 
   useEffect(() => {
     if (!ready.current) return;
