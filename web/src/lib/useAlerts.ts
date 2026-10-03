@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ServiceAlert } from './api.ts';
+import type { AlertsResponse, ServiceAlert } from './api.ts';
 
 /** How often to re-read alerts. They change on the scale of minutes, not seconds. */
 const REFRESH_MS = 60_000;
@@ -14,6 +14,8 @@ const REFRESH_MS = 60_000;
 const EMPTY_RETRY_MS = 4_000;
 const EMPTY_RETRIES = 8;
 
+const NONE: AlertsResponse = { alerts: [], places: [] };
+
 /**
  * Every service alert the agency is publishing, kept fresh.
  *
@@ -23,10 +25,10 @@ const EMPTY_RETRIES = 8;
  * beats each of those polling separately.
  */
 export function useAlerts(
-  load: (signal?: AbortSignal) => Promise<{ alerts: ServiceAlert[] }>,
+  load: (signal?: AbortSignal) => Promise<AlertsResponse>,
   enabled: boolean,
-): ServiceAlert[] {
-  const [alerts, setAlerts] = useState<ServiceAlert[]>([]);
+): AlertsResponse {
+  const [alerts, setAlerts] = useState<AlertsResponse>(NONE);
 
   useEffect(() => {
     if (!enabled) return;
@@ -38,7 +40,8 @@ export function useAlerts(
       load(controller.signal)
         .then((result) => {
           if (cancelled) return;
-          setAlerts(result.alerts);
+          // An older server answers without places; draw nothing rather than fail.
+          setAlerts({ alerts: result.alerts, places: result.places ?? [] });
           if (result.alerts.length === 0 && retries < EMPTY_RETRIES) {
             retries += 1;
             window.clearTimeout(retryTimer);

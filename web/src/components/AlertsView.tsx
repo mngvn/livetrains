@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { RouteSummary, ServiceAlert } from '../lib/api.ts';
 import { effectMeta, isAccessibilityAlert, isActive, sortAlerts } from '../lib/alerts.ts';
 import { AlertCard } from './AlertCard.tsx';
@@ -38,11 +38,14 @@ export function AlertsView({
   now,
   routes,
   onShowRoute,
+  onShownChange,
 }: {
   alerts: ServiceAlert[];
   now: number;
   routes: Map<string, RouteSummary>;
   onShowRoute: (routeId: string) => void;
+  /** The alerts left after filtering, so the map can draw the same ones. */
+  onShownChange?: (shown: ServiceAlert[]) => void;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [routeQuery, setRouteQuery] = useState('');
@@ -67,6 +70,10 @@ export function AlertsView({
     }
     return { agencyWide, listed };
   }, [alerts, now, filter, routeQuery, routes]);
+
+  useEffect(() => {
+    onShownChange?.([...agencyWide, ...listed]);
+  }, [agencyWide, listed, onShownChange]);
 
   const activeCount = alerts.filter((a) => isActive(a, now)).length;
 

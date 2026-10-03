@@ -18,6 +18,7 @@ import {
 } from './basemaps.ts';
 import {
   APPROACH_FROM_ZOOM,
+  alertPulseRadius,
   EMPTY,
   GROUP_BELOW_ZOOM,
   JOURNEY_DIMMING,
@@ -107,6 +108,8 @@ interface Props {
   followVehicleId: string | null;
   /** Everywhere reachable from a stop, as banded grid cells, while shown. */
   isochrone: GeoJSON.FeatureCollection | null;
+  /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
+  alerts: GeoJSON.FeatureCollection | null;
 }
 
 export interface MapPadding {
@@ -296,6 +299,8 @@ class NetworkViewControl implements maplibregl.IControl {
 const PICKABLE_LAYERS = [
   'vehicles-hit',
   'vehicle-groups-circle',
+  'alerts-cluster',
+  'alerts-dot',
   'itinerary-stops',
   'line-stops-circle',
   'major-stops-circle',
@@ -334,6 +339,7 @@ export function TransitMap({
   feedStale,
   followVehicleId,
   isochrone,
+  alerts,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -533,6 +539,13 @@ export function TransitMap({
         // vehicles that were within a few pixels of each other.
         const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
         instance.easeTo({ center, zoom: Math.min(GROUP_BELOW_ZOOM + 0.5, instance.getZoom() + 2), duration: 450 });
+      } else if (layer === 'alerts-cluster') {
+        const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        const source = instance.getSource('alerts') as maplibregl.GeoJSONSource | undefined;
+        source
+          ?.getClusterExpansionZoom(Number(feature.properties?.cluster_id))
+          .then((zoom) => instance.easeTo({ center, zoom: zoom + 0.25, duration: 450 }))
+          .catch(() => undefined);
       } else if (layer === 'vehicles-hit') {
         handlers.current.onSelectVehicle(String(feature.properties?.id ?? ''));
       } else {
@@ -1050,6 +1063,32 @@ export function TransitMap({
     if (!ready.current) return;
     setData('stops', stopFeatures(stops));
   }, [stops, setData, styleEpoch]);
+
+  // Service alerts, while the alerts view is open.
+  useEffect(() => {
+    if (!ready.current) return;
+    setData('alerts', alerts ?? EMPTY);
+  }, [alerts, setData, styleEpoch]);
+
+  // A slow ripple off whatever is severe and in force, only while there is
+  // something to ripple. Restyling one layer a few times a second is cheap.
+  const hasAlerts = (alerts?.features.length ?? 0) > 0;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !hasAlerts) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const beat = 2400;
+    const timer = window.setInterval(() => {
+      if (!instance.getLayer('alerts-pulse')) return;
+      const phase = (performance.now() % beat) / beat;
+      instance.setPaintProperty('alerts-pulse', 'circle-radius', alertPulseRadius(phase));
+      instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0.7 * (1 - phase));
+    }, 1000 / 24);
+    return () => {
+      window.clearInterval(timer);
+      if (instance.getLayer('alerts-pulse')) instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0);
+    };
+  }, [hasAlerts, styleEpoch]);
 
   // Every stop drawn, by id, for linking arriving vehicles to their stops.
   useEffect(() => {

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { PlanRequest, Vehicle } from '../shared/api.js';
+import type { AlertsResponse, PlanRequest, Vehicle } from '../shared/api.js';
 import { MAX_BOARD_DEPARTURES, majorStops, stopWithRoutes } from '../departures.js';
-import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
+import { alertPlaces, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
@@ -316,7 +316,10 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
     return network;
   });
 
-  app.get('/api/alerts', async () => ({ alerts: service.realtime.alerts }));
+  app.get('/api/alerts', async (): Promise<AlertsResponse> => {
+    const alerts = service.realtime.alerts;
+    return { alerts, places: alertPlaces(service.store, alerts) };
+  });
 }
 
 /** Applies the optional route and viewport filters to a vehicle list. */
