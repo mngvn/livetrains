@@ -29,6 +29,8 @@ describe('the aircraft relay worker', () => {
     const body = await response.json();
     expect(body.source).toBe('adsb.lol');
     expect(readPlanes(body).planes[0].callsign).toBe('EDV5350');
+    // …and the source survives reading, so the map can credit it.
+    expect(readPlanes(body).source).toBe('adsb.lol');
     // The centre is rounded so one city's visitors share an answer.
     expect(String(fetch.mock.calls[0][0])).toBe('https://api.adsb.lol/v2/point/44.95/-93.23/37');
   });

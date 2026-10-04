@@ -15,9 +15,16 @@ const relayHits = [];
 page.on('pageerror', (e) => log('pageerror', e.message));
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') log('console', m.type(), m.text().slice(0, 240)); });
 page.on('requestfailed', (r) => { if (/8787|adsbdb/.test(r.url())) log('requestfailed', r.url(), r.failure()?.errorText); });
-page.on('response', (r) => {
+page.on('response', async (r) => {
   if (r.url().includes(':8787/')) relayHits.push(Date.now());
-  if (r.url().includes('adsbdb')) log('adsbdb', r.status(), r.url().replace('https://api.adsbdb.com/v0', ''), 'acao=' + (r.headers()['access-control-allow-origin'] ?? 'none'));
+  if (r.url().includes('adsbdb')) {
+    let route = '';
+    if (r.url().includes('/callsign/') && r.status() === 200) {
+      const fr = (await r.json().catch(() => ({})))?.response?.flightroute;
+      if (fr) route = ` route ${fr.origin?.iata_code} (${fr.origin?.latitude},${fr.origin?.longitude}) -> ${fr.destination?.iata_code} (${fr.destination?.latitude},${fr.destination?.longitude})`;
+    }
+    log('adsbdb', r.status(), r.url().replace('https://api.adsbdb.com/v0', ''), 'acao=' + (r.headers()['access-control-allow-origin'] ?? 'none') + route);
+  }
 });
 
 log('opening the app');
@@ -34,6 +41,7 @@ await page.waitForTimeout(12000);
 await page.locator('.legend__toggle').click();
 log('legend:', (await page.locator('.legend__item', { hasText: 'Aircraft' }).innerText().catch(() => 'NO AIRCRAFT ROW')).replace(/\n/g, ' | '));
 await page.locator('.legend__toggle').click();
+await page.waitForTimeout(1000);
 log('attribution:', (await page.locator('.maplibregl-ctrl-attrib-inner').innerText().catch(() => '')).replace(/\n/g, ' '));
 
 const sky = await page.evaluate(() => {
@@ -60,16 +68,22 @@ const track = await page.evaluate(async () => {
 });
 log('one plane over 3s:', JSON.stringify(track));
 
-// Tap airline flights and read their panels.
+// Tap airline flights and read their panels, finding each afresh: they move.
 const targets = await page.evaluate(() => {
   const seen = new Set();
   return window.__livetrainsMap.querySourceFeatures('planes')
-    .map((f) => ({ id: f.properties.id, label: f.properties.label, alt: f.properties.alt, at: f.geometry.coordinates }))
+    .map((f) => ({ id: f.properties.id, label: f.properties.label, alt: f.properties.alt }))
     .filter((p) => !seen.has(p.id) && seen.add(p.id) && /^[A-Z]{3}\d/.test(p.label) && p.alt > 0)
-    .slice(0, 5);
+    .slice(0, 8);
 });
 for (const t of targets) {
-  await page.evaluate((c) => window.__livetrainsMap.jumpTo({ center: c, zoom: 12 }), t.at);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__livetrainsMap.jumpTo({ center: [-93.225, 44.95], zoom: 8.5 }));
+  await page.waitForTimeout(600);
+  const now = await page.evaluate((id) => window.__livetrainsMap.querySourceFeatures('planes').find((f) => f.properties.id === id)?.geometry.coordinates, t.id);
+  if (!now) { log(t.label, 'gone'); continue; }
+  log(t.label, 'is at', now.map((n) => n.toFixed(3)).join(','));
+  await page.evaluate((c) => window.__livetrainsMap.jumpTo({ center: c, zoom: 12 }), now);
   await page.waitForTimeout(900);
   const at = await page.evaluate((id) => { const m = window.__livetrainsMap; const f = m.queryRenderedFeatures({ layers: ['planes-hit'] }).find((x) => x.properties.id === id); return f && m.project(f.geometry.coordinates); }, t.id);
   if (!at) { log(t.label, 'not rendered'); continue; }

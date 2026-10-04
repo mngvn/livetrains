@@ -177,7 +177,8 @@ export function readPlanes(payload: unknown, receivedAt = Date.now() / 1000): Pl
     const plane = readAircraft(entry, now);
     if (plane) planes.push(plane);
   }
-  return { planes, now };
+  // A relay passing the feed through says which one it was, for the credit.
+  return { planes, now, source: text(body.source) };
 }
 
 function readAircraft(entry: unknown, now: number): Plane | null {
