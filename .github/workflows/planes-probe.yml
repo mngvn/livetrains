@@ -1,0 +1,23 @@
+# TEMPORARY: asks the candidate aircraft feeds what a browser would get, which
+# the development sandbox cannot reach. Removed before the pull request.
+name: planes-probe
+
+on:
+  push:
+    branches:
+      - claude/zealous-darwin-gjrjew
+    paths:
+      - .github/workflows/planes-probe.yml
+      - .github/planes-probe.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/planes-probe.sh
