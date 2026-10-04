@@ -18,7 +18,7 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,7 +50,7 @@ jobs:
           (npx --prefix web vite preview --outDir web/dist --host 127.0.0.1 --port 4173 --strictPort > /tmp/preview.log 2>&1 &)
           sleep 4
           cp .github/planes-live.mjs /tmp/shoot/live.mjs
-          cd /tmp/shoot && node live.mjs
+          cd /tmp/shoot && timeout 600 node live.mjs
       - name: Relay log
         if: always()
         run: head -20 /tmp/relay.log; echo ...; tail -5 /tmp/relay.log; grep -i plane /tmp/server.log | tail -5 || true

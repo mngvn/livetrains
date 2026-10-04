@@ -3,6 +3,9 @@
 // sees. Removed before the pull request.
 import { chromium } from 'playwright';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+// However it goes, the job says what it saw and ends.
+setTimeout(() => { log('WATCHDOG: giving up after 9 minutes'); process.exit(3); }, 9 * 60_000).unref();
+log('launching');
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 await context.addInitScript(() => localStorage.setItem('livetrains.onboarded', '1'));
@@ -17,9 +20,14 @@ page.on('response', (r) => {
   if (r.url().includes('adsbdb')) log('adsbdb', r.status(), r.url().replace('https://api.adsbdb.com/v0', ''), 'acao=' + (r.headers()['access-control-allow-origin'] ?? 'none'));
 });
 
+log('opening the app');
 await page.goto('http://127.0.0.1:4173/');
+const progress = setInterval(async () => {
+  log('waiting:', (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160));
+}, 20000);
 await page.waitForSelector('.sheet .tabs', { timeout: 240000 });
 await page.waitForFunction(() => window.__livetrainsMap?.getLayer('planes-hit'), null, { timeout: 60000 });
+clearInterval(progress);
 log('app ready:', (await page.locator('.status-bar').innerText().catch(() => '')).replace(/\n/g, ' | '));
 await page.waitForTimeout(12000);
 
@@ -83,3 +91,5 @@ const hiddenBefore = relayHits.length;
 await page.waitForTimeout(25000);
 log(`relay requests in 25s hidden: ${relayHits.length - hiddenBefore}`);
 await browser.close();
+log('done');
+process.exit(0);

@@ -333,8 +333,11 @@ has to relay them:
   seconds shared by every visitor. Nothing to set up.
 - **A static build** (GitHub Pages) needs a relay named at build time. One is
   included: `relay/planes-worker.js`, a single-file Cloudflare Worker that
-  answers only the one question the app asks, caches it for five seconds and
-  fits comfortably in the free tier.
+  answers only the one question the app asks and caches the answer for five
+  seconds, so the feed itself is asked at most every five seconds from each
+  Cloudflare location however many people are looking. Each open tab asks the
+  worker every ten seconds, and only while it is visible, so the free tier's
+  100,000 requests a day is about 280 hours of someone watching the map.
 
   ```bash
   npx wrangler deploy relay/planes-worker.js --name livetrains-planes \
