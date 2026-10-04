@@ -1,6 +1,6 @@
 import type maplibregl from 'maplibre-gl';
 import type { Palette } from '../lib/palette.ts';
-import { MODE_TO_GLYPH, VEHICLE_ICON } from './mapIcons.ts';
+import { MODE_TO_GLYPH, PLANE_ICON, VEHICLE_ICON } from './mapIcons.ts';
 
 /**
  * Everything this app draws on the map, in draw order, and how it changes
@@ -29,6 +29,9 @@ export const GROUP_BELOW_ZOOM = 12;
 const MAJOR_STOPS_FROM_ZOOM = 12;
 /** Vehicles pulling in to stops are linked to them from this zoom in. */
 export const APPROACH_FROM_ZOOM = 15;
+
+/** Aircraft on the ground are only drawn from this zoom, where an airport is a place. */
+export const GROUND_PLANES_FROM_ZOOM = 13;
 
 /** Properties that are absent mean "no", not "error". */
 const flag = (name: string): Expr => ['boolean', ['get', name], false];
@@ -138,12 +141,12 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   for (const id of [
     'network', 'itinerary', 'itinerary-points', 'stops', 'major-stops', 'vehicles', 'vehicle-groups',
     'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops', 'isochrone',
-    'approach-lines', 'approach-rings',
+    'approach-lines', 'approach-rings', 'planes',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
   // Line metrics are what let a line be drawn on from one end, or fade.
-  for (const id of ['route-shape', 'vehicle-trip-full', 'vehicle-trail']) {
+  for (const id of ['route-shape', 'vehicle-trip-full', 'vehicle-trail', 'plane-trail']) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY, lineMetrics: true });
   }
 
@@ -481,6 +484,110 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     },
   });
 
+  // --- Aircraft overhead -----------------------------------------------------------
+  // Scenery, not service: thin grey silhouettes beneath every bus and train,
+  // fainter and a touch smaller the higher they fly, so the jets crossing at
+  // 35,000ft recede and the arrivals low over the river are the ones you
+  // notice. No beams, no route colour, a name only once you are close or
+  // have chosen one.
+  map.addLayer({
+    id: 'plane-trail-line',
+    type: 'line',
+    source: 'plane-trail',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 15, 3],
+      'line-gradient': planeTrailGradient(p.plane),
+    },
+  });
+  map.addLayer({
+    id: 'planes-selected',
+    type: 'circle',
+    source: 'planes',
+    filter: ['==', ['get', 'id'], ''],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 12, 16, 20],
+      'circle-color': p.plane,
+      'circle-opacity': 0.16,
+      'circle-stroke-color': p.plane,
+      'circle-stroke-width': 1.2,
+      'circle-stroke-opacity': 0.8,
+    },
+  });
+  map.addLayer({
+    id: 'planes-icon',
+    type: 'symbol',
+    source: 'planes',
+    layout: {
+      'icon-image': PLANE_ICON,
+      'icon-rotate': ['get', 'track'],
+      'icon-rotation-alignment': 'map',
+      'icon-size': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        8, ['*', 0.5, PLANE_ALTITUDE_SCALE],
+        12, ['*', 0.66, PLANE_ALTITUDE_SCALE],
+        16, ['*', 0.9, PLANE_ALTITUDE_SCALE],
+      ] as Expr,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: {
+      'icon-color': p.plane,
+      'icon-halo-color': p.casing,
+      'icon-halo-width': 1.4,
+      'icon-opacity': planeOpacity(1, null),
+    },
+  });
+  // Callsigns, once you are looking at a neighbourhood rather than a metro,
+  // and only where there is room: they give way to every other label.
+  map.addLayer({
+    id: 'planes-label',
+    type: 'symbol',
+    source: 'planes',
+    minzoom: 12,
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': FONT_REGULAR,
+      'text-size': 10,
+      'text-letter-spacing': 0.04,
+      'text-anchor': 'left',
+      'text-offset': [1.2, 0],
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': p.plane,
+      'text-halo-color': p.halo,
+      'text-halo-width': 1.4,
+      'text-opacity': planeOpacity(0.9, null),
+    },
+  });
+  // The chosen or hovered plane: its callsign and height, at any zoom.
+  map.addLayer({
+    id: 'planes-label-focus',
+    type: 'symbol',
+    source: 'planes',
+    filter: ['in', ['get', 'id'], ['literal', []]],
+    layout: {
+      'text-field': ['format', ['get', 'label'], { 'text-font': ['literal', FONT_BOLD] }, '  ', {}, ['get', 'height'], {}],
+      'text-font': FONT_REGULAR,
+      'text-size': 11,
+      'text-letter-spacing': 0.03,
+      'text-anchor': 'left',
+      'text-offset': [1.35, 0],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.6 },
+  });
+  map.addLayer({
+    id: 'planes-hit',
+    type: 'circle',
+    source: 'planes',
+    paint: { 'circle-radius': 14, 'circle-opacity': 0 },
+  });
+
   // --- Vehicles -------------------------------------------------------------------
   // Beams first, so every marker draws over them. A finding aid for metro
   // scale, gone by the time a vehicle is big enough to read.
@@ -740,6 +847,15 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     p.muted,
   ]);
   set('vehicle-groups-count', 'text-color', p.text);
+  set('planes-icon', 'icon-color', p.plane);
+  set('planes-icon', 'icon-halo-color', p.casing);
+  set('planes-label', 'text-color', p.plane);
+  set('planes-label', 'text-halo-color', p.halo);
+  set('planes-label-focus', 'text-color', p.text);
+  set('planes-label-focus', 'text-halo-color', p.halo);
+  set('planes-selected', 'circle-color', p.plane);
+  set('planes-selected', 'circle-stroke-color', p.plane);
+  set('plane-trail-line', 'line-gradient', planeTrailGradient(p.plane));
 }
 
 /**
@@ -796,6 +912,52 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   set('major-stop-badges', 'icon-opacity', stopOpacity(1));
 }
 
+/** Higher planes are drawn a little smaller: a cue to distance, and to importance. */
+const PLANE_ALTITUDE_SCALE: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 1, 10000, 0.92, 30000, 0.78];
+
+/**
+ * How strongly an aircraft is drawn: low ones near full strength, cruising
+ * ones faint, an old position fainter still. `dim` scales the lot — knocked
+ * back while the map is about a bus, a stop or a trip — and the chosen
+ * plane, if there is one, is always drawn in full.
+ */
+export function planeOpacity(dim: number, selectedId: string | null): Expr {
+  const byHeight: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 0.85 * dim, 8000, 0.72 * dim, 30000, 0.45 * dim];
+  const base: Expr = ['case', flag('stale'), ['*', 0.4, byHeight], byHeight];
+  return selectedId ? ['case', ['==', ['get', 'id'], selectedId], 1, base] : base;
+}
+
+function planeTrailGradient(color: string): Expr {
+  return ['interpolate', ['linear'], ['line-progress'], 0, rgbaOf(color, 0), 1, rgbaOf(color, 0.75)];
+}
+
+/** A hex colour at an opacity. */
+function rgbaOf(hex: string, alpha: number): string {
+  const value = Number.parseInt(hex.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
+/**
+ * Points the aircraft layers at what the rider is looking at: the chosen
+ * plane drawn in full with its trail and name, the one under the pointer
+ * named, and every plane stepped back while the map is about transit.
+ */
+export function syncPlaneFocus(
+  map: maplibregl.Map,
+  options: { transitFocused: boolean; selectedId: string | null; hoveredId: string | null },
+): void {
+  const { transitFocused, selectedId, hoveredId } = options;
+  const dim = transitFocused ? 0.35 : selectedId ? 0.6 : 1;
+  if (map.getLayer('planes-icon')) map.setPaintProperty('planes-icon', 'icon-opacity', planeOpacity(dim, selectedId));
+  if (map.getLayer('planes-label')) {
+    map.setPaintProperty('planes-label', 'text-opacity', planeOpacity(0.9 * dim, null));
+    const named = [selectedId, hoveredId].filter((id): id is string => Boolean(id));
+    map.setFilter('planes-label', ['!', ['in', ['get', 'id'], ['literal', named]]]);
+    map.setFilter('planes-label-focus', ['in', ['get', 'id'], ['literal', named]]);
+  }
+  if (map.getLayer('planes-selected')) map.setFilter('planes-selected', ['==', ['get', 'id'], selectedId ?? '']);
+}
+
 /** Line stops fade in over the first zoom level they are drawn at. */
 function majorFade(focus: Expr | null = null): Expr {
   const at = (v: number): Expr | number => (focus ? ['case', focus, v, v * 0.25] : v);
@@ -844,6 +1006,12 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'vehicle-groups-circle', property: 'circle-opacity', value: 0.12 },
   { layer: 'vehicle-groups-circle', property: 'circle-stroke-opacity', value: 0.12 },
   { layer: 'vehicle-groups-count', property: 'text-opacity', value: 0.15 },
+  { layer: 'planes-icon', property: 'icon-opacity', value: 0 },
+  { layer: 'planes-label', property: 'text-opacity', value: 0 },
+  { layer: 'planes-label-focus', property: 'text-opacity', value: 0 },
+  { layer: 'planes-selected', property: 'circle-opacity', value: 0 },
+  { layer: 'planes-selected', property: 'circle-stroke-opacity', value: 0 },
+  { layer: 'plane-trail-line', property: 'line-opacity', value: 0 },
 ];
 
 const TEXTURE_LAYER = 'ground-texture';

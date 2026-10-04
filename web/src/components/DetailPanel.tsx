@@ -1,8 +1,9 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { readableTextColor } from '../lib/format.ts';
+import { PLANE_PATH } from '../lib/planeInfo.ts';
 
 /**
- * The right-hand panel: one stop or one vehicle, whatever was last chosen.
+ * The right-hand panel: one stop, vehicle or aircraft, whatever was last chosen.
  *
  * Deliberately its own panel, on the other side of the map from the
  * planner, with its own frame and heading — it answers "what is this thing"
@@ -21,7 +22,7 @@ export function DetailPanel({
   onClose,
   children,
 }: {
-  kind: 'stop' | 'vehicle';
+  kind: 'stop' | 'vehicle' | 'plane';
   /** Changes when a different stop or vehicle is chosen. */
   selectionKey: string;
   /** The selected vehicle's route colour, as hex without '#', for the frame. */
@@ -52,7 +53,7 @@ export function DetailPanel({
   return (
     <aside
       className={`detail detail--${kind}${accent ? ' has-accent' : ''}`}
-      aria-label={kind === 'stop' ? 'Stop details' : 'Vehicle details'}
+      aria-label={KINDS[kind].label}
       // A vehicle's panel wears its route's colour as its header band, the
       // way the line is signed on the vehicle itself.
       style={
@@ -63,8 +64,8 @@ export function DetailPanel({
     >
       <div className="detail__bar">
         <span className="detail__kind">
-          {kind === 'stop' ? <StopIcon /> : <VehicleIcon />}
-          {kind === 'stop' ? 'Stop' : 'Vehicle'}
+          {KINDS[kind].icon}
+          {KINDS[kind].name}
         </span>
         <button type="button" className="icon-button detail__close" onClick={onClose} aria-label="Close details">
           ×
@@ -74,6 +75,20 @@ export function DetailPanel({
         {children}
       </div>
     </aside>
+  );
+}
+
+const KINDS = {
+  stop: { name: 'Stop', label: 'Stop details', icon: <StopIcon /> },
+  vehicle: { name: 'Vehicle', label: 'Vehicle details', icon: <VehicleIcon /> },
+  plane: { name: 'Aircraft', label: 'Aircraft details', icon: <PlaneIcon /> },
+};
+
+function PlaneIcon() {
+  return (
+    <svg viewBox="0 0 40 40" width="14" height="14" aria-hidden="true">
+      <path d={PLANE_PATH} fill="currentColor" />
+    </svg>
   );
 }
 

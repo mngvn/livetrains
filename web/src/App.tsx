@@ -54,6 +54,10 @@ import { isochroneGrid, type IsochroneGrid } from './lib/isochrone.ts';
 import { ReachLegend } from './components/ReachLegend.tsx';
 import { explainDelay } from './lib/lateness.ts';
 import { networkHealth } from './lib/networkHealth.ts';
+import { PlaneTracker, type PlaneFeedStatus } from './lib/planeTracker.ts';
+import { planeFeedTemplate, planeFetcher } from './lib/planeFeed.ts';
+import { PlanePanel } from './components/PlanePanel.tsx';
+import type { Plane } from '@shared/planes.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
 
@@ -148,6 +152,8 @@ export function App() {
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [selectedPlaneId, setSelectedPlaneId] = useState<string | null>(null);
+  const [selectedPlane, setSelectedPlane] = useState<Plane | null>(null);
 
   const [viewport, setViewport] = useState<[number, number, number, number] | null>(null);
   /** Where the camera has been asked to go, by search or a shared link. */
@@ -190,6 +196,25 @@ export function App() {
    * for anyone who would rather see every dot and let the beams do the work.
    */
   const [groupVehicles, toggleGroupVehicles] = usePersistedFlag('livetrains.group', true);
+
+  /**
+   * Aircraft overhead.
+   *
+   * On by default where there is a feed for them: they are drawn quietly
+   * enough not to compete with the transit, and the legend turns them off for
+   * anyone who would rather not. Off means off — the feed is not even asked.
+   */
+  const [planesOn, togglePlanes] = usePersistedFlag('livetrains.planes', true);
+  const planeTracker = useMemo(() => new PlaneTracker(), []);
+  const planeTemplate = useMemo(() => planeFeedTemplate(source.mode), [source]);
+  const [planeStatus, setPlaneStatus] = useState<PlaneFeedStatus>({
+    state: 'off',
+    count: 0,
+    airborne: 0,
+    lastUpdate: null,
+    error: null,
+    source: null,
+  });
 
   /**
    * How the map looks: which background, and whether it is tilted.
@@ -309,7 +334,7 @@ export function App() {
    */
   const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
   const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
-  const detailOpen = selectedStopId !== null || selectedVehicleId !== null;
+  const detailOpen = selectedStopId !== null || selectedVehicleId !== null || selectedPlaneId !== null;
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!shellReady || !sheet) return;
@@ -451,6 +476,34 @@ export function App() {
       window.clearInterval(timer);
     };
   }, [tracker, stream.connected]);
+
+  // --- Aircraft overhead -----------------------------------------------------
+  useEffect(() => planeTracker.onStatus(setPlaneStatus), [planeTracker]);
+  const agencyBbox = agency?.bbox;
+  const bboxKey = agencyBbox?.join(',');
+  useEffect(() => {
+    if (!planesOn || !planeTemplate || !agencyBbox || engine.state !== 'ready') return;
+    planeTracker.start(planeFetcher(planeTemplate, agencyBbox));
+    return () => planeTracker.stop();
+    // The box by value: a new agency object with the same box is the same sky.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planeTracker, planesOn, planeTemplate, bboxKey, engine.state]);
+
+  // The chosen plane, refreshed as it moves; it closes if planes are turned off.
+  useEffect(() => {
+    if (!selectedPlaneId) {
+      setSelectedPlane(null);
+      return;
+    }
+    if (!planesOn) {
+      setSelectedPlaneId(null);
+      return;
+    }
+    const update = () => setSelectedPlane(planeTracker.get(selectedPlaneId) ?? null);
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [selectedPlaneId, planeTracker, planesOn]);
 
   // Keep the selected vehicle's details fresh as new positions arrive.
   useEffect(() => {
@@ -612,6 +665,7 @@ export function App() {
   const closeDetail = useCallback(() => {
     setSelectedStopId(null);
     setSelectedVehicleId(null);
+    setSelectedPlaneId(null);
   }, []);
 
   const handleMapClick = useCallback(
@@ -679,6 +733,7 @@ export function App() {
   // panel was showing, in place.
   const showStop = useCallback((stopId: string) => {
     setSelectedVehicleId(null);
+    setSelectedPlaneId(null);
     setSelectedStopId(stopId);
   }, []);
 
@@ -705,7 +760,14 @@ export function App() {
 
   const showVehicle = useCallback((vehicleId: string) => {
     setSelectedStopId(null);
+    setSelectedPlaneId(null);
     setSelectedVehicleId(vehicleId);
+  }, []);
+
+  const showPlane = useCallback((planeId: string) => {
+    setSelectedStopId(null);
+    setSelectedVehicleId(null);
+    setSelectedPlaneId(planeId);
   }, []);
 
   const { trip: vehicleTrip, loading: vehicleTripLoading } = useVehicleTrip(source.vehicleTrip, selectedVehicleId);
@@ -977,6 +1039,10 @@ export function App() {
         feedStale={feedStale}
         followVehicleId={ride?.vehicleId ?? null}
         isochrone={reach?.grid.cells ?? null}
+        planeTracker={planeTracker}
+        selectedPlaneId={selectedPlaneId}
+        onSelectPlane={showPlane}
+        planeAttribution={planesOn ? planeCredit(planeStatus.source) : null}
       />
 
       {reach && (
@@ -1049,6 +1115,7 @@ export function App() {
         onToggleBeams={toggleBeams}
         grouped={groupVehicles}
         onToggleGrouped={toggleGroupVehicles}
+        planes={planeTemplate ? { on: planesOn, status: planeStatus, onToggle: togglePlanes } : null}
       />
 
       {panelHidden && (
@@ -1335,12 +1402,24 @@ export function App() {
 
       {detailOpen && (
         <DetailPanel
-          kind={selectedVehicleId ? 'vehicle' : 'stop'}
-          selectionKey={selectedVehicleId ?? selectedStopId ?? ''}
+          kind={selectedPlaneId ? 'plane' : selectedVehicleId ? 'vehicle' : 'stop'}
+          selectionKey={selectedPlaneId ?? selectedVehicleId ?? selectedStopId ?? ''}
           accent={selectedVehicleId ? selectedVehicle?.color : undefined}
           onClose={closeDetail}
         >
-          {selectedVehicleId ? (
+          {selectedPlaneId ? (
+            selectedPlane ? (
+              <PlanePanel
+                plane={selectedPlane}
+                source={planeStatus.source}
+                home={{ lat: (agency.bbox[1] + agency.bbox[3]) / 2, lon: (agency.bbox[0] + agency.bbox[2]) / 2 }}
+              />
+            ) : (
+              <p className="panel-empty">
+                This aircraft has left the area or stopped reporting its position.
+              </p>
+            )
+          ) : selectedVehicleId ? (
             selectedVehicle ? (
               <VehiclePanel
                 vehicle={selectedVehicle}
@@ -1386,4 +1465,20 @@ export function App() {
       )}
     </div>
   );
+}
+
+/** The credit the aircraft feed is owed on the map. */
+function planeCredit(source: string | null): string | null {
+  switch (source) {
+    case null:
+      return null;
+    case 'demo':
+      return 'Aircraft simulated';
+    case 'adsb.lol':
+      return 'Aircraft <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL)';
+    case 'adsb.fi':
+      return 'Aircraft <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>';
+    default:
+      return `Aircraft ${source.replace(/[<>&"]/g, '')}`;
+  }
 }

@@ -35,6 +35,8 @@
   /* Metro Transit's own blue and red, for the few places the brand speaks. */
   --brand-blue: #0053a0;
   --brand-red: #ed1b2e;
+  /* Aircraft: scenery, so a grey from the map's label ramp, never a colour. */
+  --plane: #a3acbc;
   --shadow: none;
   --radius: 3px;
   --radius-sm: 2px;
@@ -64,6 +66,7 @@
   --late: #b26100;
   --early: #2f5fb3;
   --danger: #c8102e;
+  --plane: #4a5363;
   color-scheme: light;
 }
 
@@ -3172,7 +3175,8 @@ button {
 
 /* Inside the panel the body scrolls, not the stop or vehicle view. */
 .detail .stop-panel,
-.detail .vehicle-panel {
+.detail .vehicle-panel,
+.detail .plane-panel {
   flex: none;
   overflow: visible;
   padding: 14px 16px 20px;
@@ -4228,4 +4232,140 @@ button.board-row__button:hover,
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   An aircraft overhead
+   -------------------------------------------------------------------------- */
+
+.plane-panel {
+  padding: 14px 16px 20px;
+}
+
+.plane-panel__where {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* A plane telling air traffic control it is in trouble: said plainly, in the
+   colour the app keeps for trouble. */
+.plane-panel__emergency {
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-radius: var(--radius);
+}
+
+/* Origin and destination on a line, the plane where it is along it — the
+   shape of a departures-board row turned on its side. */
+.plane-route {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+
+.plane-route__end {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 110px;
+}
+
+.plane-route__end--to {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.plane-route__code {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.plane-route__city {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plane-route__track {
+  position: relative;
+  height: 2px;
+  background: var(--rule-strong);
+}
+
+.plane-route__flown {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--text);
+}
+
+.plane-route__plane {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  color: var(--text);
+  background: var(--surface-2);
+  transform: translate(-50%, -50%);
+}
+
+.plane-panel__aircraft {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.plane-panel__photo {
+  flex: none;
+  width: 112px;
+  height: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.plane-panel__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.plane-panel__facts dt {
+  color: var(--text-muted);
+}
+
+.plane-panel__facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plane-panel__credit {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+a.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
 }

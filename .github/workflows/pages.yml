@@ -84,6 +84,9 @@ jobs:
           # No server exists on Pages: run the transit engine in the browser.
           VITE_DATA_MODE: browser
           VITE_AGENCY_ID: metro-transit
+          # Aircraft need a relay on a static host (see README, "Planes on a
+          # static host"). Unset, the site simply has no planes.
+          VITE_PLANES_URL: ${{ vars.PLANES_URL }}
         run: npm run build:web
 
       - name: Add a 404 fallback

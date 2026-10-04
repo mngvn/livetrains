@@ -4,6 +4,8 @@ import type { AgencyInfo, Itinerary, RouteNetwork, RouteSummary, StopSummary, Ve
 import { approachFeatures, findApproaches, type ApproachStop } from '../lib/approach.ts';
 import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
+import type { PlaneTracker, TrackedPlane } from '../lib/planeTracker.ts';
+import { planeHeight, planeLabel, planeShape } from '../lib/planeInfo.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
@@ -19,6 +21,7 @@ import {
 import {
   APPROACH_FROM_ZOOM,
   EMPTY,
+  GROUND_PLANES_FROM_ZOOM,
   GROUP_BELOW_ZOOM,
   JOURNEY_DIMMING,
   ensureLayers,
@@ -26,6 +29,7 @@ import {
   stopBadgeFilter,
   syncGroundTexture,
   syncOverlayTheme,
+  syncPlaneFocus,
   syncSelectionFocus,
   type MapFocus,
 } from './mapLayers.ts';
@@ -107,6 +111,12 @@ interface Props {
   followVehicleId: string | null;
   /** Everywhere reachable from a stop, as banded grid cells, while shown. */
   isochrone: GeoJSON.FeatureCollection | null;
+  /** Aircraft overhead, moved every frame like the vehicles. */
+  planeTracker: PlaneTracker;
+  selectedPlaneId: string | null;
+  onSelectPlane: (id: string) => void;
+  /** Credit for the aircraft feed in the map's attribution, while planes are shown. */
+  planeAttribution: string | null;
 }
 
 export interface MapPadding {
@@ -178,6 +188,9 @@ const TRAIL_REFRESH_MS = 1_000;
 /** How long a selection's outline takes to draw on, end to end. */
 const ROUTE_REVEAL_MS = 700;
 const TRIP_REVEAL_MS = 900;
+
+/** A tap this close to a plane's centre is a tap on the plane, whatever is beside it. */
+const PLANE_TAP_PX = 10;
 
 /** Modes drawn as trains, matching MODE_TO_ICON. */
 const RAIL_MODES = new Set(['rail', 'tram', 'metro', 'funicular', 'cable']);
@@ -296,6 +309,10 @@ class NetworkViewControl implements maplibregl.IControl {
 const PICKABLE_LAYERS = [
   'vehicles-hit',
   'vehicle-groups-circle',
+  // Beneath the vehicles, as they are drawn: where a plane passes over a
+  // bus the bus is what a tap means, but anywhere else the plane is its own
+  // thing to tap.
+  'planes-hit',
   'itinerary-stops',
   'line-stops-circle',
   'major-stops-circle',
@@ -334,6 +351,10 @@ export function TransitMap({
   feedStale,
   followVehicleId,
   isochrone,
+  planeTracker,
+  selectedPlaneId,
+  onSelectPlane,
+  planeAttribution,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -383,8 +404,16 @@ export function TransitMap({
   const cameraMoved = useRef(true);
   // Handlers change on every render; hold them in a ref so the map's own
   // listeners can stay attached for the life of the component.
-  const handlers = useRef({ onSelectVehicle, onSelectStop, onMapClick, onViewportChange });
-  handlers.current = { onSelectVehicle, onSelectStop, onMapClick, onViewportChange };
+  const handlers = useRef({ onSelectVehicle, onSelectStop, onSelectPlane, onMapClick, onViewportChange });
+  handlers.current = { onSelectVehicle, onSelectStop, onSelectPlane, onMapClick, onViewportChange };
+  const selectedPlaneRef = useRef(selectedPlaneId);
+  selectedPlaneRef.current = selectedPlaneId;
+  /** The plane under the pointer, named on the map while it is there. */
+  const hoveredPlane = useRef<string | null>(null);
+  const transitFocused = Boolean(focus && focus.routeIds.length > 0);
+  const transitFocusedRef = useRef(transitFocused);
+  transitFocusedRef.current = transitFocused;
+  const attributionControl = useRef<maplibregl.AttributionControl | null>(null);
 
   const setData = useCallback((id: string, data: GeoJSON.FeatureCollection) => {
     const source = map.current?.getSource(id) as maplibregl.GeoJSONSource | undefined;
@@ -416,10 +445,8 @@ export function TransitMap({
 
     instance.addControl(new NetworkViewControl(() => agency.bbox), 'bottom-right');
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    instance.addControl(
-      new maplibregl.AttributionControl({ compact: true, customAttribution: agency.name }),
-      'bottom-left',
-    );
+    attributionControl.current = new maplibregl.AttributionControl({ compact: true, customAttribution: agency.name });
+    instance.addControl(attributionControl.current, 'bottom-left');
     instance.addControl(
       new maplibregl.GeolocateControl({
         positionOptions: { enableHighAccuracy: true },
@@ -518,6 +545,17 @@ export function TransitMap({
       if (hits.length === 0) return null;
       // Vehicles over groups over stops, whatever order they were drawn in.
       hits.sort((a, b) => PICKABLE_LAYERS.indexOf(a.layer.id) - PICKABLE_LAYERS.indexOf(b.layer.id));
+      // Except that a tap right on a plane means the plane. A bus's hit
+      // target is generous, and planes cross busy streets: without this, a
+      // plane over Lake Street could never be tapped at all.
+      const plane = hits.find((hit) => hit.layer.id === 'planes-hit');
+      if (plane && plane !== hits[0]) {
+        const away = (hit: MapGeoJSONFeature) => {
+          const at = instance.project((hit.geometry as GeoJSON.Point).coordinates as [number, number]);
+          return Math.hypot(at.x - point.x, at.y - point.y);
+        };
+        if (away(plane) <= PLANE_TAP_PX && away(plane) < away(hits[0])) return plane;
+      }
       return hits[0];
     };
 
@@ -535,13 +573,26 @@ export function TransitMap({
         instance.easeTo({ center, zoom: Math.min(GROUP_BELOW_ZOOM + 0.5, instance.getZoom() + 2), duration: 450 });
       } else if (layer === 'vehicles-hit') {
         handlers.current.onSelectVehicle(String(feature.properties?.id ?? ''));
+      } else if (layer === 'planes-hit') {
+        handlers.current.onSelectPlane(String(feature.properties?.id ?? ''));
       } else {
         handlers.current.onSelectStop(String(feature.properties?.id ?? ''));
       }
     });
 
     instance.on('mousemove', (event) => {
-      instance.getCanvas().style.cursor = pickFeature(event.point) ? 'pointer' : '';
+      const feature = pickFeature(event.point);
+      instance.getCanvas().style.cursor = feature ? 'pointer' : '';
+      // A plane under the pointer says what it is, without a click.
+      const plane = feature?.layer.id === 'planes-hit' ? String(feature.properties?.id ?? '') : null;
+      if (plane !== hoveredPlane.current) {
+        hoveredPlane.current = plane;
+        syncPlaneFocus(instance, {
+          transitFocused: transitFocusedRef.current,
+          selectedId: selectedPlaneRef.current,
+          hoveredId: plane,
+        });
+      }
     });
 
     return () => {
@@ -700,6 +751,40 @@ export function TransitMap({
     });
   }, [tracker, setData]);
 
+  // --- Aircraft, updated per animation frame ---------------------------------
+  useEffect(() => {
+    let lastTrail = 0;
+    let drawn = false;
+    return planeTracker.onFrame((planes: TrackedPlane[]) => {
+      const instance = map.current;
+      if (!ready.current || !instance) return;
+      if (planes.length === 0 && !drawn) return;
+      drawn = planes.length > 0;
+      const zoom = instance.getZoom();
+      const selected = selectedPlaneRef.current;
+      const features: GeoJSON.Feature[] = [];
+      for (const plane of planes) {
+        // A ramp full of parked airliners is a blob at metro scale; they
+        // appear once the airport is close enough to be a place.
+        if (plane.onGround && zoom < GROUND_PLANES_FROM_ZOOM && plane.id !== selected) continue;
+        features.push(planeFeature(plane));
+      }
+      setData('planes', { type: 'FeatureCollection', features });
+
+      const now = performance.now();
+      if (selected && now - lastTrail >= TRAIL_REFRESH_MS) {
+        lastTrail = now;
+        const path = planeTracker.trail(selected);
+        setData(
+          'plane-trail',
+          path.length >= 2
+            ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: path }, properties: {} }] }
+            : EMPTY,
+        );
+      }
+    });
+  }, [planeTracker, setData]);
+
   // --- Selection highlight --------------------------------------------------
   useEffect(() => {
     const instance = map.current;
@@ -815,6 +900,14 @@ export function TransitMap({
     syncSelectionFocus(instance, focusRefValue.current);
   }, [focusKey, styleEpoch]);
 
+  // --- The chosen plane, and planes stepping back for transit ---------------
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready.current) return;
+    syncPlaneFocus(instance, { transitFocused, selectedId: selectedPlaneId, hoveredId: hoveredPlane.current });
+    setData('plane-trail', EMPTY);
+  }, [transitFocused, selectedPlaneId, styleEpoch, setData]);
+
   // --- Focus on the journey -------------------------------------------------
   // The cleanup is the restore, so a style swap mid-playback (which bumps
   // `styleEpoch`) tears this down and sets it up again against the new layers
@@ -826,7 +919,7 @@ export function TransitMap({
     const instance = map.current;
     if (!focusJourney || !instance || !ready.current || !instance.getLayer('network-line')) return;
     return applyJourneyFocus(instance, PALETTES[mapIsDark ? 'dark' : 'light']);
-  }, [focusJourney, styleEpoch, mapIsDark, focusKey]);
+  }, [focusJourney, styleEpoch, mapIsDark, focusKey, selectedPlaneId]);
 
   // --- Basemap --------------------------------------------------------------
   // setStyle drops every custom source and layer; the `styledata` listener
@@ -1045,6 +1138,19 @@ export function TransitMap({
     cameraMoved.current = true;
   }, [groupVehicles, focusKey]);
 
+  // --- Who the aircraft come from -------------------------------------------
+  // The credit is part of the control, so a changed one means a new control.
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !attributionControl.current) return;
+    instance.removeControl(attributionControl.current);
+    attributionControl.current = new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: planeAttribution ? [agency.name, planeAttribution] : agency.name,
+    });
+    instance.addControl(attributionControl.current, 'bottom-left');
+  }, [planeAttribution, agency.name]);
+
   // --- Stops ----------------------------------------------------------------
   useEffect(() => {
     if (!ready.current) return;
@@ -1161,6 +1267,23 @@ export function TransitMap({
   }, [origin, destination, setData, styleEpoch, mapIsDark]);
 
   return <div ref={container} className="map" role="application" aria-label="Live transit map" />;
+}
+
+/** One aircraft as the map draws it. */
+function planeFeature(plane: TrackedPlane): GeoJSON.Feature {
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [plane.displayLon, plane.displayLat] },
+    properties: {
+      id: plane.id,
+      track: plane.displayTrack,
+      shape: planeShape(plane),
+      alt: plane.altitude ?? 0,
+      stale: plane.stale,
+      label: planeLabel(plane),
+      height: planeHeight(plane),
+    },
+  };
 }
 
 function markerFeature(

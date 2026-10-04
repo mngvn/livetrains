@@ -8,6 +8,12 @@ interface ImportMetaEnv {
   readonly VITE_DATA_MODE?: string;
   /** Which registered agency the browser engine should load. */
   readonly VITE_AGENCY_ID?: string;
+  /**
+   * Where aircraft come from: a URL template with {lat}, {lon} and {radius}
+   * (nautical miles). Empty turns planes off; unset uses the API server in
+   * server mode and nothing in browser mode.
+   */
+  readonly VITE_PLANES_URL?: string;
 }
 
 interface ImportMeta {

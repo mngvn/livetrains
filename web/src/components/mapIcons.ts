@@ -300,6 +300,73 @@ const drawBeam: Draw = (ctx, { width, height }) => {
   ctx.fill();
 };
 
+/**
+ * Aircraft, seen from above with the nose up, so `icon-rotate` turns them to
+ * their track. Silhouettes rather than plates on purpose: a thin outline has
+ * a fraction of a plate's visual weight, which keeps planes in the
+ * background of a map that is about buses and trains, and the shape alone
+ * says "not transit" before any colour does.
+ */
+
+/** An airliner or business jet: swept wings, tailplane. */
+const drawJet: Draw = (ctx, { width: size }) => {
+  const u = size / 40;
+  ctx.beginPath();
+  ctx.roundRect(18.5 * u, 4.5 * u, 3 * u, 30 * u, 1.5 * u);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(20 * u, 14.5 * u);
+  ctx.lineTo(35 * u, 23 * u);
+  ctx.lineTo(35 * u, 25.6 * u);
+  ctx.lineTo(20 * u, 21.6 * u);
+  ctx.lineTo(5 * u, 25.6 * u);
+  ctx.lineTo(5 * u, 23 * u);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(20 * u, 29 * u);
+  ctx.lineTo(26.5 * u, 33.2 * u);
+  ctx.lineTo(26.5 * u, 35.2 * u);
+  ctx.lineTo(20 * u, 33.6 * u);
+  ctx.lineTo(13.5 * u, 35.2 * u);
+  ctx.lineTo(13.5 * u, 33.2 * u);
+  ctx.closePath();
+  ctx.fill();
+};
+
+/** A light aircraft or glider: straight wings, the silhouette of a Cessna. */
+const drawLightPlane: Draw = (ctx, { width: size }) => {
+  const u = size / 40;
+  ctx.beginPath();
+  ctx.roundRect(18.6 * u, 7 * u, 2.8 * u, 26 * u, 1.4 * u);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.roundRect(6 * u, 14 * u, 28 * u, 3.6 * u, 1.2 * u);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.roundRect(14 * u, 29.4 * u, 12 * u, 2.6 * u, 1 * u);
+  ctx.fill();
+};
+
+/** A helicopter: cabin, tail boom, and the rotor as a crossed pair of blades. */
+const drawHelicopter: Draw = (ctx, { width: size }) => {
+  const u = size / 40;
+  ctx.beginPath();
+  ctx.ellipse(20 * u, 18 * u, 4.2 * u, 6.2 * u, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(19.1 * u, 22 * u, 1.8 * u, 12 * u);
+  ctx.fillRect(16.4 * u, 32.6 * u, 7.2 * u, 1.8 * u);
+  ctx.lineWidth = 1.8 * u;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(8 * u, 6 * u);
+  ctx.lineTo(32 * u, 30 * u);
+  ctx.moveTo(32 * u, 6 * u);
+  ctx.lineTo(8 * u, 30 * u);
+  ctx.stroke();
+};
+
 interface IconSpec {
   draw: Draw;
   box?: Box;
@@ -324,6 +391,9 @@ export const VEHICLE_ICONS: Record<string, IconSpec> = {
   'glyph-bus': { draw: drawBusGlyph },
   'glyph-train': { draw: drawTrainGlyph },
   'vehicle-beam': { draw: drawBeam, box: { width: BEAM_WIDTH, height: BEAM_HEIGHT } },
+  'plane-jet': { draw: drawJet },
+  'plane-light': { draw: drawLightPlane },
+  'plane-heli': { draw: drawHelicopter },
   badge: {
     draw: drawBadge,
     box: BADGE,
@@ -391,4 +461,15 @@ export const VEHICLE_ICON: maplibregl.ExpressionSpecification = [
     'vehicle-bus-dir',
   ],
   MODE_TO_ICON,
+];
+
+/** The silhouette for an aircraft, by the `shape` its feature carries. */
+export const PLANE_ICON: maplibregl.ExpressionSpecification = [
+  'match',
+  ['get', 'shape'],
+  'light',
+  'plane-light',
+  'heli',
+  'plane-heli',
+  'plane-jet',
 ];
