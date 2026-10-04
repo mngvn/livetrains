@@ -107,6 +107,11 @@ export function lookUpPlane(plane: Pick<Plane, 'id' | 'callsign'>): Promise<Plan
       };
     })();
     cache.set(key, pending);
+    // Nothing found may be a network blip rather than an unknown plane:
+    // forget it, so tapping the plane again asks again.
+    void pending.then((found) => {
+      if (!found.aircraft && !found.route) cache.delete(key);
+    });
   }
   return pending;
 }

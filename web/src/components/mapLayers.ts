@@ -949,13 +949,21 @@ export function syncPlaneFocus(
   const { transitFocused, selectedId, hoveredId } = options;
   const dim = transitFocused ? 0.35 : selectedId ? 0.6 : 1;
   if (map.getLayer('planes-icon')) map.setPaintProperty('planes-icon', 'icon-opacity', planeOpacity(dim, selectedId));
-  if (map.getLayer('planes-label')) {
-    map.setPaintProperty('planes-label', 'text-opacity', planeOpacity(0.9 * dim, null));
-    const named = [selectedId, hoveredId].filter((id): id is string => Boolean(id));
-    map.setFilter('planes-label', ['!', ['in', ['get', 'id'], ['literal', named]]]);
-    map.setFilter('planes-label-focus', ['in', ['get', 'id'], ['literal', named]]);
-  }
+  if (map.getLayer('planes-label')) map.setPaintProperty('planes-label', 'text-opacity', planeOpacity(0.9 * dim, null));
   if (map.getLayer('planes-selected')) map.setFilter('planes-selected', ['==', ['get', 'id'], selectedId ?? '']);
+  namePlanes(map, selectedId, hoveredId);
+}
+
+/**
+ * Names the chosen and hovered planes in full, and leaves the rest to the
+ * quiet callsign layer. Filters only, so pointing at a plane never disturbs
+ * whatever dimming is in force.
+ */
+export function namePlanes(map: maplibregl.Map, selectedId: string | null, hoveredId: string | null): void {
+  if (!map.getLayer('planes-label') || !map.getLayer('planes-label-focus')) return;
+  const named = [selectedId, hoveredId].filter((id): id is string => Boolean(id));
+  map.setFilter('planes-label', ['!', ['in', ['get', 'id'], ['literal', named]]]);
+  map.setFilter('planes-label-focus', ['in', ['get', 'id'], ['literal', named]]);
 }
 
 /** Line stops fade in over the first zoom level they are drawn at. */

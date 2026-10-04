@@ -28,6 +28,7 @@ import {
   revealLines,
   stopBadgeFilter,
   syncGroundTexture,
+  namePlanes,
   syncOverlayTheme,
   syncPlaneFocus,
   syncSelectionFocus,
@@ -411,8 +412,9 @@ export function TransitMap({
   /** The plane under the pointer, named on the map while it is there. */
   const hoveredPlane = useRef<string | null>(null);
   const transitFocused = Boolean(focus && focus.routeIds.length > 0);
-  const transitFocusedRef = useRef(transitFocused);
-  transitFocusedRef.current = transitFocused;
+  /** A journey is playing: the sky is cleared until it ends. */
+  const playingRef = useRef(focusJourney);
+  playingRef.current = focusJourney;
   const attributionControl = useRef<maplibregl.AttributionControl | null>(null);
 
   const setData = useCallback((id: string, data: GeoJSON.FeatureCollection) => {
@@ -587,11 +589,7 @@ export function TransitMap({
       const plane = feature?.layer.id === 'planes-hit' ? String(feature.properties?.id ?? '') : null;
       if (plane !== hoveredPlane.current) {
         hoveredPlane.current = plane;
-        syncPlaneFocus(instance, {
-          transitFocused: transitFocusedRef.current,
-          selectedId: selectedPlaneRef.current,
-          hoveredId: plane,
-        });
+        namePlanes(instance, selectedPlaneRef.current, plane);
       }
     });
 
@@ -758,6 +756,9 @@ export function TransitMap({
     return planeTracker.onFrame((planes: TrackedPlane[]) => {
       const instance = map.current;
       if (!ready.current || !instance) return;
+      // A journey playing has the map to itself; planes would only be
+      // invisible things to tap by mistake.
+      if (playingRef.current) planes = [];
       if (planes.length === 0 && !drawn) return;
       drawn = planes.length > 0;
       const zoom = instance.getZoom();
