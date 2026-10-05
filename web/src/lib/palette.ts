@@ -100,7 +100,7 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#0B0E14',
     badge: '#1B212C',
     badgeText: '#E6EAF0',
-    plane: '#A3ACBC',
+    plane: '#CDD5E2',
   },
   light: {
     bg: '#E9ECF0',
@@ -135,6 +135,6 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#E9ECF0',
     badge: '#FFFFFF',
     badgeText: '#0B0E14',
-    plane: '#4A5363',
+    plane: '#323A48',
   },
 };

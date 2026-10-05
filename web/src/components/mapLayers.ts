@@ -566,9 +566,9 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
         'interpolate',
         ['linear'],
         ['zoom'],
-        8, ['*', 0.5, PLANE_ALTITUDE_SCALE],
-        12, ['*', 0.66, PLANE_ALTITUDE_SCALE],
-        16, ['*', 0.9, PLANE_ALTITUDE_SCALE],
+        8, ['*', 0.6, PLANE_ALTITUDE_SCALE],
+        12, ['*', 0.78, PLANE_ALTITUDE_SCALE],
+        16, ['*', 1, PLANE_ALTITUDE_SCALE],
       ] as Expr,
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
@@ -576,7 +576,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     paint: {
       'icon-color': p.plane,
       'icon-halo-color': p.casing,
-      'icon-halo-width': 1.4,
+      'icon-halo-width': 1.8,
       'icon-opacity': planeOpacity(1, null),
     },
   });
@@ -958,7 +958,7 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
 }
 
 /** Higher planes are drawn a little smaller: a cue to distance, and to importance. */
-const PLANE_ALTITUDE_SCALE: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 1, 10000, 0.92, 30000, 0.78];
+const PLANE_ALTITUDE_SCALE: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 1, 10000, 0.94, 30000, 0.85];
 
 /**
  * How strongly an aircraft is drawn: low ones near full strength, cruising
@@ -967,7 +967,7 @@ const PLANE_ALTITUDE_SCALE: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0
  * plane, if there is one, is always drawn in full.
  */
 export function planeOpacity(dim: number, selectedId: string | null): Expr {
-  const byHeight: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 0.85 * dim, 8000, 0.72 * dim, 30000, 0.45 * dim];
+  const byHeight: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 0.95 * dim, 8000, 0.88 * dim, 30000, 0.65 * dim];
   const base: Expr = ['case', flag('stale'), ['*', 0.4, byHeight], byHeight];
   return selectedId ? ['case', ['==', ['get', 'id'], selectedId], 1, base] : base;
 }
@@ -992,7 +992,7 @@ export function syncPlaneFocus(
   options: { transitFocused: boolean; selectedId: string | null; hoveredId: string | null },
 ): void {
   const { transitFocused, selectedId, hoveredId } = options;
-  const dim = transitFocused ? 0.35 : selectedId ? 0.6 : 1;
+  const dim = transitFocused ? 0.45 : selectedId ? 0.7 : 1;
   if (map.getLayer('planes-icon')) map.setPaintProperty('planes-icon', 'icon-opacity', planeOpacity(dim, selectedId));
   if (map.getLayer('planes-label')) map.setPaintProperty('planes-label', 'text-opacity', planeOpacity(0.9 * dim, null));
   if (map.getLayer('planes-selected')) map.setFilter('planes-selected', ['==', ['get', 'id'], selectedId ?? '']);
