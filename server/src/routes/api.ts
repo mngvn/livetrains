@@ -6,6 +6,7 @@ import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
 import { reachableFrom } from '../reachability.js';
+import { PlaneRelay } from '../planes.js';
 
 function numberParam(value: unknown, fallback: number): number {
   const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
@@ -55,6 +56,21 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
   app.get('/api/status', async () => service.status());
 
   app.get('/api/agency', async () => service.agencyInfo());
+
+  // ---------------------------------------------------------------------
+  // Aircraft overhead
+  // ---------------------------------------------------------------------
+
+  const planes = new PlaneRelay(service.config.agency, service.config.planeFeeds, service.config.mock);
+
+  /** Aircraft over the agency's area, relayed from a community ADS-B feed. */
+  app.get('/api/planes', async (_request, reply) => {
+    if (!planes.enabled) {
+      return reply.status(404).send({ error: 'Aircraft are turned off on this server (PLANES_FEEDS is empty).' });
+    }
+    void reply.header('cache-control', 'no-store');
+    return planes.planes();
+  });
 
   app.get('/api/routes', async () => {
     requireReady(service);

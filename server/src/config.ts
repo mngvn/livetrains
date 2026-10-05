@@ -1,6 +1,7 @@
 import { DEFAULT_AGENCY_ID, getAgency, registerAgency, type AgencyDefinition } from './agencies/index.js';
 import { log } from './log.js';
 import { DEFAULT_CIRCUITY } from './planner/walk.js';
+import { DEFAULT_PLANE_FEEDS } from './planes.js';
 
 function num(value: string | undefined, fallback: number): number {
   const n = Number(value);
@@ -60,6 +61,11 @@ export interface ServerConfig {
   gtfsMaxAgeHours: number;
   /** Serve the built web client from the API server. */
   serveStatic: boolean;
+  /**
+   * Aircraft feed URL templates, tried in order: `{lat}`, `{lon}` and
+   * `{radius}` (nautical miles) are filled in. Empty turns planes off.
+   */
+  planeFeeds: string[];
   planner: {
     maxWalkMeters: number;
     walkSpeed: number;
@@ -85,6 +91,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     realtimePollSeconds: num(env.REALTIME_POLL_SECONDS, 15),
     gtfsMaxAgeHours: num(env.GTFS_MAX_AGE_HOURS, 24),
     serveStatic: bool(env.SERVE_STATIC, process.env.NODE_ENV === 'production'),
+    planeFeeds:
+      env.PLANES_FEEDS === undefined
+        ? DEFAULT_PLANE_FEEDS
+        : env.PLANES_FEEDS.split(',').map((url) => url.trim()).filter(Boolean),
     planner: {
       maxWalkMeters: num(env.PLANNER_MAX_WALK_METERS, 1200),
       walkSpeed: num(env.PLANNER_WALK_SPEED, 1.33),

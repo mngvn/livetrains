@@ -58,6 +58,12 @@ export interface Palette {
   casing: string;
   badge: string;
   badgeText: string;
+  /**
+   * Aircraft overhead. A grey from the basemap's own label ramp rather than
+   * a colour: planes are scenery here, not service, and must not be read as
+   * a route.
+   */
+  plane: string;
 }
 
 export const PALETTES: Record<'dark' | 'light', Palette> = {
@@ -94,6 +100,7 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#0B0E14',
     badge: '#1B212C',
     badgeText: '#E6EAF0',
+    plane: '#A3ACBC',
   },
   light: {
     bg: '#E9ECF0',
@@ -128,5 +135,6 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#E9ECF0',
     badge: '#FFFFFF',
     badgeText: '#0B0E14',
+    plane: '#4A5363',
   },
 };

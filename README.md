@@ -30,6 +30,19 @@ worldwide — adding another city is a config entry rather than a rewrite.
   screen gather into counted discs while the rest keep moving, and each throws
   a beam of its route colour so a dot is easy to find. Both can be switched
   off in the legend.
+- **Planes overhead, quietly.** Aircraft over and around the Twin Cities,
+  live from community ADS-B receivers: thin grey silhouettes beneath the
+  buses and trains, turned to their track and carried along it between
+  reports, fainter the higher they fly, so the jets crossing at 35,000 ft
+  recede and the arrivals low over the river are the ones you notice. Parked
+  airliners only appear once you zoom in on the airport, and every plane steps
+  back while the map is about a bus, a stop or a trip. Point at one for its
+  callsign and height; tap it for its own panel: the flight ("Delta 1554"),
+  where it is coming from and going to, "Descending into Minneapolis,
+  3,100 ft", speed, heading, the aircraft and its registration, its trail over
+  the last ten minutes, and a link to its full track. A route is only shown if
+  the plane is actually on it, since flight numbers get reused. Switch planes
+  off in the legend and nothing is fetched.
 - **Select anything and the rest steps back.** A vehicle, a stop, a route or a
   planned trip dims everything that is not about it. A vehicle's trip draws
   itself on from end to end, then shows the road ahead bold and the road
@@ -181,8 +194,8 @@ LIVETRAINS_MOCK=1 npm run dev
 
 This serves a synthetic Twin Cities-shaped feed — two light rail lines that
 share a downtown transfer point, three bus routes crossing them, simulated
-vehicles moving on the timetable, and invented delays. Nothing leaves the
-process. It is also what the test suite runs against, so tests never depend on a
+vehicles moving on the timetable, invented delays, and a few simulated aircraft
+coming and going at the airport. Nothing leaves the process. It is also what the test suite runs against, so tests never depend on a
 live feed or on service running at the moment you look.
 
 To exercise **browser mode** offline, write the same synthetic feed out as real
@@ -308,6 +321,40 @@ One process then serves both the API and the built client on `PORT` (default
 8080). Give it around 512 MB of memory: the parsed Metro Transit feed sits in
 the tens of megabytes, and peak usage during parsing is higher.
 
+### Planes on a static host
+
+Aircraft positions come from [adsb.lol](https://adsb.lol) (with
+[adsb.fi](https://adsb.fi) as a fallback): open, keyless, community-run. Unlike
+Metro Transit, neither sends CORS headers, so a page cannot read them
+directly, and none of the public CORS proxies held up when tested. Something
+has to relay them:
+
+- **Server mode** relays them itself at `/api/planes`, one fetch every few
+  seconds shared by every visitor. Nothing to set up.
+- **A static build** (GitHub Pages) needs a relay named at build time. One is
+  included: `relay/planes-worker.js`, a single-file Cloudflare Worker that
+  answers only the one question the app asks and caches the answer for five
+  seconds, so the feed itself is asked at most every five seconds from each
+  Cloudflare location however many people are looking. Each open tab asks the
+  worker every ten seconds, and only while it is visible, so the free tier's
+  100,000 requests a day is about 280 hours of someone watching the map.
+
+  ```bash
+  npx wrangler deploy relay/planes-worker.js --name livetrains-planes \
+    --compatibility-date 2026-01-01
+  ```
+
+  Then, under Settings → Secrets and variables → Actions → Variables, add
+  `PLANES_URL` =
+  `https://livetrains-planes.<you>.workers.dev/planes/{lat}/{lon}/{radius}`
+  and re-run the Pages workflow. Optionally set `ALLOWED_ORIGINS` on the
+  worker (e.g. `https://mngvn.github.io`) so only your site can use it.
+
+Without a relay the static site simply has no planes — the legend does not
+offer them. Routes and aircraft details come from
+[adsbdb](https://www.adsbdb.com), which does answer browsers, and are only
+looked up for the plane someone taps.
+
 ### Pointing a static build at your own server
 
 A page built in browser mode can be switched to a server at runtime, which is
@@ -319,7 +366,8 @@ localStorage.setItem('livetrains.apiUrl', 'https://your-api.example.com');
 location.reload();
 ```
 
-Remove those keys to go back to browser mode.
+Remove those keys to go back to browser mode. Aircraft can be pointed at a
+relay the same way, with `livetrains.planesUrl` (empty turns them off).
 
 ## Configuration
 
@@ -356,6 +404,7 @@ routed, and anything that fails falls back to the straight line, so the app
 works unchanged with no router at all.
 | `PLANNER_MAX_TRANSFERS` | `3` | Transfer ceiling |
 | `NOMINATIM_URL` | unset | Optional address search; local stop and landmark search always works |
+| `PLANES_FEEDS` | adsb.lol, then adsb.fi | Aircraft feed URL templates tried in order, comma-separated, with `{lat}`, `{lon}` and `{radius}` (nautical miles). Empty turns planes off |
 | `LOG_LEVEL` | `warn` | Fastify log level |
 
 ### Web build (browser mode)
@@ -367,6 +416,7 @@ works unchanged with no router at all.
 | `VITE_API_URL` | same origin | API server to use in server mode |
 | `VITE_AGENCY_ID` | `metro-transit` | Which registered agency to load |
 | `VITE_AGENCY_GTFS_URL` | unset | Serve any GTFS feed without a code change |
+| `VITE_PLANES_URL` | the API server in server mode; none in browser mode | Aircraft relay URL template with `{lat}`, `{lon}`, `{radius}`. Empty turns planes off |
 
 The `VITE_AGENCY_*` variables mirror the server's `AGENCY_*` set. A feed used in
 browser mode must send permissive CORS headers; Metro Transit does, but not
@@ -396,6 +446,7 @@ environment.
 | `GET /api/reverse-geocode?lat&lon` | Name a dropped pin |
 | `GET /api/plan?fromLat&fromLon&toLat&toLon` | Ranked itineraries |
 | `GET /api/alerts` | All active service alerts |
+| `GET /api/planes` | Aircraft over the agency's area, relayed from adsb.lol / adsb.fi (simulated in mock mode) |
 
 `/api/plan` also accepts `departAt` (epoch seconds), `arriveBy=true`, `maxWalk`,
 `maxTransfers` and `walkSpeed`. An explicit `departAt` is honoured exactly,
@@ -427,6 +478,13 @@ upstream change surfaces as a failed job rather than a broken app.
 Schedule and realtime data © the operating agency — Metro Transit by default.
 Check the agency's terms before deploying publicly; most, including Metro
 Transit, publish these feeds openly for exactly this purpose.
+
+Aircraft positions from [adsb.lol](https://adsb.lol), under the
+[ODbL](https://opendatacommons.org/licenses/odbl/), or [adsb.fi](https://adsb.fi):
+both are networks of volunteers' receivers, so coverage is what they hear.
+Aircraft and route details from [adsbdb](https://www.adsbdb.com). Routes are
+what a flight number usually flies and can be wrong; the app hides any that do
+not pass near the plane.
 
 Basemap tiles from [OpenFreeMap](https://openfreemap.org/), map data ©
 [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors. If the

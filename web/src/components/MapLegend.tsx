@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import type { RouteSummary } from '../lib/api.ts';
 import { modeLabel, plateLabel, readableTextColor } from '../lib/format.ts';
 import { splitBrandedLines } from '../lib/legend.ts';
+import { PLANE_PATH } from '../lib/planeInfo.ts';
+import type { PlaneFeedStatus } from '../lib/planeTracker.ts';
 
 /**
  * A key to what is drawn on the map.
@@ -23,9 +25,11 @@ interface Props {
   grouped: boolean;
   onToggleGrouped: () => void;
   onReplayTour: () => void;
+  /** Aircraft overhead, when there is a feed for them at all. */
+  planes: { on: boolean; status: PlaneFeedStatus; onToggle: () => void } | null;
 }
 
-export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped, onReplayTour }: Props) {
+export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped, onReplayTour, planes }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -118,6 +122,25 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                   <span className="legend__switch-knob" aria-hidden="true" />
                 </button>
               </li>
+              {planes && (
+                <li className={`legend__item${planes.on ? '' : ' is-off'}`}>
+                  <Swatch kind="plane" />
+                  <span>
+                    Aircraft
+                    <em>{planeNote(planes.on, planes.status)}</em>
+                  </span>
+                  <button
+                    type="button"
+                    className="legend__switch"
+                    role="switch"
+                    aria-checked={planes.on}
+                    aria-label="Show aircraft overhead"
+                    onClick={planes.onToggle}
+                  >
+                    <span className="legend__switch-knob" aria-hidden="true" />
+                  </button>
+                </li>
+              )}
               <li className="legend__item">
                 <Swatch kind="network" />
                 <span>
@@ -210,6 +233,16 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
   );
 }
 
+/** What the aircraft row says under its name: how many, or why none. */
+function planeNote(on: boolean, status: PlaneFeedStatus): string {
+  if (!on) return 'hidden';
+  if (status.state === 'error') return status.count > 0 ? 'feed not answering; shown faded' : 'the aircraft feed is not answering';
+  if (status.state !== 'live') return 'looking for aircraft…';
+  const simulated = status.source === 'demo' ? ', simulated' : '';
+  if (status.airborne === 0) return `none overhead right now${simulated}`;
+  return `${status.airborne} overhead${simulated}; tap one for its flight`;
+}
+
 /**
  * Draws the same mark the map draws.
  *
@@ -232,7 +265,8 @@ function Swatch({
     | 'ride'
     | 'walk'
     | 'origin'
-    | 'destination';
+    | 'destination'
+    | 'plane';
 }) {
   switch (kind) {
     // Rail markers are rounded squares and buses discs — shape, not a glyph,
@@ -321,6 +355,16 @@ function Swatch({
         <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
           <path d="M2 8h20" stroke="var(--bg)" strokeWidth="7" strokeLinecap="round" />
           <path d="M2 8h20" stroke="var(--text-muted)" strokeWidth="4" strokeDasharray="4 3.5" />
+        </svg>
+      );
+    // The map's own silhouette, in the map's own grey, at an angle as if
+    // crossing the city.
+    case 'plane':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <g transform="translate(4 0) scale(0.4) rotate(60 20 20)">
+            <path d={PLANE_PATH} fill="var(--plane)" stroke="var(--bg)" strokeWidth="3" paintOrder="stroke" />
+          </g>
         </svg>
       );
     case 'origin':

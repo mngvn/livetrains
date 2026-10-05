@@ -50,5 +50,34 @@ jobs:
           done
           exit $fail
 
+      - name: Check the aircraft feeds still answer
+        run: |
+          # Planes come from community ADS-B feeds the app relays (they send
+          # no CORS headers, so a page cannot read them itself). The relay
+          # falls back from one to the next, so one answering is enough.
+          feeds=0
+          for url in \
+            "https://api.adsb.lol/v2/point/44.95/-93.23/36" \
+            "https://opendata.adsb.fi/api/v2/lat/44.95/lon/-93.23/dist/36"; do
+            count=$(curl -sS --max-time 30 "$url" | jq '(.ac // .aircraft) | length' 2>/dev/null || true)
+            if [ -n "$count" ] && [ "$count" != "null" ]; then
+              echo "ok   $url ($count aircraft)"
+              feeds=1
+            else
+              echo "FAIL $url"
+            fi
+          done
+          # Routes and aircraft details are looked up straight from the
+          # browser, so this one must keep sending CORS headers.
+          lookups=0
+          if curl -sS -o /dev/null -D - --max-time 30 -H 'Origin: https://example.com' \
+              https://api.adsbdb.com/v0/callsign/DAL1 | grep -qi '^access-control-allow-origin:'; then
+            echo "ok   adsbdb is readable from a browser"
+            lookups=1
+          else
+            echo "FAIL adsbdb is no longer readable from a browser; plane routes will not load"
+          fi
+          [ "$feeds" = 1 ] && [ "$lookups" = 1 ]
+
       - name: Load the real feed and plan a trip
         run: npx tsx server/src/verifyFeed.ts
