@@ -57,6 +57,8 @@ import { networkHealth } from './lib/networkHealth.ts';
 import { PlaneTracker, type PlaneFeedStatus } from './lib/planeTracker.ts';
 import { planeFeedTemplate, planeFetcher } from './lib/planeFeed.ts';
 import { PlanePanel } from './components/PlanePanel.tsx';
+import { routeFits, usePlaneDetails } from './lib/planeLookup.ts';
+import { greatCircle, whereBound } from './lib/planeBound.ts';
 import type { Plane } from '@shared/planes.ts';
 
 type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
@@ -504,6 +506,15 @@ export function App() {
     const timer = window.setInterval(update, 1_000);
     return () => window.clearInterval(timer);
   }, [selectedPlaneId, planeTracker, planesOn]);
+
+  // Where the chosen plane is going: its published route if it is really on
+  // it, else a landing or a heading. Shared by the panel and the map.
+  const planeDetails = usePlaneDetails(selectedPlane);
+  const planeRoute =
+    selectedPlane && planeDetails && planeDetails !== 'loading' && planeDetails.route && routeFits(planeDetails.route, selectedPlane)
+      ? planeDetails.route
+      : null;
+  const planeBound = useMemo(() => (selectedPlane ? whereBound(selectedPlane, planeRoute) : null), [selectedPlane, planeRoute]);
 
   // Keep the selected vehicle's details fresh as new positions arrive.
   useEffect(() => {
@@ -1043,6 +1054,17 @@ export function App() {
         selectedPlaneId={selectedPlaneId}
         onSelectPlane={showPlane}
         planeAttribution={planesOn ? planeCredit(planeStatus.source) : null}
+        planeBound={
+          planeBound
+            ? {
+                kind: planeBound.kind,
+                // An airport by its code; a city it is only heading towards, by name.
+                label: planeBound.kind === 'toward' ? planeBound.place.name : planeBound.place.code,
+                lat: planeBound.place.lat,
+                lon: planeBound.place.lon,
+              }
+            : null
+        }
       />
 
       {reach && (
@@ -1413,6 +1435,16 @@ export function App() {
                 plane={selectedPlane}
                 source={planeStatus.source}
                 home={{ lat: (agency.bbox[1] + agency.bbox[3]) / 2, lon: (agency.bbox[0] + agency.bbox[2]) / 2 }}
+                details={planeDetails}
+                route={planeRoute}
+                bound={planeBound}
+                onShowBound={() => {
+                  if (!planeBound) return;
+                  const arc = greatCircle(selectedPlane, planeBound.place, 32);
+                  const lons = arc.map((p) => p[0]);
+                  const lats = arc.map((p) => p[1]);
+                  setCameraTarget({ bounds: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)] });
+                }}
               />
             ) : (
               <p className="panel-empty">

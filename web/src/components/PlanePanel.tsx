@@ -8,7 +8,8 @@ import {
   planeSpeedMph,
   planeTrend,
 } from '../lib/planeInfo.ts';
-import { distanceToKm, routeFits, usePlaneDetails, type Airport, type PlaneDetails } from '../lib/planeLookup.ts';
+import { distanceToKm, type Airport, type PlaneDetails } from '../lib/planeLookup.ts';
+import { flyingTime, type Bound } from '../lib/planeBound.ts';
 
 /**
  * The selected aircraft: who it is, where it is going, how high and how fast.
@@ -21,17 +22,27 @@ export function PlanePanel({
   plane,
   source,
   home,
+  details,
+  route,
+  bound,
+  onShowBound,
 }: {
   plane: Plane;
   /** Who the position came from: "adsb.lol". */
   source: string | null;
   /** The middle of the transit area, for "arriving at" and "leaving". */
   home: { lat: number; lon: number };
+  /** What adsbdb knows about it, once looked up. */
+  details: PlaneDetails | null | 'loading';
+  /** Its published route, only when it is actually flying it. */
+  route: PlaneDetails['route'];
+  /** Where it is going, as well as can be told. */
+  bound: Bound | null;
+  /** Fit the map to the plane and where it is going. */
+  onShowBound: () => void;
 }) {
-  const details = usePlaneDetails(plane);
   const loaded = details !== 'loading' && details !== null ? details : null;
   const name = flightName(plane);
-  const route = loaded?.route && routeFits(loaded.route, plane) ? loaded.route : null;
   const aircraft = loaded?.aircraft ?? null;
   const type = aircraftType(plane, aircraft);
   const mph = planeSpeedMph(plane);
@@ -56,6 +67,17 @@ export function PlanePanel({
       {route && <RouteLine origin={route.origin} destination={route.destination} plane={plane} />}
 
       <p className="plane-panel__where">{whereNow(plane, route, home)}</p>
+
+      {bound && (
+        <section className={`plane-bound plane-bound--${bound.kind}`} aria-label="Where it is going">
+          <h3 className="panel-section__title">Where it’s going</h3>
+          <p className="plane-bound__headline">{boundHeadline(bound, plane)}</p>
+          <p className="plane-bound__detail">{boundDetail(bound, plane, home, Boolean(loaded?.route && !route))}</p>
+          <button type="button" className="chip" onClick={onShowBound}>
+            Show on the map
+          </button>
+        </section>
+      )}
 
       <div className="vehicle-panel__tags">
         {mph !== null && mph > 0 && <span className="fact-tag">{mph} mph</span>}
@@ -174,6 +196,41 @@ function RouteLine({ origin, destination, plane }: { origin: Airport; destinatio
       </div>
     </div>
   );
+}
+
+/** "Bound for Atlanta (ATL)", "Landing at Flying Cloud (FCM)", "Heading west, towards Fargo". */
+function boundHeadline(bound: Bound, plane: Plane): string {
+  const { name, code } = bound.place;
+  switch (bound.kind) {
+    case 'destination':
+      return `Bound for ${name} (${code})`;
+    case 'landing':
+      return `Looks like it is landing at ${name} (${code})`;
+    case 'toward':
+      return `Heading ${compassWord(plane.track ?? 0)}, towards ${name}`;
+  }
+}
+
+/** How far, how long, and how sure. */
+function boundDetail(bound: Bound, plane: Plane, home: { lat: number; lon: number }, routeRejected: boolean): string {
+  const unknown = routeRejected
+    ? 'The route listed for this flight number does not match where it is'
+    : 'No route is published for this flight';
+  const miles = bound.miles < 10 ? bound.miles.toFixed(1) : Math.round(bound.miles).toLocaleString('en-US');
+  const time = bound.minutes === null ? '' : `, ${flyingTime(bound.minutes)} at its current speed`;
+  switch (bound.kind) {
+    case 'destination': {
+      // An arrival here is about to land; say so, rather than "N miles to go".
+      const arriving = distanceToKm(bound.place, home) < 80 && planeTrend(plane) === 'descending';
+      return arriving
+        ? `On its way in: ${miles} mi out${time}.`
+        : `${miles} mi to go${time}. Its scheduled route, from adsbdb.com.`;
+    }
+    case 'landing':
+      return `${miles} mi ahead, low and coming down. A guess from its height and heading: ${unknown.charAt(0).toLowerCase()}${unknown.slice(1)}.`;
+    case 'toward':
+      return `${miles} mi that way${time}. ${unknown}, so this is just the way it is flying.`;
+  }
 }
 
 function sourceName(source: string | null): string {

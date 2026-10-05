@@ -6,6 +6,8 @@ import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
 import type { PlaneTracker, TrackedPlane } from '../lib/planeTracker.ts';
 import { planeHeight, planeLabel, planeShape } from '../lib/planeInfo.ts';
+import { deadReckon } from '../lib/planeTracker.ts';
+import { distanceKm, greatCircle } from '../lib/planeBound.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
@@ -118,6 +120,8 @@ interface Props {
   onSelectPlane: (id: string) => void;
   /** Credit for the aircraft feed in the map's attribution, while planes are shown. */
   planeAttribution: string | null;
+  /** Where the chosen plane is going, drawn ahead of it. */
+  planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
 }
 
 export interface MapPadding {
@@ -356,6 +360,7 @@ export function TransitMap({
   selectedPlaneId,
   onSelectPlane,
   planeAttribution,
+  planeBound,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -409,6 +414,8 @@ export function TransitMap({
   handlers.current = { onSelectVehicle, onSelectStop, onSelectPlane, onMapClick, onViewportChange };
   const selectedPlaneRef = useRef(selectedPlaneId);
   selectedPlaneRef.current = selectedPlaneId;
+  const planeBoundRef = useRef(planeBound);
+  planeBoundRef.current = planeBound;
   /** The plane under the pointer, named on the map while it is there. */
   const hoveredPlane = useRef<string | null>(null);
   const transitFocused = Boolean(focus && focus.routeIds.length > 0);
@@ -753,6 +760,7 @@ export function TransitMap({
   useEffect(() => {
     let lastTrail = 0;
     let drawn = false;
+    let aheadDrawn = false;
     return planeTracker.onFrame((planes: TrackedPlane[]) => {
       const instance = map.current;
       if (!ready.current || !instance) return;
@@ -771,6 +779,17 @@ export function TransitMap({
         features.push(planeFeature(plane));
       }
       setData('planes', { type: 'FeatureCollection', features });
+
+      // The way ahead, from wherever the chosen plane is drawn this frame.
+      const chosen = selected ? planes.find((p) => p.id === selected) : undefined;
+      const bound = planeBoundRef.current;
+      if (chosen && bound) {
+        setData('plane-ahead', { type: 'FeatureCollection', features: [aheadLine(chosen, bound)] });
+        aheadDrawn = true;
+      } else if (aheadDrawn) {
+        setData('plane-ahead', EMPTY);
+        aheadDrawn = false;
+      }
 
       const now = performance.now();
       if (selected && now - lastTrail >= TRAIL_REFRESH_MS) {
@@ -900,6 +919,23 @@ export function TransitMap({
     if (!instance || !ready.current) return;
     syncSelectionFocus(instance, focusRefValue.current);
   }, [focusKey, styleEpoch]);
+
+  // --- Where the chosen plane is going: its end of the line -----------------
+  const boundKey = planeBound ? `${planeBound.label}|${planeBound.lat}|${planeBound.lon}` : '';
+  useEffect(() => {
+    if (!ready.current) return;
+    const bound = planeBoundRef.current;
+    setData(
+      'plane-ahead-end',
+      bound
+        ? {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [bound.lon, bound.lat] }, properties: { label: bound.label } }],
+          }
+        : EMPTY,
+    );
+    if (!bound) setData('plane-ahead', EMPTY);
+  }, [boundKey, styleEpoch, setData]);
 
   // --- The chosen plane, and planes stepping back for transit ---------------
   useEffect(() => {
@@ -1268,6 +1304,24 @@ export function TransitMap({
   }, [origin, destination, setData, styleEpoch, mapIsDark]);
 
   return <div ref={container} className="map" role="application" aria-label="Live transit map" />;
+}
+
+/**
+ * The way ahead of a plane: the great circle to its destination or landing,
+ * or, when only its heading is known, its track carried on as far as the
+ * city it points at (and no further than an hour's flying).
+ */
+function aheadLine(plane: TrackedPlane, bound: NonNullable<Props['planeBound']>): GeoJSON.Feature {
+  const from = { lat: plane.displayLat, lon: plane.displayLon };
+  let coordinates: [number, number][];
+  if (bound.kind === 'toward') {
+    const km = Math.min(distanceKm(from, bound), ((plane.groundSpeed ?? 0) * 1.852) || 1);
+    const end = deadReckon(from.lat, from.lon, plane.displayTrack, 3600, km / 1.852);
+    coordinates = greatCircle(from, end, 24);
+  } else {
+    coordinates = greatCircle(from, bound, 64);
+  }
+  return { type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: {} };
 }
 
 /** One aircraft as the map draws it. */

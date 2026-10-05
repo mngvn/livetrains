@@ -141,7 +141,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   for (const id of [
     'network', 'itinerary', 'itinerary-points', 'stops', 'major-stops', 'vehicles', 'vehicle-groups',
     'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops', 'isochrone',
-    'approach-lines', 'approach-rings', 'planes',
+    'approach-lines', 'approach-rings', 'planes', 'plane-ahead', 'plane-ahead-end',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
@@ -500,6 +500,46 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       'line-gradient': planeTrailGradient(p.plane),
     },
   });
+  // Where the chosen plane is going: a dashed great circle to its
+  // destination, or along its heading when that is all there is to go on.
+  map.addLayer({
+    id: 'plane-ahead-line',
+    type: 'line',
+    source: 'plane-ahead',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': p.plane,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.4, 14, 2.4],
+      'line-dasharray': [2, 2],
+      'line-opacity': 0.85,
+    },
+  });
+  map.addLayer({
+    id: 'plane-ahead-end',
+    type: 'circle',
+    source: 'plane-ahead-end',
+    paint: {
+      'circle-radius': 5,
+      'circle-color': p.stopFill,
+      'circle-stroke-color': p.plane,
+      'circle-stroke-width': 2,
+    },
+  });
+  map.addLayer({
+    id: 'plane-ahead-label',
+    type: 'symbol',
+    source: 'plane-ahead-end',
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': FONT_BOLD,
+      'text-size': 11,
+      'text-letter-spacing': 0.06,
+      'text-anchor': 'top',
+      'text-offset': [0, 0.8],
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.6 },
+  });
   map.addLayer({
     id: 'planes-selected',
     type: 'circle',
@@ -856,6 +896,11 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
   set('planes-selected', 'circle-color', p.plane);
   set('planes-selected', 'circle-stroke-color', p.plane);
   set('plane-trail-line', 'line-gradient', planeTrailGradient(p.plane));
+  set('plane-ahead-line', 'line-color', p.plane);
+  set('plane-ahead-end', 'circle-color', p.stopFill);
+  set('plane-ahead-end', 'circle-stroke-color', p.plane);
+  set('plane-ahead-label', 'text-color', p.text);
+  set('plane-ahead-label', 'text-halo-color', p.halo);
 }
 
 /**
@@ -1020,6 +1065,10 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'planes-selected', property: 'circle-opacity', value: 0 },
   { layer: 'planes-selected', property: 'circle-stroke-opacity', value: 0 },
   { layer: 'plane-trail-line', property: 'line-opacity', value: 0 },
+  { layer: 'plane-ahead-line', property: 'line-opacity', value: 0 },
+  { layer: 'plane-ahead-end', property: 'circle-opacity', value: 0 },
+  { layer: 'plane-ahead-end', property: 'circle-stroke-opacity', value: 0 },
+  { layer: 'plane-ahead-label', property: 'text-opacity', value: 0 },
 ];
 
 const TEXTURE_LAYER = 'ground-texture';

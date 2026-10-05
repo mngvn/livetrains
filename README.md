@@ -41,7 +41,14 @@ worldwide — adding another city is a config entry rather than a rewrite.
   where it is coming from and going to, "Descending into Minneapolis,
   3,100 ft", speed, heading, the aircraft and its registration, its trail over
   the last ten minutes, and a link to its full track. A route is only shown if
-  the plane is actually on it, since flight numbers get reused. Switch planes
+  the plane is actually on it, since flight numbers get reused.
+- **Where is that plane going?** Every plane's panel answers it, as well as
+  anyone on the ground can: "Bound for Atlanta (ATL), 905 mi to go, about
+  2 hr 35 min" from its published route; "Looks like it is landing at Flying
+  Cloud" for a small plane low, descending and lined up with a local airport;
+  or, with nothing else to go on, "Heading west, towards Fargo". The map draws
+  the way ahead as a dashed line — the great circle to its destination, or its
+  heading carried on — and "Show on the map" fits plane and destination in view. Switch planes
   off in the legend and nothing is fetched.
 - **Select anything and the rest steps back.** A vehicle, a stop, a route or a
   planned trip dims everything that is not about it. A vehicle's trip draws
