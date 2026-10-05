@@ -351,6 +351,12 @@ has to relay them:
     --compatibility-date 2026-01-01
   ```
 
+  **Cloudflare's shared servers may be turned away**, as they were when this
+  was first set up: adsb.lol rate-limits them (429) and adsb.fi blocks them
+  (403). The same relay then runs on [Deno Deploy](https://deno.com/deploy)
+  instead, free with a GitHub sign-in: paste `relay/deno.js` into a new
+  playground and use its `https://<name>.deno.dev` address below.
+
   Then, under Settings → Secrets and variables → Actions → Variables, add
   `PLANES_URL` =
   `https://livetrains-planes.<you>.workers.dev/planes/{lat}/{lon}/{radius}`
