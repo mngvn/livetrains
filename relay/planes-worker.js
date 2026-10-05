@@ -81,7 +81,8 @@ export default {
     const hit = cache ? await cache.match(key) : null;
     if (hit) return new Response(hit.body, { status: 200, headers: { ...Object.fromEntries(hit.headers), ...corsHeaders(origin) } });
 
-    let lastError = 'no feed configured';
+    // Every feed's answer, so a failure says which refused and how.
+    const failures = [];
     for (const feed of FEEDS) {
       try {
         const upstream = await fetch(feed.url(...area), {
@@ -95,9 +96,9 @@ export default {
         if (cache) ctx?.waitUntil?.(cache.put(key, response.clone()));
         return response;
       } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
+        failures.push(err instanceof Error ? err.message : String(err));
       }
     }
-    return json({ error: `No aircraft feed answered: ${lastError}` }, 502, origin);
+    return json({ error: `No aircraft feed answered: ${failures.join('; ')}` }, 502, origin);
   },
 };
