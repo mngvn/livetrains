@@ -31,7 +31,7 @@ worldwide — adding another city is a config entry rather than a rewrite.
   a beam of its route colour so a dot is easy to find. Both can be switched
   off in the legend.
 - **Planes overhead, quietly.** Aircraft over and around the Twin Cities,
-  live from community ADS-B receivers: thin grey silhouettes beneath the
+  live from community ADS-B receivers: thin faint-yellow silhouettes beneath the
   buses and trains, turned to their track and carried along it between
   reports, fainter the higher they fly, so the jets crossing at 35,000 ft
   recede and the arrivals low over the river are the ones you notice. Parked

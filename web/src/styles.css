@@ -35,8 +35,8 @@
   /* Metro Transit's own blue and red, for the few places the brand speaks. */
   --brand-blue: #0053a0;
   --brand-red: #ed1b2e;
-  /* Aircraft: scenery, so a grey from the map's label ramp, never a colour. */
-  --plane: #cdd5e2;
+  /* Aircraft: a faint flight-tracker yellow, clear of the "late" amber. */
+  --plane: #e6d48a;
   --shadow: none;
   --radius: 3px;
   --radius-sm: 2px;
@@ -66,7 +66,7 @@
   --late: #b26100;
   --early: #2f5fb3;
   --danger: #c8102e;
-  --plane: #323a48;
+  --plane: #a08423;
   color-scheme: light;
 }
 

@@ -485,7 +485,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   });
 
   // --- Aircraft overhead -----------------------------------------------------------
-  // Scenery, not service: thin grey silhouettes beneath every bus and train,
+  // Scenery, not service: thin faint-yellow silhouettes beneath every bus and train,
   // fainter and a touch smaller the higher they fly, so the jets crossing at
   // 35,000ft recede and the arrivals low over the river are the ones you
   // notice. No beams, no route colour, a name only once you are close or
