@@ -51,7 +51,7 @@ jobs:
 
       - name: Configure Pages
         id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         # Enabling Pages needs admin rights the workflow token lacks, so a
         # failure here is reported below rather than hiding the build results.
         continue-on-error: true
