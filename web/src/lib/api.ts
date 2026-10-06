@@ -6,7 +6,7 @@ import type {
   Reachability,
   RouteDetail,
   RouteSummary,
-  ServiceAlert,
+  AlertsResponse,
   StopDetail,
   StopSummary,
   TransitSearchResult,
@@ -15,6 +15,8 @@ import type {
 } from '@shared/api.ts';
 
 export type {
+  AlertPlace,
+  AlertsResponse,
   Accessibility,
   AgencyInfo,
   Departure,
@@ -210,6 +212,6 @@ export const api = {
 
   routeNetwork: (signal?: AbortSignal) => get<RouteNetwork>('/api/network', undefined, signal),
 
-  alerts: (signal?: AbortSignal) => get<{ alerts: ServiceAlert[] }>('/api/alerts', undefined, signal),
+  alerts: (signal?: AbortSignal) => get<AlertsResponse>('/api/alerts', undefined, signal),
 };
 

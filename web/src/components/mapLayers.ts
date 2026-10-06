@@ -51,6 +51,26 @@ export const GROUND_PLANES_FROM_ZOOM = 13;
 
 /** Properties that are absent mean "no", not "error". */
 const flag = (name: string): Expr => ['boolean', ['get', name], false];
+
+/** Past this zoom every alerted stop is drawn on its own. */
+const ALERTS_CLUSTER_MAX_ZOOM = 13;
+/** In force now: a stop's own flag, or any stop inside a cluster. */
+const ALERT_LIVE: Expr = ['case', ['has', 'point_count'], ['>', ['get', 'live'], 0], flag('active')];
+const ALERT_CLUSTER_RADIUS: Expr = ['step', ['get', 'point_count'], 11, 10, 14, 40, 18];
+
+/** Red for closures, amber for detours and the like, grey for notices. */
+function alertTone(p: Palette): Expr {
+  return ['match', ['get', 'rank'], 0, p.danger, 1, p.late, p.muted];
+}
+
+/**
+ * The ripple's size `phase` of the way (0–1) through one beat: from the
+ * marker's edge outwards. No zoom term, so it can be restyled every frame.
+ */
+export function alertPulseRadius(phase: number): Expr {
+  const spread = 4 + phase * 14;
+  return ['+', ['case', ['has', 'point_count'], ALERT_CLUSTER_RADIUS, 6], spread];
+}
 const NOT_GROUPED: Expr = ['!', flag('grouped')];
 
 /**
@@ -160,6 +180,21 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     'approach-lines', 'approach-rings', 'planes', 'plane-ahead', 'plane-ahead-end',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
+  }
+  // Alerted stops gather into counted discs until there is room for them,
+  // each disc remembering the worst alert inside it.
+  if (!map.getSource('alerts')) {
+    map.addSource('alerts', {
+      type: 'geojson',
+      data: EMPTY,
+      cluster: true,
+      clusterRadius: 42,
+      clusterMaxZoom: ALERTS_CLUSTER_MAX_ZOOM,
+      clusterProperties: {
+        rank: ['min', ['get', 'rank']],
+        live: ['+', ['case', ['get', 'active'], 1, 0]],
+      },
+    });
   }
   // Line metrics are what let a line be drawn on from one end, or fade.
   for (const id of ['route-shape', 'vehicle-trip-full', 'vehicle-trail', 'plane-trail']) {
@@ -644,6 +679,81 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     paint: { 'circle-radius': 14, 'circle-opacity': 0 },
   });
 
+  // --- Service alerts, while the alerts view is open ---------------------------
+  // Over the stops and the aircraft, under the vehicles. A quiet disc per
+  // cluster with the worst tone as its ring, and one dot per stop once
+  // zoomed in; only what is severe and in force right now gets the slow
+  // ripple.
+  map.addLayer({
+    id: 'alerts-pulse',
+    type: 'circle',
+    source: 'alerts',
+    filter: ['all', ['==', ['get', 'rank'], 0], ALERT_LIVE],
+    paint: {
+      'circle-radius': alertPulseRadius(0),
+      'circle-color': 'transparent',
+      'circle-stroke-color': alertTone(p),
+      'circle-stroke-width': 1.6,
+      'circle-stroke-opacity': 0,
+    },
+  });
+  map.addLayer({
+    id: 'alerts-cluster',
+    type: 'circle',
+    source: 'alerts',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': p.surface2,
+      'circle-radius': ALERT_CLUSTER_RADIUS,
+      'circle-stroke-color': alertTone(p),
+      'circle-stroke-width': 2.2,
+      'circle-opacity': 0.92,
+      'circle-stroke-opacity': ['case', ALERT_LIVE, 1, 0.45],
+    },
+  });
+  map.addLayer({
+    id: 'alerts-cluster-count',
+    type: 'symbol',
+    source: 'alerts',
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'],
+      'text-font': FONT_BOLD,
+      'text-size': 11,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: { 'text-color': p.text },
+  });
+  map.addLayer({
+    id: 'alerts-dot',
+    type: 'circle',
+    source: 'alerts',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4.5, 14, 6.5, 17, 9],
+      'circle-color': alertTone(p),
+      'circle-opacity': ['case', ALERT_LIVE, 1, 0.4],
+      'circle-stroke-color': p.casing,
+      'circle-stroke-width': 1.6,
+    },
+  });
+  map.addLayer({
+    id: 'alerts-mark',
+    type: 'symbol',
+    source: 'alerts',
+    minzoom: 14,
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      'text-field': '!',
+      'text-font': FONT_BOLD,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 9, 17, 12],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: { 'text-color': p.casing, 'text-opacity': ['case', ALERT_LIVE, 1, 0.6] },
+  });
+
   // --- Vehicles -------------------------------------------------------------------
   // Beams first, so every marker draws over them. A finding aid for metro
   // scale, gone by the time a vehicle is big enough to read.
@@ -917,6 +1027,12 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
   set('plane-ahead-end', 'circle-stroke-color', p.plane);
   set('plane-ahead-label', 'text-color', p.text);
   set('plane-ahead-label', 'text-halo-color', p.halo);
+  for (const layer of ['alerts-cluster', 'alerts-pulse']) set(layer, 'circle-stroke-color', alertTone(p));
+  set('alerts-cluster', 'circle-color', p.surface2);
+  set('alerts-cluster-count', 'text-color', p.text);
+  set('alerts-dot', 'circle-color', alertTone(p));
+  set('alerts-dot', 'circle-stroke-color', p.casing);
+  set('alerts-mark', 'text-color', p.casing);
 }
 
 /**

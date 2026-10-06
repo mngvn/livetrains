@@ -3,9 +3,11 @@ import { candidateServiceDays, epochFor, type ServiceDate } from './gtfs/time.js
 import type { PatternSet } from './planner/patterns.js';
 import type { RealtimeState } from './realtime/state.js';
 import type {
+  AlertPlace,
   PathwaySummary,
   RouteDetail,
   RouteSummary,
+  ServiceAlert,
   StopDetail,
   TransitSearchResult,
   TripStop,
@@ -303,4 +305,26 @@ function normalise(text: string): string {
     .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Positions for every stop the alerts name, so the alerts view can draw them.
+ *
+ * Alerts carry stop ids only. Sent alongside the list rather than inside each
+ * alert, since one busy station can be named by a dozen of them. Stops the
+ * timetable does not know — a feed a day ahead of the GTFS — are left out.
+ */
+export function alertPlaces(store: GtfsStore | null, alerts: ServiceAlert[]): AlertPlace[] {
+  if (!store) return [];
+  const places = new Map<string, AlertPlace>();
+  for (const alert of alerts) {
+    for (const stopId of alert.stopIds) {
+      if (places.has(stopId)) continue;
+      const index = store.stopIndexById.get(stopId);
+      if (index === undefined) continue;
+      const stop = store.stops[index];
+      places.set(stopId, { stopId, name: stop.name, lat: stop.lat, lon: stop.lon });
+    }
+  }
+  return [...places.values()];
 }

@@ -25,6 +25,7 @@ import {
 } from './basemaps.ts';
 import {
   APPROACH_FROM_ZOOM,
+  alertPulseRadius,
   EMPTY,
   GROUND_PLANES_FROM_ZOOM,
   GROUP_BELOW_ZOOM,
@@ -135,6 +136,8 @@ interface Props {
   planeAttribution: string | null;
   /** Where the chosen plane is going, drawn ahead of it. */
   planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
+  /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
+  alerts: GeoJSON.FeatureCollection | null;
 }
 
 export interface MapPadding {
@@ -327,6 +330,9 @@ class NetworkViewControl implements maplibregl.IControl {
 const PICKABLE_LAYERS = [
   'vehicles-hit',
   'vehicle-groups-circle',
+  // Alerted stops are drawn over the aircraft, so they come first too.
+  'alerts-cluster',
+  'alerts-dot',
   // Beneath the vehicles, as they are drawn: where a plane passes over a
   // bus the bus is what a tap means, but anywhere else the plane is its own
   // thing to tap.
@@ -374,6 +380,7 @@ export function TransitMap({
   onSelectPlane,
   planeAttribution,
   planeBound,
+  alerts,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -597,6 +604,13 @@ export function TransitMap({
         // vehicles that were within a few pixels of each other.
         const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
         instance.easeTo({ center, zoom: Math.min(GROUP_BELOW_ZOOM + 0.5, instance.getZoom() + 2), duration: 450 });
+      } else if (layer === 'alerts-cluster') {
+        const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        const source = instance.getSource('alerts') as maplibregl.GeoJSONSource | undefined;
+        source
+          ?.getClusterExpansionZoom(Number(feature.properties?.cluster_id))
+          .then((zoom) => instance.easeTo({ center, zoom: zoom + 0.25, duration: 450 }))
+          .catch(() => undefined);
       } else if (layer === 'vehicles-hit') {
         handlers.current.onSelectVehicle(String(feature.properties?.id ?? ''));
       } else if (layer === 'planes-hit') {
@@ -1214,6 +1228,32 @@ export function TransitMap({
     if (!ready.current) return;
     setData('stops', stopFeatures(stops));
   }, [stops, setData, styleEpoch]);
+
+  // Service alerts, while the alerts view is open.
+  useEffect(() => {
+    if (!ready.current) return;
+    setData('alerts', alerts ?? EMPTY);
+  }, [alerts, setData, styleEpoch]);
+
+  // A slow ripple off whatever is severe and in force, only while there is
+  // something to ripple. Restyling one layer a few times a second is cheap.
+  const hasAlerts = (alerts?.features.length ?? 0) > 0;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !hasAlerts) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const beat = 2400;
+    const timer = window.setInterval(() => {
+      if (!instance.getLayer('alerts-pulse')) return;
+      const phase = (performance.now() % beat) / beat;
+      instance.setPaintProperty('alerts-pulse', 'circle-radius', alertPulseRadius(phase));
+      instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0.7 * (1 - phase));
+    }, 1000 / 24);
+    return () => {
+      window.clearInterval(timer);
+      if (instance.getLayer('alerts-pulse')) instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0);
+    };
+  }, [hasAlerts, styleEpoch]);
 
   // Every stop drawn, by id, for linking arriving vehicles to their stops.
   useEffect(() => {

@@ -192,6 +192,20 @@ export interface ServiceAlert {
   periods: { start?: number; end?: number }[];
 }
 
+/** Where an alerted stop is, so the alerts can be drawn on the map. */
+export interface AlertPlace {
+  stopId: string;
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+export interface AlertsResponse {
+  alerts: ServiceAlert[];
+  /** Every stop the alerts name that the timetable knows, once each. */
+  places: AlertPlace[];
+}
+
 /** A geocoded place the rider can plan to or from. */
 export interface Place {
   id: string;

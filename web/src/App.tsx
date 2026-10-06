@@ -7,6 +7,7 @@ import {
   type RouteDetail,
   type RouteNetwork,
   type RouteSummary,
+  type ServiceAlert,
   type StopDetail,
   type StopSummary,
   type Vehicle,
@@ -33,6 +34,7 @@ import { refineWalks } from './lib/refineWalks.ts';
 import { useVehicleTrip } from './lib/useVehicleTrip.ts';
 import { routeWideAlertCounts, useAlerts } from './lib/useAlerts.ts';
 import { isActive } from './lib/alerts.ts';
+import { alertedRouteIds, alertMarkers } from './lib/alertMap.ts';
 import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
@@ -851,7 +853,16 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [arrived]);
 
-  const alerts = useAlerts(source.alerts, engine.state === 'ready');
+  const { alerts, places: alertPlacesList } = useAlerts(source.alerts, engine.state === 'ready');
+  /** What the alerts view is showing after its filters, mirrored on the map. */
+  const [shownAlerts, setShownAlerts] = useState<ServiceAlert[]>([]);
+  // Alerts start and end on the minute at the finest; redrawing the map's
+  // markers on every one-second tick would only make the clusters churn.
+  const alertMinute = Math.floor(now / 60) * 60;
+  const alertMapMarkers = useMemo(
+    () => (tab === 'alerts' ? alertMarkers(shownAlerts, alertPlacesList, alertMinute) : null),
+    [tab, shownAlerts, alertPlacesList, alertMinute],
+  );
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
 
@@ -970,11 +981,16 @@ export function App() {
       const trouble = health.lines.filter((line) => line.state !== 'good' && line.state !== 'quiet');
       if (trouble.length > 0) return { kind: 'network', routeIds: trouble.map((line) => line.route.id) };
     }
+    // The alerts view: lines with a detour or the like come forward.
+    if (tab === 'alerts') {
+      const alerted = alertedRouteIds(shownAlerts, alertMinute);
+      if (alerted.length > 0) return { kind: 'network', routeIds: alerted };
+    }
     const tripRoutes = chosen
       ? [...new Set(chosen.legs.flatMap((leg) => (leg.type === 'transit' ? [leg.route.id] : [])))]
       : [];
     return tripRoutes.length > 0 ? { kind: 'trip', routeIds: tripRoutes } : null;
-  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen, tab, health]);
+  }, [selectedVehicleId, selectedVehicle?.routeId, selectedStopId, highlightRouteIds, activeRouteId, chosen, tab, health, shownAlerts, alertMinute]);
 
   /** The live feed has said nothing new for long enough that nothing on the map is live. */
   const feedStale = stream.lastUpdate !== null && now - stream.lastUpdate > FEED_STALE_SECONDS;
@@ -1065,6 +1081,7 @@ export function App() {
               }
             : null
         }
+        alerts={alertMapMarkers}
       />
 
       {reach && (
@@ -1417,7 +1434,13 @@ export function App() {
           )}
 
           {tab === 'alerts' && (
-            <AlertsView alerts={alerts} now={now} routes={routesById} onShowRoute={openRoute} />
+            <AlertsView
+              alerts={alerts}
+              now={now}
+              routes={routesById}
+              onShowRoute={openRoute}
+              onShownChange={setShownAlerts}
+            />
           )}
         </div>
       </div>
