@@ -60,6 +60,16 @@ const TIMEOUT_MS = 6_000;
  */
 const MAX_ROUTED_METERS = 5_000;
 
+/**
+ * Walks remembered at once. Transfers repeat, so a few hundred cover a day's
+ * planning; beyond that the least recently used go, rather than a long
+ * session holding every path it ever drew.
+ */
+const CACHE_SIZE = 300;
+
+/** How long a refusal is believed before the router is asked again. */
+const FAILURE_TTL_MS = 5 * 60_000;
+
 export function walkRouterUrl(): string {
   const configured = import.meta.env.VITE_WALK_ROUTER_URL;
   return configured === undefined ? DEFAULT_ROUTER : configured.trim();
@@ -77,20 +87,27 @@ function key(from: LatLon, to: LatLon): string {
 }
 
 /**
- * Walking directions, cached for the life of the page.
+ * Walking directions, cached while the page is open.
  *
  * Transfers repeat heavily — the same two platforms, every plan through that
  * station — so the cache does most of the work after the first few trips.
  * Failures are cached too, as `null`: a router that just refused is not going
- * to be persuaded by asking again for every leg of every subsequent plan.
+ * to be persuaded by asking again for every leg of every subsequent plan —
+ * but only for a few minutes, so a phone that was briefly offline gets real
+ * paths again once it is back.
  */
 export class WalkRouter {
-  private readonly cache = new Map<string, Promise<WalkPath | null>>();
+  private readonly cache = new Map<string, { path: Promise<WalkPath | null>; failedAt?: number }>();
 
   constructor(private readonly url = walkRouterUrl()) {}
 
   get enabled(): boolean {
     return this.url.length > 0;
+  }
+
+  /** Walks currently remembered, for tests. */
+  get cached(): number {
+    return this.cache.size;
   }
 
   /**
@@ -104,16 +121,34 @@ export class WalkRouter {
 
     const cacheKey = key(from, to);
     const hit = this.cache.get(cacheKey);
-    if (hit) return hit;
+    if (hit && (hit.failedAt === undefined || Date.now() - hit.failedAt < FAILURE_TTL_MS)) {
+      // Most recently used goes to the back of the line for eviction.
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, hit);
+      return hit.path;
+    }
 
-    const pending = this.fetchRoute(from, to).catch((err: unknown) => {
-      // Expected often enough — offline, rate-limited, CORS, a timeout — that
-      // it is not worth more than a debug line.
-      console.debug('livetrains: walking directions unavailable', err);
-      return null;
-    });
-    this.cache.set(cacheKey, pending);
-    return pending;
+    const entry: { path: Promise<WalkPath | null>; failedAt?: number } = {
+      path: this.fetchRoute(from, to)
+        .catch((err: unknown) => {
+          // Expected often enough — offline, rate-limited, CORS, a timeout —
+          // that it is not worth more than a debug line.
+          console.debug('livetrains: walking directions unavailable', err);
+          return null;
+        })
+        .then((path) => {
+          if (path === null) entry.failedAt = Date.now();
+          return path;
+        }),
+    };
+    this.cache.delete(cacheKey);
+    this.cache.set(cacheKey, entry);
+    while (this.cache.size > CACHE_SIZE) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+    }
+    return entry.path;
   }
 
   private async fetchRoute(from: LatLon, to: LatLon): Promise<WalkPath | null> {

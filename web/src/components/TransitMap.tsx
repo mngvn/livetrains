@@ -13,6 +13,7 @@ import { distanceKm, greatCircle } from '../lib/planeBound.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
+import { escapeHtml } from '../lib/safeUrl.ts';
 import { registerVehicleIcons } from './mapIcons.ts';
 import {
   DARK_FALLBACK_STYLE,
@@ -466,7 +467,11 @@ export function TransitMap({
 
     instance.addControl(new NetworkViewControl(() => agency.bbox), 'bottom-right');
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    attributionControl.current = new maplibregl.AttributionControl({ compact: true, customAttribution: agency.name });
+    // MapLibre renders attribution as HTML; the agency's name is text.
+    attributionControl.current = new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: escapeHtml(agency.name),
+    });
     instance.addControl(attributionControl.current, 'bottom-left');
     instance.addControl(
       new maplibregl.GeolocateControl({
@@ -616,6 +621,10 @@ export function TransitMap({
       instance.remove();
       map.current = null;
       ready.current = false;
+      // Let go of the console handle too, or a removed map (and its GL
+      // context's worth of buffers) stays reachable after a remount.
+      const debug = window as unknown as { __livetrainsMap?: maplibregl.Map };
+      if (debug.__livetrainsMap === instance) delete debug.__livetrainsMap;
     };
     // Rebuilding the map on agency change is correct — it is a different city.
   }, [agency.bbox, agency.name]);
@@ -1195,7 +1204,7 @@ export function TransitMap({
     instance.removeControl(attributionControl.current);
     attributionControl.current = new maplibregl.AttributionControl({
       compact: true,
-      customAttribution: planeAttribution ? [agency.name, planeAttribution] : agency.name,
+      customAttribution: planeAttribution ? [escapeHtml(agency.name), planeAttribution] : escapeHtml(agency.name),
     });
     instance.addControl(attributionControl.current, 'bottom-left');
   }, [planeAttribution, agency.name]);

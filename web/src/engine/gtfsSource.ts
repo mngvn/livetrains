@@ -1,6 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { AgencyDefinition } from '../../../server/src/agencies/types.js';
-import { GTFS_FILES } from '../../../server/src/gtfs/store.js';
+import { GTFS_FILES, MAX_GTFS_FILE_BYTES, MAX_GTFS_TOTAL_BYTES } from '../../../server/src/gtfs/store.js';
 
 /**
  * Fetches and unpacks an agency's static GTFS archive in the browser.
@@ -15,6 +15,9 @@ import { GTFS_FILES } from '../../../server/src/gtfs/store.js';
 const CACHE_NAME = 'livetrains-gtfs-v1';
 /** Header stamped onto the cached response so staleness can be judged. */
 const CACHED_AT_HEADER = 'x-livetrains-cached-at';
+
+/** No timetable archive a browser could unpack comes anywhere near this. */
+const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 
 export interface LoadProgress {
   phase: 'downloading' | 'unpacking' | 'parsing' | 'indexing' | 'ready';
@@ -76,12 +79,15 @@ async function fetchArchive(
 
   if (cache) {
     // Store with our own timestamp header so freshness does not depend on
-    // whatever caching headers the agency happens to send.
+    // whatever caching headers the agency happens to send. The Response
+    // takes its own copy of the bytes, so they are handed over as they are
+    // rather than copied once more first — on a phone, every extra copy of
+    // a 19MB archive counts.
     const headers = new Headers();
     headers.set('content-type', 'application/zip');
     headers.set(CACHED_AT_HEADER, String(Date.now()));
     await cache
-      .put(url, new Response(bytes.slice().buffer as ArrayBuffer, { headers }))
+      .put(url, new Response(bytes as Uint8Array<ArrayBuffer>, { headers }))
       .catch(() => undefined); // a full quota must not break loading
   }
 
@@ -97,6 +103,11 @@ async function readWithProgress(
   if (!response.body) return new Uint8Array(await response.arrayBuffer());
 
   const reader = response.body.getReader();
+  // With a declared length the bytes are written straight into one buffer of
+  // that size. Collecting chunks and joining them at the end holds the whole
+  // archive twice at the moment of joining; this holds it once. Without a
+  // length, or if the server sends more than it declared, chunks it is.
+  let buffer = total !== undefined && total <= MAX_ARCHIVE_BYTES ? new Uint8Array(total) : null;
   const chunks: Uint8Array[] = [];
   let loaded = 0;
   let lastReport = 0;
@@ -104,7 +115,19 @@ async function readWithProgress(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (loaded + value.length > MAX_ARCHIVE_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('The timetable archive is too large to load in a browser');
+    }
+    if (buffer && loaded + value.length <= buffer.length) {
+      buffer.set(value, loaded);
+    } else {
+      if (buffer) {
+        chunks.push(buffer.subarray(0, loaded));
+        buffer = null;
+      }
+      chunks.push(value);
+    }
     loaded += value.length;
     // Reporting every chunk would flood the message channel; every 250KB is
     // frequent enough for a progress bar to look continuous.
@@ -116,6 +139,7 @@ async function readWithProgress(
 
   onProgress({ phase: 'downloading', loaded, total });
 
+  if (buffer) return loaded === buffer.length ? buffer : buffer.slice(0, loaded);
   const out = new Uint8Array(loaded);
   let offset = 0;
   for (const chunk of chunks) {
@@ -161,11 +185,20 @@ export async function loadGtfsFiles(
   onProgress({ phase: 'unpacking', detail: 'Unpacking the timetable' });
 
   const wanted = new Set<string>(GTFS_FILES);
+  let declared = 0;
   const unpacked = unzipSync(archive, {
-    // fflate calls this per entry; returning true skips the entry entirely.
+    // fflate calls this per entry; returning false skips the entry entirely.
     filter: (file) => {
       const name = file.name.split('/').pop() ?? file.name;
-      return wanted.has(name);
+      if (!wanted.has(name)) return false;
+      // The sizes the archive declares are checked before anything is
+      // inflated, so a malformed or hostile zip fails with a message here
+      // rather than taking the tab down with it. See MAX_GTFS_FILE_BYTES.
+      declared += file.originalSize;
+      if (file.originalSize > MAX_GTFS_FILE_BYTES || declared > MAX_GTFS_TOTAL_BYTES) {
+        throw new Error(`The timetable's ${name} is too large to unpack in a browser`);
+      }
+      return true;
     },
   });
 

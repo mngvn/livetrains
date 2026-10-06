@@ -1,4 +1,4 @@
-import type { Vehicle } from './api.ts';
+import { getApiBase, type Vehicle } from './api.ts';
 
 /**
  * Keeps the live vehicle picture and smooths it for display.
@@ -305,7 +305,10 @@ export class VehicleTracker {
   private openStream(): void {
     this.source?.close();
 
-    const url = new URL('/api/vehicles/stream', window.location.origin);
+    // The same server every other request goes to. This once used the page's
+    // own origin, so a build or override pointing the API elsewhere fetched
+    // everything from that server except the live vehicles.
+    const url = new URL('/api/vehicles/stream', `${getApiBase()}/`);
     if (this.filter.routeId) url.searchParams.set('routeId', this.filter.routeId);
 
     const source = new EventSource(url);

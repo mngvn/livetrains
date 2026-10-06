@@ -1,6 +1,7 @@
 import type { RouteSummary, ServiceAlert } from '../lib/api.ts';
 import { effectMeta, isActive, nextStart } from '../lib/alerts.ts';
 import { clockTime } from '../lib/format.ts';
+import { safeWebUrl } from '../lib/safeUrl.ts';
 import { RouteBadge } from './RouteBadge.tsx';
 
 /**
@@ -27,6 +28,8 @@ export function AlertCard({
   const active = isActive(alert, now);
   const starts = active ? null : nextStart(alert, now);
   const named = routes ? alert.routeIds.map((id) => routes.get(id)).filter((r) => r !== undefined) : [];
+  // From the agency's feed, so only used when it is plainly a web page.
+  const moreUrl = safeWebUrl(alert.url);
 
   return (
     <details className={`alert-card alert-card--${meta.tone}${active ? '' : ' is-upcoming'}`}>
@@ -57,8 +60,8 @@ export function AlertCard({
             {named.length > 12 && <span className="alert-card__more">+{named.length - 12} more</span>}
           </div>
         )}
-        {alert.url && (
-          <a className="alert-card__link" href={alert.url} target="_blank" rel="noreferrer">
+        {moreUrl && (
+          <a className="alert-card__link" href={moreUrl} target="_blank" rel="noopener noreferrer">
             More from the agency
           </a>
         )}

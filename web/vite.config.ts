@@ -1,5 +1,6 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
@@ -21,10 +22,69 @@ const resolveTsFromJs = {
   },
 };
 
+/**
+ * A Content-Security-Policy for the built page, written into index.html.
+ *
+ * GitHub Pages cannot send response headers, so the policy travels in a
+ * `<meta>` tag, which every browser honours for everything but framing. It
+ * is what stands between a bug that lets someone else's text be treated as
+ * markup — an alert, a stop name, a credit line — and that text running as
+ * code: scripts may only come from this site, plus the one inline script in
+ * index.html, allowed by the hash of its exact contents.
+ *
+ * Network access stays broad on purpose (`https:` for fetches and images):
+ * the feeds, tiles, walking router, aircraft relay and API server are all
+ * configurable at build time or, for debugging, from the console, and
+ * pinning them here would silently break every one of those switches.
+ * Plain http is allowed only for a local server, and for any http address
+ * the build itself was pointed at.
+ *
+ * Builds only: the dev server injects inline scripts of its own.
+ */
+function contentSecurityPolicy(): Plugin {
+  const httpOrigins = new Set<string>(['http://localhost:*', 'http://127.0.0.1:*']);
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('VITE_') || !value) continue;
+    for (const match of value.matchAll(/http:\/\/[^/\s,{}]+/g)) httpOrigins.add(match[0]);
+  }
+  return {
+    name: 'livetrains-csp',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+          (match) => `'sha256-${createHash('sha256').update(match[1]).digest('base64')}'`,
+        );
+        const policy = [
+          "default-src 'self'",
+          `script-src 'self' ${inline.join(' ')}`.trim(),
+          // MapLibre falls back to a blob: worker when its worker is cross-origin.
+          "worker-src 'self' blob:",
+          "child-src 'self' blob:",
+          `connect-src 'self' https: ${[...httpOrigins].join(' ')}`,
+          // Map tiles, the aerial imagery, aircraft photos; data: for icons in CSS.
+          "img-src 'self' data: blob: https:",
+          "style-src 'self'",
+          "font-src 'self' data:",
+          "manifest-src 'self'",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join('; ');
+        return html.replace(
+          /(<meta charset="UTF-8" \/>)/,
+          `$1\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`,
+        );
+      },
+    },
+  };
+}
+
 export default defineConfig({
   // Pages serves the app from /<repo>/, so the base path is set by the build.
   base: process.env.VITE_BASE ?? '/',
-  plugins: [resolveTsFromJs, react()],
+  plugins: [resolveTsFromJs, react(), contentSecurityPolicy()],
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('../server/src/shared', import.meta.url)),
