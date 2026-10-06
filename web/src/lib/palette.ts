@@ -59,9 +59,8 @@ export interface Palette {
   badge: string;
   badgeText: string;
   /**
-   * Aircraft overhead: the yellow of the classic flight trackers, faded so
-   * it reads as scenery rather than service, and kept clear of the amber
-   * that means "late" and of every route colour.
+   * Aircraft overhead: the bright yellow of the classic flight trackers,
+   * kept clear of the amber that means "late" and of every route colour.
    */
   plane: string;
 }
@@ -100,7 +99,7 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#0B0E14',
     badge: '#1B212C',
     badgeText: '#E6EAF0',
-    plane: '#E6D48A',
+    plane: '#FFD60A',
   },
   light: {
     bg: '#E9ECF0',
@@ -135,6 +134,6 @@ export const PALETTES: Record<'dark' | 'light', Palette> = {
     casing: '#E9ECF0',
     badge: '#FFFFFF',
     badgeText: '#0B0E14',
-    plane: '#A08423',
+    plane: '#C99A00',
   },
 };

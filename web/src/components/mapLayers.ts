@@ -485,7 +485,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   });
 
   // --- Aircraft overhead -----------------------------------------------------------
-  // Scenery, not service: thin faint-yellow silhouettes beneath every bus and train,
+  // Scenery, not service: thin yellow silhouettes beneath every bus and train,
   // fainter and a touch smaller the higher they fly, so the jets crossing at
   // 35,000ft recede and the arrivals low over the river are the ones you
   // notice. No beams, no route colour, a name only once you are close or
@@ -967,7 +967,7 @@ const PLANE_ALTITUDE_SCALE: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0
  * plane, if there is one, is always drawn in full.
  */
 export function planeOpacity(dim: number, selectedId: string | null): Expr {
-  const byHeight: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 0.95 * dim, 8000, 0.88 * dim, 30000, 0.65 * dim];
+  const byHeight: Expr = ['interpolate', ['linear'], ['get', 'alt'], 0, 1 * dim, 8000, 0.95 * dim, 30000, 0.82 * dim];
   const base: Expr = ['case', flag('stale'), ['*', 0.4, byHeight], byHeight];
   return selectedId ? ['case', ['==', ['get', 'id'], selectedId], 1, base] : base;
 }
