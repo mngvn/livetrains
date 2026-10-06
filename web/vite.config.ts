@@ -118,6 +118,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // The browsers Vite 6 built for by default. Vite 7 raised its default to
+    // Safari/iOS 16.4, Chrome 111 and Firefox 114, which leaves MapLibre's
+    // class static blocks in the bundle: a syntax error on older phones that
+    // stops the whole app loading. Keep lowering syntax for the riders who
+    // still carry them.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
     rolldownOptions: {
       output: {
         // MapLibre is by far the largest dependency and changes rarely. Giving
