@@ -1,4 +1,4 @@
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import type { Palette } from '../lib/palette.ts';
 import { MODE_TO_GLYPH, PLANE_ICON, VEHICLE_ICON } from './mapIcons.ts';
 
@@ -17,6 +17,22 @@ import { MODE_TO_GLYPH, PLANE_ICON, VEHICLE_ICON } from './mapIcons.ts';
 type Expr = maplibregl.ExpressionSpecification;
 
 export const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+/**
+ * Reads and writes a paint property named at runtime.
+ *
+ * MapLibre types every paint property's value separately, which a table of
+ * (layer, property, value) rows — the dimming list below, the theme sync —
+ * cannot express. The values are this app's own constants, so the check is
+ * given up here, in one place, rather than cast at every call.
+ */
+export function setPaint(map: maplibregl.Map, layer: string, property: string, value: unknown): void {
+  (map.setPaintProperty as (layer: string, name: string, value: unknown) => void).call(map, layer, property, value);
+}
+
+export function getPaint(map: maplibregl.Map, layer: string, property: string): unknown {
+  return (map.getPaintProperty as (layer: string, name: string) => unknown).call(map, layer, property);
+}
 
 /** Map text, in the faces the glyph server actually has. */
 export const FONT_REGULAR = ['Noto Sans Regular'];
@@ -852,7 +868,7 @@ export function revealLines(
  */
 export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
   const set = (layer: string, property: string, value: unknown) => {
-    if (map.getLayer(layer)) map.setPaintProperty(layer, property, value);
+    if (map.getLayer(layer)) setPaint(map, layer, property, value);
   };
   set('network-casing', 'line-color', p.casing);
   set('isochrone-fill', 'fill-color', p.text);
@@ -928,7 +944,7 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   const lineFocus = ids ? onRoutes(ids, 'routeId') : null;
   const stopFocus = ids ? onRoutes(ids, 'routeKey') : null;
   const set = (layer: string, property: string, value: unknown) => {
-    if (map.getLayer(layer)) map.setPaintProperty(layer, property, value);
+    if (map.getLayer(layer)) setPaint(map, layer, property, value);
   };
 
   set('network-line', 'line-opacity', networkOpacity(lineFocus));

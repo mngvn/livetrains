@@ -97,8 +97,10 @@ export class PlaneRelay {
     if (this.cached && Date.now() - this.cached.at < 60_000) return this.cached.response;
     const error = new Error(
       `No aircraft feed answered${lastError instanceof Error ? ` (${lastError.message})` : ''}`,
-    ) as Error & { statusCode?: number };
+    ) as Error & { statusCode?: number; expose?: boolean };
     error.statusCode = 502;
+    // Which feed failed and how is useful to the client, and holds nothing private.
+    error.expose = true;
     throw error;
   }
 }

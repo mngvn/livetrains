@@ -15,6 +15,11 @@
  *   npx wrangler deploy relay/planes-worker.js --name livetrains-planes \
  *     --compatibility-date 2026-01-01
  *
+ * ALLOWED_ORIGINS is a browser control: browsers send an honest Origin header
+ * and enforce the answer, so other sites cannot use this relay from their
+ * pages. A script outside a browser can claim any origin it likes; what
+ * keeps that cheap is the shared five-second cache, not the origin check.
+ *
  * then build the site with
  *
  *   VITE_PLANES_URL=https://livetrains-planes.<you>.workers.dev/planes/{lat}/{lon}/{radius}
@@ -50,6 +55,8 @@ function corsHeaders(origin) {
     'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, OPTIONS',
     'access-control-max-age': '86400',
+    // The answer is data, never something for a browser to sniff into a page.
+    'x-content-type-options': 'nosniff',
     ...(origin === '*' ? {} : { vary: 'Origin' }),
   };
 }

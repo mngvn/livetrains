@@ -39,7 +39,16 @@ export interface PlaneDetails {
 
 const API = 'https://api.adsbdb.com/v0';
 
+/**
+ * Lookups remembered for the visit, most recent last. Only tapped planes are
+ * looked up, so this stays small, but it is capped all the same: a page left
+ * open on a busy evening should not keep every plane it was ever asked about.
+ */
 const cache = new Map<string, Promise<PlaneDetails>>();
+const CACHE_SIZE = 200;
+
+/** A lookup that has not answered by now is not going to be worth waiting for. */
+const LOOKUP_TIMEOUT_MS = 10_000;
 
 type Json = Record<string, unknown>;
 const str = (value: unknown): string | undefined =>
@@ -56,14 +65,19 @@ function airport(value: unknown): Airport | null {
   return { iata: iata ?? icao!, icao: icao ?? iata!, name: str(a.name) ?? '', city: str(a.municipality) ?? '', lat, lon };
 }
 
-async function getJson(url: string, signal?: AbortSignal): Promise<Json | null> {
+async function getJson(url: string): Promise<Json | null> {
+  // A plain timer rather than AbortSignal.timeout, which older iPhones lack.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { signal });
+    const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) return null;
     const body = (await response.json()) as { response?: unknown };
     return body.response && typeof body.response === 'object' ? (body.response as Json) : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -107,6 +121,10 @@ export function lookUpPlane(plane: Pick<Plane, 'id' | 'callsign'>): Promise<Plan
       };
     })();
     cache.set(key, pending);
+    if (cache.size > CACHE_SIZE) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
     // Nothing found may be a network blip rather than an unknown plane:
     // forget it, so tapping the plane again asks again.
     void pending.then((found) => {

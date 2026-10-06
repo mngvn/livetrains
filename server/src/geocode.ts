@@ -99,6 +99,18 @@ export function parseCoordinates(query: string): Place | null {
   };
 }
 
+/**
+ * Nominatim's usage policy, which the optional address search keeps to: at
+ * most one request a second from the whole application, an identifying
+ * User-Agent, and answers cached rather than asked again. The public server
+ * blocks clients that do otherwise, and a server-side search box fed by
+ * every keystroke of every visitor would do otherwise within minutes.
+ */
+const NOMINATIM_INTERVAL_MS = 1_000;
+const ADDRESS_CACHE_MS = 60 * 60 * 1000;
+const ADDRESS_CACHE_SIZE = 500;
+const USER_AGENT = 'livetrains/0.1 (+https://github.com/mngvn/livetrains)';
+
 export interface GeocodeOptions {
   limit?: number;
   /** Bias results toward this point, when the client knows where the user is. */
@@ -108,6 +120,11 @@ export interface GeocodeOptions {
 }
 
 export class Geocoder {
+  /** When Nominatim was last asked, for the one-a-second rule. */
+  private lastAddressLookup = 0;
+  /** Recent address answers, oldest first (a Map keeps insertion order). */
+  private readonly addressCache = new Map<string, { at: number; places: Place[] }>();
+
   constructor(
     private readonly store: GtfsStore,
     private readonly agencyId: string,
@@ -198,11 +215,29 @@ export class Geocoder {
     const local = this.searchLocal(query, options);
     if (!this.nominatimUrl || local.length >= limit || parseCoordinates(query)) return local;
 
+    const wanted = limit - local.length;
+    const bias =
+      options.nearLat !== undefined && options.nearLon !== undefined
+        ? `${options.nearLat.toFixed(2)},${options.nearLon.toFixed(2)}`
+        : '';
+    const cacheKey = `${normalise(query)}|${bias}|${wanted}`;
+    const cached = this.addressCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ADDRESS_CACHE_MS) {
+      // Refreshed in the recency order, so popular searches stay.
+      this.addressCache.delete(cacheKey);
+      this.addressCache.set(cacheKey, cached);
+      return [...local, ...cached.places].slice(0, limit);
+    }
+    // Over the rate: answer from the local index now. The client searches
+    // again on the next keystroke, which will usually be allowed through.
+    if (Date.now() - this.lastAddressLookup < NOMINATIM_INTERVAL_MS) return local;
+    this.lastAddressLookup = Date.now();
+
     try {
       const url = new URL('/search', this.nominatimUrl);
       url.searchParams.set('q', query);
       url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('limit', String(limit - local.length));
+      url.searchParams.set('limit', String(wanted));
       url.searchParams.set('addressdetails', '0');
       if (options.nearLat !== undefined && options.nearLon !== undefined) {
         // A viewbox around the rider keeps "3rd st" local rather than global.
@@ -214,30 +249,36 @@ export class Geocoder {
       }
 
       const response = await fetch(url, {
-        headers: { 'user-agent': 'livetrains/0.1 (transit trip planner)' },
+        headers: { 'user-agent': USER_AGENT },
         signal: AbortSignal.timeout(5_000),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const payload = (await response.json()) as {
-        place_id?: number;
-        lat: string;
-        lon: string;
-        name?: string;
-        display_name: string;
-      }[];
+      const payload = (await response.json()) as unknown;
+      if (!Array.isArray(payload)) throw new Error('unexpected response');
 
-      const addresses: Place[] = payload.map((item) => {
-        const parts = item.display_name.split(',').map((p) => p.trim());
-        return {
-          id: `osm:${item.place_id ?? `${item.lat},${item.lon}`}`,
-          name: item.name || parts[0],
+      // Read defensively: this is another service's answer, and a place
+      // without a usable position is no use to a trip planner.
+      const addresses: Place[] = [];
+      for (const item of payload as { place_id?: unknown; lat?: unknown; lon?: unknown; name?: unknown; display_name?: unknown }[]) {
+        const lat = Number(item?.lat);
+        const lon = Number(item?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+        const parts = String(item.display_name ?? '').split(',').map((p) => p.trim());
+        addresses.push({
+          id: `osm:${typeof item.place_id === 'number' ? item.place_id : `${lat},${lon}`}`,
+          name: (typeof item.name === 'string' && item.name) || parts[0] || `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
           detail: parts.slice(1, 4).join(', '),
-          lat: Number(item.lat),
-          lon: Number(item.lon),
+          lat,
+          lon,
           kind: 'address' as const,
-        };
-      });
+        });
+      }
+      this.addressCache.set(cacheKey, { at: Date.now(), places: addresses });
+      if (this.addressCache.size > ADDRESS_CACHE_SIZE) {
+        const oldest = this.addressCache.keys().next().value;
+        if (oldest !== undefined) this.addressCache.delete(oldest);
+      }
       return [...local, ...addresses].slice(0, limit);
     } catch (err) {
       // Address search is a bonus; never fail the whole query over it.

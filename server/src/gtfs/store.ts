@@ -241,6 +241,15 @@ export class GtfsStore {
   /** Grid cell size in degrees latitude; ~1.1km, a good fit for walk radii. */
   private static readonly CELL_DEG = 0.01;
   private grid = new Map<number, number[]>();
+  /**
+   * The rows and columns that hold any stop at all.
+   *
+   * A query's cell range is clipped to this. Without it the scan is sized by
+   * the query alone, and a degree of longitude shrinks towards nothing at the
+   * poles: a search at latitude 90 asked for some 10^16 columns, which froze
+   * the server (or a visitor's tab) on a single request.
+   */
+  private gridExtent = { rowMin: 0, rowMax: -1, colMin: 0, colMax: -1 };
 
   get stopTimeCount(): number {
     return this.stopTimeStop.length;
@@ -708,23 +717,27 @@ export class GtfsStore {
   // Derived indexes
   // -------------------------------------------------------------------------
 
-  private cellKey(lat: number, lon: number): number {
-    const cell = GtfsStore.CELL_DEG;
-    // Pack (row, col) into one integer key; 100000 columns is ample for 360deg.
-    return Math.floor(lat / cell) * 100_000 + Math.floor(lon / cell);
-  }
-
   private buildSpatialIndex(): void {
+    const cell = GtfsStore.CELL_DEG;
     this.grid = new Map();
+    const extent = { rowMin: Infinity, rowMax: -Infinity, colMin: Infinity, colMax: -Infinity };
     for (let i = 0; i < this.stops.length; i++) {
-      const key = this.cellKey(this.stops[i].lat, this.stops[i].lon);
+      const row = Math.floor(this.stops[i].lat / cell);
+      const col = Math.floor(this.stops[i].lon / cell);
+      // Pack (row, col) into one integer key; 100000 columns is ample for 360deg.
+      const key = row * 100_000 + col;
       let bucket = this.grid.get(key);
       if (!bucket) {
         bucket = [];
         this.grid.set(key, bucket);
       }
       bucket.push(i);
+      extent.rowMin = Math.min(extent.rowMin, row);
+      extent.rowMax = Math.max(extent.rowMax, row);
+      extent.colMin = Math.min(extent.colMin, col);
+      extent.colMax = Math.max(extent.colMax, col);
     }
+    this.gridExtent = this.stops.length > 0 ? extent : { rowMin: 0, rowMax: -1, colMin: 0, colMax: -1 };
   }
 
   private buildRoutesAtStop(): void {
@@ -766,8 +779,15 @@ export class GtfsStore {
     const colTo = Math.floor((lon + lonSpan) / cell);
 
     const found: { index: number; distance: number }[] = [];
-    for (let row = rowFrom; row <= rowTo; row++) {
-      for (let col = colFrom; col <= colTo; col++) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !(radiusMeters >= 0)) return found;
+    // Only cells that can hold a stop: see `gridExtent`.
+    const extent = this.gridExtent;
+    const firstRow = Math.max(rowFrom, extent.rowMin);
+    const lastRow = Math.min(rowTo, extent.rowMax);
+    const firstCol = Math.max(colFrom, extent.colMin);
+    const lastCol = Math.min(colTo, extent.colMax);
+    for (let row = firstRow; row <= lastRow; row++) {
+      for (let col = firstCol; col <= lastCol; col++) {
         const bucket = this.grid.get(row * 100_000 + col);
         if (!bucket) continue;
         for (const index of bucket) {
@@ -840,6 +860,19 @@ export class GtfsStore {
     return pts;
   }
 }
+
+/**
+ * The largest GTFS file read, uncompressed, and the most read in total.
+ *
+ * Each file becomes one JavaScript string, and V8 cannot build a string much
+ * past 512MB, so a bigger file fails regardless. An archive that claims one
+ * is far likelier to be malformed or hostile — a "zip bomb" that inflates a
+ * few kilobytes into gigabytes — than a timetable. Checking the sizes the
+ * archive declares, before inflating anything, turns that into a clear error
+ * instead of an out-of-memory crash. Metro Transit's feed is about 60MB.
+ */
+export const MAX_GTFS_FILE_BYTES = 512 * 1024 * 1024;
+export const MAX_GTFS_TOTAL_BYTES = 1024 * 1024 * 1024;
 
 /** The GTFS files this server reads. Anything else in the zip is ignored. */
 export const GTFS_FILES = [

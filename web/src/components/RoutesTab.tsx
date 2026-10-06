@@ -6,6 +6,7 @@ import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
 import { ShareButton } from './ShareButton.tsx';
 import { shareUrl } from '../lib/shareLink.ts';
+import { linkHost, safeWebUrl } from '../lib/safeUrl.ts';
 
 /**
  * Every route, and the one being looked at.
@@ -51,6 +52,11 @@ export function RoutesTab({
 
   const active = activeDetail?.route ?? (activeRouteId ? routesById.get(activeRouteId) : undefined);
   const operator = active?.operator;
+  // Both from the feed's agency.txt: a website that is not a web address is
+  // left out (and no longer takes the page down with it, as an unparseable
+  // one did), and a phone number keeps only what a dialler dials.
+  const operatorUrl = safeWebUrl(operator?.url);
+  const operatorPhone = operator?.phone?.replace(/[^0-9+*#,;]/g, '') ?? '';
   const alerts = activeDetail ? sortAlerts(activeDetail.alerts, now) : [];
 
   return (
@@ -68,13 +74,13 @@ export function RoutesTab({
             </div>
           </header>
 
-          {operator && (operator.phone || operator.url) && (
+          {operator && (operatorPhone || operatorUrl) && (
             <p className="route-card__contact">
-              {operator.phone && <a href={`tel:${operator.phone}`}>{operator.phone}</a>}
-              {operator.phone && operator.url && ' · '}
-              {operator.url && (
-                <a href={operator.url} target="_blank" rel="noreferrer">
-                  {new URL(operator.url).hostname.replace(/^www\./, '')}
+              {operatorPhone && <a href={`tel:${operatorPhone}`}>{operator.phone}</a>}
+              {operatorPhone && operatorUrl && ' · '}
+              {operatorUrl && (
+                <a href={operatorUrl} target="_blank" rel="noopener noreferrer">
+                  {linkHost(operatorUrl)}
                 </a>
               )}
             </p>

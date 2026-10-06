@@ -13,6 +13,11 @@ on:
     - cron: '0 9 * * 1'
   workflow_dispatch:
 
+# Read-only: this job only fetches public feeds and runs a script. Without
+# this it would get whatever default the repository grants the token.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

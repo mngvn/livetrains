@@ -12,6 +12,7 @@ import '@fontsource/inter-tight/latin-700.css';
 import '@fontsource/inter-tight/latin-800.css';
 import './styles.css';
 import { App } from './App.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { registerServiceWorker } from './lib/offline.ts';
 
 const container = document.getElementById('root');
@@ -21,6 +22,8 @@ registerServiceWorker();
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

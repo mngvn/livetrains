@@ -1,0 +1,19 @@
+# Keeps dependencies from drifting into known vulnerabilities, as they had
+# when this was added (nine npm advisories, three critical). Minor and patch
+# updates arrive together as one weekly pull request; majors on their own,
+# since they can need code changes (MapLibre 5 -> 6 did).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

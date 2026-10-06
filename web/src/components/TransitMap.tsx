@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import maplibregl, { type LngLatBoundsLike, type MapGeoJSONFeature } from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import type { LngLatBoundsLike, MapGeoJSONFeature } from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { AgencyInfo, Itinerary, RouteNetwork, RouteSummary, StopSummary, VehicleTrip } from '../lib/api.ts';
 import { approachFeatures, findApproaches, type ApproachStop } from '../lib/approach.ts';
 import { splitLineAt } from '../lib/geometry.ts';
@@ -11,6 +13,7 @@ import { distanceKm, greatCircle } from '../lib/planeBound.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
+import { escapeHtml } from '../lib/safeUrl.ts';
 import { registerVehicleIcons } from './mapIcons.ts';
 import {
   DARK_FALLBACK_STYLE,
@@ -27,7 +30,9 @@ import {
   GROUP_BELOW_ZOOM,
   JOURNEY_DIMMING,
   ensureLayers,
+  getPaint,
   revealLines,
+  setPaint,
   stopBadgeFilter,
   syncGroundTexture,
   namePlanes,
@@ -38,6 +43,14 @@ import {
 } from './mapLayers.ts';
 import type { JourneyPlayback } from '../lib/journeyPlayback.ts';
 import { trailAt } from '../lib/journey.ts';
+
+/**
+ * MapLibre 6 ships its tile worker as a separate module and finds it next to
+ * its own file. Bundled, its own file is a hashed chunk with no worker beside
+ * it, so the worker is built as an entry of its own and pointed at here,
+ * before any map exists.
+ */
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 /**
  * The live map.
@@ -454,7 +467,11 @@ export function TransitMap({
 
     instance.addControl(new NetworkViewControl(() => agency.bbox), 'bottom-right');
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    attributionControl.current = new maplibregl.AttributionControl({ compact: true, customAttribution: agency.name });
+    // MapLibre renders attribution as HTML; the agency's name is text.
+    attributionControl.current = new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: escapeHtml(agency.name),
+    });
     instance.addControl(attributionControl.current, 'bottom-left');
     instance.addControl(
       new maplibregl.GeolocateControl({
@@ -511,7 +528,7 @@ export function TransitMap({
     instance.on('styledata', rebuild);
 
     instance.on('error', (event) => {
-      const failure = event as { error?: Error; sourceId?: string };
+      const failure = event as { error?: { message?: string }; sourceId?: string };
       // MapLibre tags source and tile failures with the source they came from.
       // Those are local and transient — one aerial tile that will not load, a
       // vector source that has no buildings here — and recovering from them by
@@ -604,6 +621,10 @@ export function TransitMap({
       instance.remove();
       map.current = null;
       ready.current = false;
+      // Let go of the console handle too, or a removed map (and its GL
+      // context's worth of buffers) stays reachable after a remount.
+      const debug = window as unknown as { __livetrainsMap?: maplibregl.Map };
+      if (debug.__livetrainsMap === instance) delete debug.__livetrainsMap;
     };
     // Rebuilding the map on agency change is correct — it is a different city.
   }, [agency.bbox, agency.name]);
@@ -1183,7 +1204,7 @@ export function TransitMap({
     instance.removeControl(attributionControl.current);
     attributionControl.current = new maplibregl.AttributionControl({
       compact: true,
-      customAttribution: planeAttribution ? [agency.name, planeAttribution] : agency.name,
+      customAttribution: planeAttribution ? [escapeHtml(agency.name), planeAttribution] : escapeHtml(agency.name),
     });
     instance.addControl(attributionControl.current, 'bottom-left');
   }, [planeAttribution, agency.name]);
@@ -1388,8 +1409,8 @@ function applyJourneyFocus(map: maplibregl.Map, p: Palette): () => void {
 
   for (const { layer, property, value } of JOURNEY_DIMMING) {
     if (!map.getLayer(layer)) continue;
-    saved.push({ layer, property, value: map.getPaintProperty(layer, property) });
-    map.setPaintProperty(layer, property, value);
+    saved.push({ layer, property, value: getPaint(map, layer, property) });
+    setPaint(map, layer, property, value);
   }
 
   if (!map.getLayer(FOCUS_SCRIM)) {
@@ -1409,7 +1430,7 @@ function applyJourneyFocus(map: maplibregl.Map, p: Palette): () => void {
       // A style swap during playback drops the layers; there is nothing to
       // restore, and the rebuilt style already carries the original values.
       if (!map.getLayer(layer)) continue;
-      map.setPaintProperty(layer, property, value);
+      setPaint(map, layer, property, value);
     }
     if (map.getLayer(FOCUS_SCRIM)) map.removeLayer(FOCUS_SCRIM);
   };

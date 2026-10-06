@@ -10,6 +10,7 @@ import {
 } from '../lib/planeInfo.ts';
 import { distanceToKm, type Airport, type PlaneDetails } from '../lib/planeLookup.ts';
 import { flyingTime, type Bound } from '../lib/planeBound.ts';
+import { safeWebUrl } from '../lib/safeUrl.ts';
 
 /**
  * The selected aircraft: who it is, where it is going, how high and how fast.
@@ -44,6 +45,8 @@ export function PlanePanel({
   const loaded = details !== 'loading' && details !== null ? details : null;
   const name = flightName(plane);
   const aircraft = loaded?.aircraft ?? null;
+  // A crowd-sourced address, loaded without a tap: web images only, over https.
+  const photo = safeWebUrl(aircraft?.photo, { upgrade: true });
   const type = aircraftType(plane, aircraft);
   const mph = planeSpeedMph(plane);
   const trend = planeTrend(plane);
@@ -95,10 +98,10 @@ export function PlanePanel({
       <section className="panel-section">
         <h3 className="panel-section__title">Aircraft</h3>
         <div className="plane-panel__aircraft">
-          {aircraft?.photo && (
+          {photo && (
             <img
               className="plane-panel__photo"
-              src={aircraft.photo}
+              src={photo}
               alt={type ? `A ${type}` : 'The aircraft'}
               loading="lazy"
               referrerPolicy="no-referrer"

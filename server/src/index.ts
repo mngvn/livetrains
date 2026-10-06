@@ -9,18 +9,55 @@ import { log } from './log.js';
 import { registerApi } from './routes/api.js';
 import { TransitService } from './service.js';
 
+/**
+ * Headers every response carries.
+ *
+ * The page's own Content-Security-Policy travels in index.html, so the
+ * static GitHub Pages build has one too; these are the parts only a server
+ * can send. `frame-ancestors` keeps the app out of other sites' frames, where
+ * a transparent overlay could steer taps meant for something else.
+ */
+function applySecurityHeaders(reply: { header: (name: string, value: string) => unknown }): void {
+  reply.header('x-content-type-options', 'nosniff');
+  reply.header('referrer-policy', 'strict-origin-when-cross-origin');
+  reply.header('content-security-policy', "frame-ancestors 'self'");
+  reply.header('x-frame-options', 'SAMEORIGIN');
+  // Location is the only powerful feature the app uses, and only on itself.
+  reply.header('permissions-policy', 'geolocation=(self), camera=(), microphone=(), payment=(), usb=()');
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const service = new TransitService(config);
 
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'warn' },
-    // Behind a proxy the client's real address matters for rate limiting and
-    // for building absolute URLs in logs.
-    trustProxy: true,
+    // Behind a proxy the client's real address is what rate limiting keys on,
+    // so whose forwarded address to believe is the operator's call — and
+    // nobody's by default. See `trustProxy` in config.ts.
+    // A hop count is spelled as a function for Fastify's types; proxy-addr
+    // reads the number the same way.
+    trustProxy:
+      typeof config.trustProxy === 'number'
+        ? ((hops: number) => (_address: string, hop: number) => hop < hops)(config.trustProxy)
+        : config.trustProxy,
+    // The API only answers GETs; nothing it accepts has a body worth more.
+    bodyLimit: 16 * 1024,
+    // Live vehicle streams never go idle, so on shutdown they are cut rather
+    // than waited on.
+    forceCloseConnections: true,
   });
 
-  await app.register(cors, { origin: true });
+  // The API is public, read-only and cookie-free, so any origin may read it
+  // unless the operator narrows it with CORS_ORIGINS.
+  await app.register(cors, {
+    origin: config.corsOrigins ?? true,
+    methods: ['GET', 'HEAD', 'OPTIONS'],
+  });
+  app.addHook('onSend', async (_request, reply, payload) => {
+    applySecurityHeaders(reply);
+    return payload;
+  });
   await registerApi(app, service);
 
   if (config.serveStatic) {

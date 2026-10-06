@@ -10,6 +10,16 @@ Starts with **Metro Transit** in the Minneapolis–St Paul metro. Because it is
 built on GTFS and GTFS-Realtime — open standards used by thousands of agencies
 worldwide — adding another city is a config entry rather than a rewrite.
 
+## Documentation
+
+- [How it works](docs/HOW_IT_WORKS.md) — the whole system, from the feeds to
+  the pixels: timetable loading, RAPTOR routing, realtime, the map, aircraft,
+  offline, performance.
+- [Third-party services, data and software](docs/THIRD_PARTY.md) — every
+  external service and dataset, what is sent to each, licences and terms.
+- [Security](docs/SECURITY.md) — the security model, review findings and
+  deployment recommendations.
+
 ## What it does
 
 **On the map**
@@ -384,6 +394,8 @@ relay the same way, with `livetrains.planesUrl` (empty turns them off).
 
 ## Configuration
 
+### Server
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | API server port |
@@ -391,11 +403,27 @@ relay the same way, with `livetrains.planesUrl` (empty turns them off).
 | `LIVETRAINS_MOCK` | off | Serve the synthetic demo feed; no network used |
 | `SERVE_STATIC` | off in dev | Serve the built web client from the API server |
 | `AGENCY_ID` | `metro-transit` | Which registered agency to serve |
-| `REALTIME_POLL_SECONDS` | `15` | GTFS-Realtime polling interval |
+| `REALTIME_POLL_SECONDS` | `15` | GTFS-Realtime polling interval (never under 5) |
 | `GTFS_MAX_AGE_HOURS` | `24` | How long the cached GTFS archive is reused |
 | `PLANNER_MAX_WALK_METERS` | `1200` | Longest access/egress walk, measured as walking distance |
 | `PLANNER_WALK_SPEED` | `1.33` | Walking speed, m/s (~3 mph) |
 | `PLANNER_WALK_CIRCUITY` | `1.35` | Real walking distance ÷ straight-line distance, used to weigh candidate trips. `1` disables the correction |
+| `PLANNER_MAX_TRANSFERS` | `3` | Transfer ceiling |
+| `NOMINATIM_URL` | unset | Optional address search; local stop and landmark search always works. Kept to Nominatim's usage policy (≤ 1 request/s, cached) |
+| `PLANES_FEEDS` | adsb.lol, then adsb.fi | Aircraft feed URL templates tried in order, comma-separated, with `{lat}`, `{lon}` and `{radius}` (nautical miles). Empty turns planes off |
+| `LOG_LEVEL` | `warn` | Fastify log level |
+
+### Running on the open internet
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TRUST_PROXY` | off | Behind a reverse proxy, which forwarded address to believe: `true`, a hop count, or the proxies' IPs/CIDRs. Off, `X-Forwarded-For` is ignored so clients cannot choose their own rate-limit bucket |
+| `CORS_ORIGINS` | any | Comma-separated origins allowed to call the API from a browser |
+| `RATE_LIMIT_PER_MINUTE` | `600` | API requests per client per minute; `0` turns limiting off |
+| `PLAN_RATE_LIMIT_PER_MINUTE` | `60` | Trip plans and reachability maps per client per minute |
+| `MAX_STREAMS_PER_CLIENT` | `8` | Live vehicle streams one client may hold open |
+
+See [docs/SECURITY.md](docs/SECURITY.md) for what these protect against.
 
 ### Walking directions
 
@@ -412,13 +440,10 @@ which is keyless and CORS-enabled — that is what makes real walking directions
 possible from a static site with no server and no sign-up. **It is a demo
 endpoint.** It is fine for one person's map and the wrong thing to point real
 traffic at; if this gets an audience, run your own Valhalla and set the
-variable. Results are cached for the life of the page, walks over 5km are not
-routed, and anything that fails falls back to the straight line, so the app
-works unchanged with no router at all.
-| `PLANNER_MAX_TRANSFERS` | `3` | Transfer ceiling |
-| `NOMINATIM_URL` | unset | Optional address search; local stop and landmark search always works |
-| `PLANES_FEEDS` | adsb.lol, then adsb.fi | Aircraft feed URL templates tried in order, comma-separated, with `{lat}`, `{lon}` and `{radius}` (nautical miles). Empty turns planes off |
-| `LOG_LEVEL` | `warn` | Fastify log level |
+variable. It also receives the start of the first walk, which is the rider's
+own position when they plan from "My location". Results are cached while the
+page is open, walks over 5km are not routed, and anything that fails falls
+back to the straight line, so the app works unchanged with no router at all.
 
 ### Web build (browser mode)
 
@@ -458,6 +483,7 @@ environment.
 | `GET /api/geocode?q` | Search stops, landmarks, coordinates |
 | `GET /api/reverse-geocode?lat&lon` | Name a dropped pin |
 | `GET /api/plan?fromLat&fromLon&toLat&toLon` | Ranked itineraries |
+| `GET /api/network` | Every route's simplified shape, as GeoJSON |
 | `GET /api/alerts` | All active service alerts |
 | `GET /api/planes` | Aircraft over the agency's area, relayed from adsb.lol / adsb.fi (simulated in mock mode) |
 
@@ -468,6 +494,9 @@ including one in the past.
 The vehicle stream is Server-Sent Events rather than WebSockets: the traffic is
 one-directional and periodic, which is what SSE is for, and it survives proxies
 and reconnects without a heartbeat protocol to maintain.
+
+Every endpoint is rate-limited per client (see **Running on the open
+internet** above); a client over its budget gets `429` with `Retry-After`.
 
 ## Development
 
@@ -502,8 +531,14 @@ not pass near the plane.
 Basemap tiles from [OpenFreeMap](https://openfreemap.org/), map data ©
 [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors. If the
 basemap is unreachable the map falls back to a plain background and keeps
-drawing vehicles, stops and routes — only the street imagery is lost.
+drawing vehicles, stops and routes — only the street imagery is lost. Aerial
+imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community.
+Walking paths from [FOSSGIS's Valhalla](https://valhalla1.openstreetmap.de/),
+over OpenStreetMap data.
 
-Set in [Barlow and Barlow Condensed](https://tribby.com/fonts/barlow/) by
-Jeremy Tribby, under the SIL Open Font License, self-hosted through
-Fontsource so no font request leaves the app's own origin.
+Every external service and library, with what is sent to each and its
+licence or terms, is listed in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+
+Set in [Inter and Inter Tight](https://rsms.me/inter/) by Rasmus Andersson,
+under the SIL Open Font License, self-hosted through Fontsource so no font
+request leaves the app's own origin.
