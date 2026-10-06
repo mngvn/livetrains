@@ -37,6 +37,17 @@ const MAX_TRANSFER_WALK_METERS = 800;
 /** How far around a starting stop counts as "at" it, for a reachability search. */
 const ORIGIN_WALK_METERS = 250;
 
+/** Walking paces a request may ask for, metres per second: about 0.7 to 6.7 mph. */
+const MIN_WALK_SPEED = 0.3;
+const MAX_WALK_SPEED = 3;
+
+/**
+ * How far from now a trip may be planned. A timetable covers months, not
+ * years, and a time far outside any date the calendar code can represent
+ * would otherwise surface as an exception rather than an answer.
+ */
+const MAX_PLAN_OFFSET_SECONDS = 366 * 86_400;
+
 export interface PlannerOptions {
   maxWalkMeters: number;
   walkSpeed: number;
@@ -86,13 +97,26 @@ export class Planner {
   }
 
   plan(request: PlanRequest): PlanResponse {
-    const walkSpeed = request.walkSpeed && request.walkSpeed > 0 ? request.walkSpeed : this.options.walkSpeed;
+    // Every number here can arrive from a URL, so each is held to what a
+    // person could mean: a pace between a shuffle and a run, a time within
+    // the life of a timetable, and a point that is on the Earth.
+    const walkSpeed = clamp(
+      request.walkSpeed && request.walkSpeed > 0 ? request.walkSpeed : this.options.walkSpeed,
+      MIN_WALK_SPEED,
+      MAX_WALK_SPEED,
+    );
     const maxWalk = clamp(request.maxWalkMeters ?? this.options.maxWalkMeters, 100, 5_000);
     const maxTransfers = clamp(request.maxTransfers ?? this.options.maxTransfers, 0, 6);
     const now = Math.floor(Date.now() / 1000);
 
     const from = toPlace(request.fromLat, request.fromLon, 'Origin');
     const to = toPlace(request.toLat, request.toLon, 'Destination');
+    if (!onEarth(from) || !onEarth(to)) {
+      return { from, to, itineraries: [], message: 'Those coordinates are not a place on the map.' };
+    }
+    if (request.departAt !== undefined && !(Math.abs(request.departAt - now) <= MAX_PLAN_OFFSET_SECONDS)) {
+      return { from, to, itineraries: [], message: 'Trips can only be planned within a year of today.' };
+    }
 
     const directWalk = estimateWalk(
       haversineMeters(from.lat, from.lon, to.lat, to.lon),
@@ -546,6 +570,12 @@ interface SearchContext {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function onEarth(place: { lat: number; lon: number }): boolean {
+  return (
+    Number.isFinite(place.lat) && Number.isFinite(place.lon) && Math.abs(place.lat) <= 90 && Math.abs(place.lon) <= 180
+  );
 }
 
 function toPlace(lat: number, lon: number, name: string): Place {

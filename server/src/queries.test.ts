@@ -167,3 +167,28 @@ describe('searchTransit', () => {
     expect(searchTransit(store, '   ')).toEqual([]);
   });
 });
+
+describe('store: nearby stops stay cheap wherever they are asked about', () => {
+  // A degree of longitude shrinks to nothing at the poles, so a query sized by
+  // its own span alone once scanned some 10^16 grid columns at latitude 90 and
+  // never returned: one request froze the whole server.
+  it('answers at once at the poles and far outside the feed', () => {
+    const started = Date.now();
+    expect(store.nearbyStops(90, 0, 800)).toEqual([]);
+    expect(store.nearbyStops(-90, 179.9, 5_000)).toEqual([]);
+    expect(store.nearbyStops(89.9999, -93.26, 12_000)).toEqual([]);
+    expect(store.nearbyStops(1e9, 1e9, 800)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it('returns nothing for coordinates that are not numbers', () => {
+    expect(store.nearbyStops(Number.NaN, -93.26, 800)).toEqual([]);
+    expect(store.nearbyStops(44.97, Number.POSITIVE_INFINITY, 800)).toEqual([]);
+  });
+
+  it('still finds the stops near a real point', () => {
+    const near = store.nearbyStops(44.9784, -93.2699, 400);
+    expect(near.length).toBeGreaterThan(0);
+    expect(near.map((n) => store.stops[n.index].id)).toContain('BL03');
+  });
+});

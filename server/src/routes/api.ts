@@ -7,20 +7,52 @@ import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
 import { reachableFrom } from '../reachability.js';
 import { PlaneRelay } from '../planes.js';
+import { ConnectionCounter, RateLimiter } from '../rateLimit.js';
 
 function numberParam(value: unknown, fallback: number): number {
   const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
   return Number.isFinite(n) ? n : fallback;
 }
 
-function requireCoordinate(value: unknown, name: string): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) throw new BadRequest(`"${name}" must be a number`);
+/** A whole-number parameter held to a range: a negative limit is not a request for fewer than none. */
+function intParam(value: unknown, fallback: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(numberParam(value, fallback))));
+}
+
+/** A latitude or longitude, which must be a number and on the Earth. */
+function requireCoordinate(value: unknown, name: string, bound: 90 | 180): number {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  if (!Number.isFinite(n) || Math.abs(n) > bound) {
+    throw new BadRequest(`"${name}" must be a number between -${bound} and ${bound}`);
+  }
   return n;
 }
 
+const latitude = (value: unknown, name = 'lat') => requireCoordinate(value, name, 90);
+const longitude = (value: unknown, name = 'lon') => requireCoordinate(value, name, 180);
+
+/** Longest search text worth reading; nobody types a paragraph into a stop search. */
+const MAX_QUERY_LENGTH = 200;
+
+function queryText(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, MAX_QUERY_LENGTH) : '';
+}
+
+/** Live vehicle streams across every client, whatever each one holds. */
+const MAX_STREAMS_OVERALL = 5_000;
+
+/** Paths that run a full timetable search, and so have a budget of their own. */
+const EXPENSIVE_PATH = /^\/api\/(plan|stops\/[^/]+\/reachable)$/;
+
+/** An error whose message is written for the client, whatever its status. */
 class BadRequest extends Error {
   readonly statusCode = 400;
+  readonly expose = true;
+}
+
+/** One Server-Sent Events frame. */
+function sseEvent(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 /** 503 until the feed has finished loading, so clients can retry sensibly. */
@@ -35,18 +67,47 @@ function requireReady(service: TransitService): asserts service is TransitServic
       service.loadError
         ? `The transit feed could not be loaded: ${service.loadError}`
         : 'The transit feed is still loading. Try again in a moment.',
-    ) as Error & { statusCode?: number };
+    ) as Error & { statusCode?: number; expose?: boolean };
     error.statusCode = 503;
+    error.expose = true;
     throw error;
   }
 }
 
 export async function registerApi(app: FastifyInstance, service: TransitService): Promise<void> {
-  app.setErrorHandler((error: unknown, _request, reply) => {
-    const status = (error as { statusCode?: number })?.statusCode ?? 500;
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    if (status >= 500) app.log.error(error);
+  app.setErrorHandler((error: unknown, request, reply) => {
+    const { statusCode, expose } = (error ?? {}) as { statusCode?: unknown; expose?: unknown };
+    const status = typeof statusCode === 'number' && statusCode >= 400 && statusCode < 600 ? statusCode : 500;
+    // A client error's message is about the request and is meant to be read.
+    // An unexpected failure's message is about the server — a file path, an
+    // internal name — so it goes to the log, and the client gets a plain
+    // answer, unless it was written for them (the 503 while loading, say).
+    const readable = status < 500 || expose === true;
+    if (status >= 500) request.log.error(error);
+    const message = readable && error instanceof Error ? error.message : 'Internal server error';
     void reply.status(status).send({ error: message });
+  });
+
+  // --- Budgets ---------------------------------------------------------------
+  // Every API request counts against a generous per-client budget; trip plans
+  // and reachability maps, which are whole timetable searches, also against a
+  // tighter one. The live stream is limited by connections instead.
+  const general = new RateLimiter(service.config.rateLimitPerMinute);
+  const expensive = new RateLimiter(service.config.planRateLimitPerMinute);
+  const streams = new ConnectionCounter(service.config.maxStreamsPerClient, MAX_STREAMS_OVERALL);
+  app.addHook('onClose', async () => {
+    general.stop();
+    expensive.stop();
+  });
+  app.addHook('onRequest', async (request, reply) => {
+    const path = request.url.split('?', 1)[0];
+    if (!path.startsWith('/api/') || path === '/api/vehicles/stream') return;
+    const decision = general.take(request.ip);
+    const heavy = EXPENSIVE_PATH.test(path) ? expensive.take(request.ip) : null;
+    const refused = !decision.allowed ? decision : heavy && !heavy.allowed ? heavy : null;
+    if (!refused) return;
+    void reply.header('retry-after', String(refused.retryAfterSeconds));
+    return reply.status(429).send({ error: 'Too many requests from this address. Try again in a moment.' });
   });
 
   // ---------------------------------------------------------------------
@@ -93,10 +154,10 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
     '/api/stops/nearby',
     async (request: FastifyRequest<{ Querystring: { lat?: string; lon?: string; radius?: string; limit?: string } }>) => {
       requireReady(service);
-      const lat = requireCoordinate(request.query.lat, 'lat');
-      const lon = requireCoordinate(request.query.lon, 'lon');
-      const radius = Math.min(numberParam(request.query.radius, 800), 5_000);
-      const limit = Math.min(numberParam(request.query.limit, 20), 100);
+      const lat = latitude(request.query.lat);
+      const lon = longitude(request.query.lon);
+      const radius = intParam(request.query.radius, 800, 0, 5_000);
+      const limit = intParam(request.query.limit, 20, 1, 100);
 
       return service.store
         .nearbyStops(lat, lon, radius, limit)
@@ -120,7 +181,7 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
         throw new BadRequest('"bbox" must be "west,south,east,north"');
       }
       const [west, south, east, north] = parts;
-      const limit = Math.min(numberParam(request.query.limit, 300), 1_000);
+      const limit = intParam(request.query.limit, 300, 1, 1_000);
 
       const out = [];
       for (let i = 0; i < service.store.stops.length && out.length < limit; i++) {
@@ -138,7 +199,7 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       requireReady(service);
       // `day=1` asks for the full departure board: everything left today.
       const restOfDay = request.query.day === '1' || request.query.day === 'true';
-      const limit = Math.min(numberParam(request.query.limit, 15), restOfDay ? MAX_BOARD_DEPARTURES : 50);
+      const limit = intParam(request.query.limit, 15, 1, restOfDay ? MAX_BOARD_DEPARTURES : 50);
       const detail = stopDetail(service.store, service.patterns, service.realtime, request.params.stopId, limit, restOfDay);
       if (!detail) throw new BadRequest(`Unknown stop "${request.params.stopId}"`);
       return detail;
@@ -194,44 +255,94 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
    * which is exactly what SSE is for, and it survives proxies and reconnects
    * on its own without a heartbeat protocol to maintain.
    */
+  /**
+   * The last unfiltered frame, serialised once and shared.
+   *
+   * Every open map without a filter gets the same bytes on each update, so
+   * a hundred viewers cost one JSON.stringify of the fleet rather than a
+   * hundred. Keyed on the fleet object (replaced on every poll) and the
+   * trip-update version (delays are recomputed in place when predictions
+   * land), so it can never serve a frame older than the data.
+   */
+  let sharedFrame: { vehicles: Map<string, Vehicle>; version: number; text: string } | null = null;
+  const vehicleFrame = (routeId?: string, bbox?: string): string => {
+    const realtime = service.realtime;
+    if (!routeId && !bbox) {
+      if (sharedFrame?.vehicles !== realtime.vehicles || sharedFrame.version !== realtime.tripUpdateVersion) {
+        sharedFrame = {
+          vehicles: realtime.vehicles,
+          version: realtime.tripUpdateVersion,
+          text: sseEvent('vehicles', { vehicles: [...realtime.vehicles.values()], timestamp: realtime.lastVehicleUpdate }),
+        };
+      }
+      return sharedFrame.text;
+    }
+    const vehicles = filterVehicles([...realtime.vehicles.values()], routeId, bbox);
+    return sseEvent('vehicles', { vehicles, timestamp: realtime.lastVehicleUpdate });
+  };
+
+  /**
+   * A live stream of vehicle positions over Server-Sent Events.
+   *
+   * SSE rather than WebSockets: the traffic is one-directional and periodic,
+   * which is exactly what SSE is for, and it survives proxies and reconnects
+   * on its own without a heartbeat protocol to maintain.
+   */
   app.get(
     '/api/vehicles/stream',
     (request: FastifyRequest<{ Querystring: { routeId?: string; bbox?: string } }>, reply: FastifyReply) => {
+      // Each stream holds a socket and a listener for as long as it is open,
+      // so they are counted per client rather than per request.
+      const release = streams.acquire(request.ip);
+      if (!release) {
+        void reply
+          .status(429)
+          .header('retry-after', '30')
+          .send({ error: 'Too many live streams are open from this address.' });
+        return;
+      }
+
+      // From here the response is written by hand. Hijacking tells Fastify so,
+      // and the headers its hooks have already set — CORS above all, without
+      // which a client on another origin cannot read the stream — are carried
+      // into the head explicitly.
+      reply.hijack();
+      const carried = Object.fromEntries(
+        Object.entries(reply.getHeaders()).filter((entry): entry is [string, string | number | string[]] => entry[1] !== undefined),
+      );
       reply.raw.writeHead(200, {
+        ...carried,
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
+        'x-content-type-options': 'nosniff',
         // Disable proxy buffering, which would otherwise hold events back.
         'x-accel-buffering': 'no',
       });
 
-      const send = (event: string, data: unknown) => {
-        if (reply.raw.writableEnded) return;
-        reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const { routeId, bbox } = request.query;
+      const write = (text: string) => {
+        if (!reply.raw.writableEnded && !reply.raw.destroyed) reply.raw.write(text);
       };
-
-      const push = () => {
-        const vehicles = filterVehicles(
-          [...service.realtime.vehicles.values()],
-          request.query.routeId,
-          request.query.bbox,
-        );
-        send('vehicles', { vehicles, timestamp: service.realtime.lastVehicleUpdate });
-      };
+      const push = () => write(vehicleFrame(routeId, bbox));
 
       push();
       const unsubscribe = service.onVehiclesUpdated(push);
       // Comment frames keep intermediaries from closing an idle connection.
-      const keepAlive = setInterval(() => {
-        if (!reply.raw.writableEnded) reply.raw.write(': keep-alive\n\n');
-      }, 25_000);
+      const keepAlive = setInterval(() => write(': keep-alive\n\n'), 25_000);
 
+      let closed = false;
       const close = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(keepAlive);
         unsubscribe();
+        release();
         if (!reply.raw.writableEnded) reply.raw.end();
       };
-      request.raw.on('close', close);
+      // The response closes when the client goes away, whichever way it goes.
+      reply.raw.on('close', close);
+      reply.raw.on('error', close);
       request.raw.on('error', close);
     },
   );
@@ -244,14 +355,16 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
     '/api/geocode',
     async (request: FastifyRequest<{ Querystring: { q?: string; lat?: string; lon?: string; limit?: string } }>) => {
       requireReady(service);
-      const query = (request.query.q ?? '').trim();
+      const query = queryText(request.query.q);
       if (!query) return [];
       const nearLat = request.query.lat !== undefined ? Number(request.query.lat) : undefined;
       const nearLon = request.query.lon !== undefined ? Number(request.query.lon) : undefined;
+      const near =
+        nearLat !== undefined && nearLon !== undefined && Math.abs(nearLat) <= 90 && Math.abs(nearLon) <= 180;
       return service.geocoder.search(query, {
-        limit: Math.min(numberParam(request.query.limit, 8), 20),
-        nearLat: Number.isFinite(nearLat) ? nearLat : undefined,
-        nearLon: Number.isFinite(nearLon) ? nearLon : undefined,
+        limit: intParam(request.query.limit, 8, 1, 20),
+        nearLat: near ? nearLat : undefined,
+        nearLon: near ? nearLon : undefined,
       });
     },
   );
@@ -259,17 +372,14 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
   /** Routes and stops by name, number or stop code. */
   app.get('/api/search', async (request: FastifyRequest<{ Querystring: { q?: string; limit?: string } }>) => {
     requireReady(service);
-    return searchTransit(service.store, request.query.q ?? '', Math.min(numberParam(request.query.limit, 12), 30));
+    return searchTransit(service.store, queryText(request.query.q), intParam(request.query.limit, 12, 1, 30));
   });
 
   app.get(
     '/api/reverse-geocode',
     async (request: FastifyRequest<{ Querystring: { lat?: string; lon?: string } }>) => {
       requireReady(service);
-      return service.geocoder.reverse(
-        requireCoordinate(request.query.lat, 'lat'),
-        requireCoordinate(request.query.lon, 'lon'),
-      );
+      return service.geocoder.reverse(latitude(request.query.lat), longitude(request.query.lon));
     },
   );
 
@@ -301,10 +411,10 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
       const to = parseCoordinates(query.to ?? '') ?? null;
 
       const plan: PlanRequest = {
-        fromLat: from ? from.lat : requireCoordinate(query.fromLat, 'fromLat'),
-        fromLon: from ? from.lon : requireCoordinate(query.fromLon, 'fromLon'),
-        toLat: to ? to.lat : requireCoordinate(query.toLat, 'toLat'),
-        toLon: to ? to.lon : requireCoordinate(query.toLon, 'toLon'),
+        fromLat: from ? from.lat : latitude(query.fromLat, 'fromLat'),
+        fromLon: from ? from.lon : longitude(query.fromLon, 'fromLon'),
+        toLat: to ? to.lat : latitude(query.toLat, 'toLat'),
+        toLon: to ? to.lon : longitude(query.toLon, 'toLon'),
         departAt: query.departAt ? numberParam(query.departAt, 0) || undefined : undefined,
         arriveBy: query.arriveBy === 'true' || query.arriveBy === '1',
         maxWalkMeters: query.maxWalk ? numberParam(query.maxWalk, 0) || undefined : undefined,

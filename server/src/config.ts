@@ -8,6 +8,29 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/** A whole number that may be zero (zero usually meaning "off"). */
+function count(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+/**
+ * Whose word to take for a client's address: Fastify's `trustProxy`.
+ *
+ * Off unless set. Trusting `X-Forwarded-For` from anyone would let a client
+ * name its own address, and with it its own rate-limit bucket. Behind a
+ * reverse proxy, set it to `true`, to the number of proxy hops, or to the
+ * proxies' addresses (comma-separated IPs or CIDRs).
+ */
+function trustProxy(value: string | undefined): boolean | number | string {
+  const text = value?.trim() ?? '';
+  if (text === '' || /^(false|no|off)$/i.test(text)) return false;
+  if (/^(true|yes|on)$/i.test(text)) return true;
+  if (/^\d+$/.test(text)) return Number(text);
+  return text;
+}
+
 function bool(value: string | undefined, fallback = false): boolean {
   if (value === undefined) return fallback;
   return /^(1|true|yes|on)$/i.test(value.trim());
@@ -66,6 +89,16 @@ export interface ServerConfig {
    * `{radius}` (nautical miles) are filled in. Empty turns planes off.
    */
   planeFeeds: string[];
+  /** See `trustProxy` above. */
+  trustProxy: boolean | number | string;
+  /** Origins allowed to call the API from a browser; null allows any. */
+  corsOrigins: string[] | null;
+  /** API requests per client per minute; 0 turns the limit off. */
+  rateLimitPerMinute: number;
+  /** Trip plans and reachability maps per client per minute: the expensive ones. */
+  planRateLimitPerMinute: number;
+  /** Live vehicle streams one client may hold open at once. */
+  maxStreamsPerClient: number;
   planner: {
     maxWalkMeters: number;
     walkSpeed: number;
@@ -88,13 +121,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: num(env.PORT, 8080),
     host: env.HOST?.trim() || '0.0.0.0',
     mock: bool(env.LIVETRAINS_MOCK),
-    realtimePollSeconds: num(env.REALTIME_POLL_SECONDS, 15),
+    // Not faster than every five seconds: the feeds are someone else's
+    // servers, and they do not refresh faster than that anyway.
+    realtimePollSeconds: Math.max(5, num(env.REALTIME_POLL_SECONDS, 15)),
     gtfsMaxAgeHours: num(env.GTFS_MAX_AGE_HOURS, 24),
     serveStatic: bool(env.SERVE_STATIC, process.env.NODE_ENV === 'production'),
     planeFeeds:
       env.PLANES_FEEDS === undefined
         ? DEFAULT_PLANE_FEEDS
         : env.PLANES_FEEDS.split(',').map((url) => url.trim()).filter(Boolean),
+    trustProxy: trustProxy(env.TRUST_PROXY),
+    corsOrigins: env.CORS_ORIGINS?.trim()
+      ? env.CORS_ORIGINS.split(',').map((origin) => origin.trim().replace(/\/$/, '')).filter(Boolean)
+      : null,
+    rateLimitPerMinute: count(env.RATE_LIMIT_PER_MINUTE, 600),
+    planRateLimitPerMinute: count(env.PLAN_RATE_LIMIT_PER_MINUTE, 60),
+    maxStreamsPerClient: Math.max(1, count(env.MAX_STREAMS_PER_CLIENT, 8)),
     planner: {
       maxWalkMeters: num(env.PLANNER_MAX_WALK_METERS, 1200),
       walkSpeed: num(env.PLANNER_WALK_SPEED, 1.33),
