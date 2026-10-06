@@ -103,7 +103,9 @@ worldwide — adding another city is a config entry rather than a rewrite.
 - **Service alerts** everywhere they matter: on the stops and routes they
   actually affect (a single closed stop is not shown as a whole-route
   problem), marked in the route list, and all together in an Alerts tab that
-  filters by kind and by route.
+  filters by kind and by route. While it is open the map shows the same
+  alerts: affected stops as coloured dots, gathered into counted discs at
+  network scale, and lines with a route-wide alert brought forward.
 - **Always says how fresh it is.** "42 vehicles moving right now · Updated
   8s ago", ticking. If the feed goes quiet the vehicles turn grey and the
   status line says so; if the agency stops answering it says that too, and
@@ -484,7 +486,7 @@ environment.
 | `GET /api/reverse-geocode?lat&lon` | Name a dropped pin |
 | `GET /api/plan?fromLat&fromLon&toLat&toLon` | Ranked itineraries |
 | `GET /api/network` | Every route's simplified shape, as GeoJSON |
-| `GET /api/alerts` | All active service alerts |
+| `GET /api/alerts` | All active service alerts, and where each stop they name is |
 | `GET /api/planes` | Aircraft over the agency's area, relayed from adsb.lol / adsb.fi (simulated in mock mode) |
 
 `/api/plan` also accepts `departAt` (epoch seconds), `arriveBy=true`, `maxWalk`,

@@ -856,6 +856,14 @@ export function App() {
   const { alerts, places: alertPlacesList } = useAlerts(source.alerts, engine.state === 'ready');
   /** What the alerts view is showing after its filters, mirrored on the map. */
   const [shownAlerts, setShownAlerts] = useState<ServiceAlert[]>([]);
+  // The view rebuilds its list on every one-second tick. Keep the same array
+  // while it holds the same alerts, or the map's markers below would be
+  // rebuilt, and the clusters redrawn, every second as well.
+  const showAlerts = useCallback((shown: ServiceAlert[]) => {
+    setShownAlerts((prev) =>
+      prev.length === shown.length && prev.every((alert, i) => alert === shown[i]) ? prev : shown,
+    );
+  }, []);
   // Alerts start and end on the minute at the finest; redrawing the map's
   // markers on every one-second tick would only make the clusters churn.
   const alertMinute = Math.floor(now / 60) * 60;
@@ -1439,7 +1447,7 @@ export function App() {
               now={now}
               routes={routesById}
               onShowRoute={openRoute}
-              onShownChange={setShownAlerts}
+              onShownChange={showAlerts}
             />
           )}
         </div>

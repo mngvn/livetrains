@@ -24,8 +24,9 @@ import {
   type BasemapId,
 } from './basemaps.ts';
 import {
+  ALERT_PULSE_RINGS,
   APPROACH_FROM_ZOOM,
-  alertPulseRadius,
+  alertPulseSpread,
   EMPTY,
   GROUND_PLANES_FROM_ZOOM,
   GROUP_BELOW_ZOOM,
@@ -328,11 +329,13 @@ class NetworkViewControl implements maplibregl.IControl {
 
 /** Layers a tap can land on, most specific first. */
 const PICKABLE_LAYERS = [
-  'vehicles-hit',
-  'vehicle-groups-circle',
-  // Alerted stops are drawn over the aircraft, so they come first too.
+  // Alerted stops are only drawn while the alerts view is open, and then
+  // they are what a tap means. Below the vehicles they would never be
+  // reached: at network scale every cluster sits under a bus or a group.
   'alerts-cluster',
   'alerts-dot',
+  'vehicles-hit',
+  'vehicle-groups-circle',
   // Beneath the vehicles, as they are drawn: where a plane passes over a
   // bus the bus is what a tap means, but anywhere else the plane is its own
   // thing to tap.
@@ -576,7 +579,8 @@ export function TransitMap({
         { layers },
       );
       if (hits.length === 0) return null;
-      // Vehicles over groups over stops, whatever order they were drawn in.
+      // Alerts (while shown) over vehicles over groups over stops, whatever
+      // order they were drawn in.
       hits.sort((a, b) => PICKABLE_LAYERS.indexOf(a.layer.id) - PICKABLE_LAYERS.indexOf(b.layer.id));
       // Except that a tap right on a plane means the plane. A bus's hit
       // target is generous, and planes cross busy streets: without this, a
@@ -1236,24 +1240,30 @@ export function TransitMap({
   }, [alerts, setData, styleEpoch]);
 
   // A slow ripple off whatever is severe and in force, only while there is
-  // something to ripple. Restyling one layer a few times a second is cheap.
-  const hasAlerts = (alerts?.features.length ?? 0) > 0;
+  // something to ripple. Every ring is sized by a plain number, so restyling
+  // them is a repaint, not a re-tiling of the source.
+  const rippling = alerts?.features.some((f) => f.properties?.rank === 0 && f.properties?.active === true) ?? false;
   useEffect(() => {
     const instance = map.current;
-    if (!instance || !hasAlerts) return;
+    if (!instance || !rippling) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const beat = 2400;
+    const restyle = (spread: number, opacity: number) => {
+      for (const ring of ALERT_PULSE_RINGS) {
+        if (!instance.getLayer(ring.id)) continue;
+        instance.setPaintProperty(ring.id, 'circle-radius', ring.radius + spread);
+        instance.setPaintProperty(ring.id, 'circle-stroke-opacity', opacity);
+      }
+    };
     const timer = window.setInterval(() => {
-      if (!instance.getLayer('alerts-pulse')) return;
       const phase = (performance.now() % beat) / beat;
-      instance.setPaintProperty('alerts-pulse', 'circle-radius', alertPulseRadius(phase));
-      instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0.7 * (1 - phase));
+      restyle(alertPulseSpread(phase), 0.7 * (1 - phase));
     }, 1000 / 24);
     return () => {
       window.clearInterval(timer);
-      if (instance.getLayer('alerts-pulse')) instance.setPaintProperty('alerts-pulse', 'circle-stroke-opacity', 0);
+      restyle(alertPulseSpread(0), 0);
     };
-  }, [hasAlerts, styleEpoch]);
+  }, [rippling, styleEpoch]);
 
   // Every stop drawn, by id, for linking arriving vehicles to their stops.
   useEffect(() => {

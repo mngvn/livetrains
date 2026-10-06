@@ -64,12 +64,23 @@ function alertTone(p: Palette): Expr {
 }
 
 /**
- * The ripple's size `phase` of the way (0–1) through one beat: from the
- * marker's edge outwards. No zoom term, so it can be restyled every frame.
+ * The ripple's rings, one layer per marker size, each sized by a plain
+ * number. A radius that read `point_count` would be data-driven, and MapLibre
+ * re-tiles a source whenever one of those is restyled: two dozen times a
+ * second, for a ripple. The cluster sizes are `ALERT_CLUSTER_RADIUS`'s steps.
  */
-export function alertPulseRadius(phase: number): Expr {
-  const spread = 4 + phase * 14;
-  return ['+', ['case', ['has', 'point_count'], ALERT_CLUSTER_RADIUS, 6], spread];
+export const ALERT_PULSE_RINGS: { id: string; marker: Expr; radius: number }[] = [
+  { id: 'alerts-pulse', marker: ['!', ['has', 'point_count']], radius: 6 },
+  ...[11, 14, 18].map((radius) => ({
+    id: `alerts-pulse-${radius}`,
+    marker: ['all', ['has', 'point_count'], ['==', ALERT_CLUSTER_RADIUS, radius]] as Expr,
+    radius,
+  })),
+];
+
+/** How far past its marker's edge the ripple is, `phase` (0–1) through one beat. */
+export function alertPulseSpread(phase: number): number {
+  return 4 + phase * 14;
 }
 const NOT_GROUPED: Expr = ['!', flag('grouped')];
 
@@ -684,19 +695,21 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   // cluster with the worst tone as its ring, and one dot per stop once
   // zoomed in; only what is severe and in force right now gets the slow
   // ripple.
-  map.addLayer({
-    id: 'alerts-pulse',
-    type: 'circle',
-    source: 'alerts',
-    filter: ['all', ['==', ['get', 'rank'], 0], ALERT_LIVE],
-    paint: {
-      'circle-radius': alertPulseRadius(0),
-      'circle-color': 'transparent',
-      'circle-stroke-color': alertTone(p),
-      'circle-stroke-width': 1.6,
-      'circle-stroke-opacity': 0,
-    },
-  });
+  for (const ring of ALERT_PULSE_RINGS) {
+    map.addLayer({
+      id: ring.id,
+      type: 'circle',
+      source: 'alerts',
+      filter: ['all', ring.marker, ['==', ['get', 'rank'], 0], ALERT_LIVE],
+      paint: {
+        'circle-radius': ring.radius + alertPulseSpread(0),
+        'circle-color': 'transparent',
+        'circle-stroke-color': alertTone(p),
+        'circle-stroke-width': 1.6,
+        'circle-stroke-opacity': 0,
+      },
+    });
+  }
   map.addLayer({
     id: 'alerts-cluster',
     type: 'circle',
@@ -1027,7 +1040,9 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
   set('plane-ahead-end', 'circle-stroke-color', p.plane);
   set('plane-ahead-label', 'text-color', p.text);
   set('plane-ahead-label', 'text-halo-color', p.halo);
-  for (const layer of ['alerts-cluster', 'alerts-pulse']) set(layer, 'circle-stroke-color', alertTone(p));
+  for (const layer of ['alerts-cluster', ...ALERT_PULSE_RINGS.map((ring) => ring.id)]) {
+    set(layer, 'circle-stroke-color', alertTone(p));
+  }
   set('alerts-cluster', 'circle-color', p.surface2);
   set('alerts-cluster-count', 'text-color', p.text);
   set('alerts-dot', 'circle-color', alertTone(p));
