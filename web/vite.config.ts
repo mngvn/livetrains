@@ -118,14 +118,20 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // MapLibre is by far the largest dependency and changes rarely. Giving
         // it its own chunk lets the browser cache it across app deploys, and
         // lets the sheet render while the map engine is still arriving.
-        manualChunks: {
-          maplibre: ['maplibre-gl'],
-          react: ['react', 'react-dom'],
+        // Rolldown has no object form of `manualChunks`; these groups are
+        // its equivalent. They match script modules only, so styles stay in
+        // one stylesheet and the `?worker&url` import of MapLibre's worker
+        // stays with the code that imports it.
+        codeSplitting: {
+          groups: [
+            { name: 'maplibre', test: /[\\/]node_modules[\\/]maplibre-gl[\\/][^?]*\.m?js$/ },
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/][^?]*\.js$/ },
+          ],
         },
       },
     },
