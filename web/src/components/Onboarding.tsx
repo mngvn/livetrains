@@ -20,8 +20,8 @@ const STEPS: Step[] = [
     title: 'Every bus and train, live',
     body: (
       <>
-        Each dot is a vehicle, coloured by its route — rounded squares are trains, circles are buses. The light
-        beams make them easy to spot from far out, and counted circles group them when you zoom right out.
+        Each dot is a vehicle, coloured by its route — rounded squares are trains, circles are buses. Zoom right
+        out and the busiest spots gather into counted circles.
       </>
     ),
     art: <ArtVehicles />,
@@ -186,7 +186,6 @@ function ArtVehicles() {
         [215, 40, '#0b5fa5', false],
       ].map(([x, y, color, rail], i) => (
         <g key={i}>
-          <path d={`M${Number(x) - 2.5} ${y} L${Number(x) - 0.5} ${Number(y) - 48} L${Number(x) + 0.5} ${Number(y) - 48} L${Number(x) + 2.5} ${y} Z`} fill={String(color)} opacity="0.3" />
           {rail ? (
             <rect x={Number(x) - 7} y={Number(y) - 7} width="14" height="14" rx="1.5" fill={String(color)} stroke="var(--bg)" strokeWidth="2" />
           ) : (

@@ -185,19 +185,10 @@ export function App() {
   const [panelHidden, togglePanel] = usePersistedFlag('livetrains.panelHidden');
 
   /**
-   * Whether vehicles throw their colour beams.
-   *
-   * On by default, because the beams are what makes the wide view readable —
-   * but they are a deliberate piece of visual noise, and someone studying one
-   * corridor may well want the map bare. Remembered like the panel is.
-   */
-  const [beamsVisible, toggleBeams] = usePersistedFlag('livetrains.beams', true);
-
-  /**
    * Whether vehicles gather into counted groups at metro zoom.
    *
    * On by default: seven hundred markers at city scale are unreadable. Off
-   * for anyone who would rather see every dot and let the beams do the work.
+   * for anyone who would rather see every dot.
    */
   const [groupVehicles, toggleGroupVehicles] = usePersistedFlag('livetrains.group', true);
 
@@ -1058,7 +1049,6 @@ export function App() {
         onSelectStop={showStop}
         onMapClick={handleMapClick}
         onViewportChange={setViewport}
-        showBeams={beamsVisible}
         groupVehicles={groupVehicles}
         basemap={basemap}
         dark={theme.resolved === 'dark'}
@@ -1158,8 +1148,6 @@ export function App() {
       <MapLegend
         onReplayTour={() => setShowTour(true)}
         routes={routes}
-        beams={beamsVisible}
-        onToggleBeams={toggleBeams}
         grouped={groupVehicles}
         onToggleGrouped={toggleGroupVehicles}
         planes={planeTemplate ? { on: planesOn, status: planeStatus, onToggle: togglePlanes } : null}

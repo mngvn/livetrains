@@ -586,18 +586,27 @@ more than the animation.
   shape, the selected vehicle's trip (drawn on end to end, then split into
   faded behind / bold ahead), its 20-minute trail, the itinerary, stops (three
   classes) and labels, approach links, endpoints, aircraft (trail, way ahead,
-  icon, label), vehicle beams, vehicle groups, vehicles (dot, glyph, label, hit
-  area), and the journey traveller.
+  icon, label), vehicle groups, vehicles (dot, glyph, label, hit area), and
+  the journey traveller.
 - **Selection dims everything else**: choosing a vehicle, stop, route or plan
   sets a focus; `syncSelectionFocus` rewrites paint properties so unrelated
   lines, stops and vehicles step back.
-- **Grouping** (`lib/grouping.ts`): at metro zoom, vehicles within 26 px on
-  screen gather into counted discs. Only *membership* is recomputed (twice a
-  second, faster while the camera moves); ungrouped vehicles stay on the
-  per-frame layer and keep gliding — map-side clustering would make them step
-  once a second.
-- **Beams**: each vehicle throws a vertical beam in its route colour so a dot
-  is easy to find at city scale; toggleable.
+- **Marker size** follows zoom all the way out. A phone shows the whole metro
+  about a zoom level and a half further out than a laptop, so markers keep
+  shrinking below zoom 11 instead of stopping at a floor that would turn every
+  bus on a phone into a blob.
+- **Grouping** (`lib/grouping.ts`): below zoom 12, vehicles that would pile up
+  on screen gather into counted discs. The merge distance follows the drawn
+  marker size (14 px at metro scale, 22 px near street level), and the discs
+  grow with their count and shrink with zoom. Only *membership* is recomputed
+  (twice a second, faster while the camera moves); ungrouped vehicles stay on
+  the per-frame layer and keep gliding — map-side clustering would make them
+  step once a second.
+- **Credits** (`components/attribution.ts`): MapLibre's compact attribution is
+  shown on arrival and folded into its (i) after five seconds or the first
+  touch of the map, as the OpenStreetMap Foundation's attribution guidelines
+  allow; after that only the rider's taps open or close it, even when the
+  control is rebuilt for a new aircraft credit.
 - **Approach links** (`lib/approach.ts`): zoomed in, a line ties each vehicle
   to the stop it is pulling into (the feed's word if given, else the nearest
   stop ahead on its route within 300 m), turning green while it stands there.
@@ -605,6 +614,10 @@ more than the animation.
   tiles' `render_height`.
 - **Camera padding** follows the panels (measured with `ResizeObserver`), so
   the camera always centres in the part of the map you can see.
+- **On a phone** the planner and the detail panel take turns in one bottom
+  sheet, capped at 46% of the visible height (`--phone-sheet-height`, in
+  dynamic viewport units so browser toolbars do not eat into the map) and
+  see-through: a tint of the panel colour over a blur of the map beneath.
 
 ### 10.2 Moving vehicles (`lib/vehicleTracker.ts`)
 
@@ -750,7 +763,7 @@ faded and dated until live positions replace it.
 | IndexedDB `livetrains` | `observations` | Reliability history for saved trips |
 | IndexedDB `livetrains` | `kv` → `lastVehicles` | Last-known vehicle positions |
 | localStorage | `livetrains.savedTrips` | Saved trips |
-| localStorage | `livetrains.theme`, `.basemap`, `.three`, `.beams`, `.group`, `.planes`, `.panelHidden`, `.onboarded` | Preferences |
+| localStorage | `livetrains.theme`, `.basemap`, `.three`, `.group`, `.planes`, `.panelHidden`, `.onboarded` | Preferences |
 | localStorage | `livetrains.boardFilter.<stopId>` | Per-stop departure-board filters |
 | localStorage | `livetrains.dataMode`, `.apiUrl`, `.planesUrl` | Developer overrides (set from the console) |
 

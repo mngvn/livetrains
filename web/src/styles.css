@@ -1896,16 +1896,55 @@ button {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 720px) {
+  /* How much of a phone the bottom sheet may take: enough for a stop's next
+     departures or a trip's summary, while leaving most of the map in view.
+     Shared by the planner and the detail panel, which take turns in the same
+     place, and by everything that has to clear them. */
+  :root {
+    --phone-sheet-height: 46vh;
+  }
+
+  @supports (height: 1dvh) {
+    :root {
+      /* The visible height, not the height behind the browser's toolbars. */
+      --phone-sheet-height: 46dvh;
+    }
+  }
+
   .sheet {
     top: auto;
     left: 0;
     right: 0;
     bottom: 0;
     width: auto;
-    max-height: 62vh;
+    max-height: var(--phone-sheet-height);
     border-radius: var(--radius) var(--radius) 0 0;
     border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* See-through, so the map still reads behind the panel: a tint of the
+     panel colour over a blur of whatever is underneath. Browsers without
+     color-mix keep the solid panel from the rule above. The detail panel
+     gets the same treatment in its own phone rules, further down. */
+  .sheet {
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    backdrop-filter: blur(14px) saturate(1.3);
+  }
+
+  /* A little tighter, so the shorter sheet still shows its content. */
+  .sheet__header {
+    padding: 10px 14px 8px;
+  }
+
+  .sheet__brand {
+    margin-bottom: 8px;
+    font-size: 19px;
+  }
+
+  .sheet__body {
+    padding: 10px 14px 16px;
   }
 
   .sheet__body,
@@ -1926,7 +1965,7 @@ button {
 @media (max-width: 720px) {
   .maplibregl-ctrl-bottom-right,
   .maplibregl-ctrl-bottom-left {
-    bottom: 63vh;
+    bottom: calc(var(--phone-sheet-height) + 4px);
   }
 }
 
@@ -2312,6 +2351,11 @@ button {
   filter: invert(1);
 }
 
+/* Folded into its (i), the credit is there to be found, not to be noticed. */
+.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) {
+  opacity: 0.7;
+}
+
 .segmented__option:hover {
   color: var(--text);
 }
@@ -2427,7 +2471,7 @@ button {
   line-height: 1.3;
 }
 
-/* The text block, as opposed to a route badge or the beam switch. Named by
+/* The text block, as opposed to a route badge or a switch. Named by
    what it is not rather than by its position, so a row can carry a control
    after its text without the rule quietly stopping to apply. */
 .legend__item > span:not(.legend__badge):not(.legend__switch-knob) {
@@ -3253,13 +3297,21 @@ button {
     right: 0;
     bottom: 0;
     width: auto;
-    height: 62vh;
+    height: var(--phone-sheet-height);
     border-radius: var(--radius) var(--radius) 0 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
     animation: detail-in-phone var(--t-med) var(--ease-out);
+    /* See-through like the planner it takes turns with. */
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    backdrop-filter: blur(14px) saturate(1.3);
+  }
+
+  .detail:not(.has-accent) .detail__bar {
+    background: color-mix(in srgb, var(--surface-2) 70%, transparent);
   }
 
   .app.has-detail .legend,
@@ -3274,7 +3326,7 @@ button {
   .app.has-detail .journey,
   .app.has-detail .journey.is-wide {
     left: 50%;
-    bottom: calc(62vh + 10px);
+    bottom: calc(var(--phone-sheet-height) + 10px);
   }
 
   @keyframes detail-in-phone {

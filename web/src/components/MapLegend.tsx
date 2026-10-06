@@ -20,8 +20,6 @@ import type { PlaneFeedStatus } from '../lib/planeTracker.ts';
 
 interface Props {
   routes: RouteSummary[];
-  beams: boolean;
-  onToggleBeams: () => void;
   grouped: boolean;
   onToggleGrouped: () => void;
   onReplayTour: () => void;
@@ -29,7 +27,7 @@ interface Props {
   planes: { on: boolean; status: PlaneFeedStatus; onToggle: () => void } | null;
 }
 
-export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGrouped, onReplayTour, planes }: Props) {
+export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, planes }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -84,26 +82,6 @@ export function MapLegend({ routes, beams, onToggleBeams, grouped, onToggleGroup
                   Trail
                   <em>where a chosen vehicle has been, last 20 min</em>
                 </span>
-              </li>
-              {/* The one legend row that does something. The legend is where
-                  you come to ask what the beams are, so it is also the most
-                  obvious place to turn them off once you know. */}
-              <li className={`legend__item${beams ? '' : ' is-off'}`}>
-                <Swatch kind="beam" />
-                <span>
-                  Beam
-                  <em>{beams ? 'spots vehicles when zoomed out' : 'hidden'}</em>
-                </span>
-                <button
-                  type="button"
-                  className="legend__switch"
-                  role="switch"
-                  aria-checked={beams}
-                  aria-label="Show vehicle beams"
-                  onClick={onToggleBeams}
-                >
-                  <span className="legend__switch-knob" aria-hidden="true" />
-                </button>
               </li>
               <li className={`legend__item${grouped ? '' : ' is-off'}`}>
                 <Swatch kind="group" />
@@ -258,7 +236,6 @@ function Swatch({
     | 'bus'
     | 'heading'
     | 'trail'
-    | 'beam'
     | 'group'
     | 'network'
     | 'stop'
@@ -308,14 +285,6 @@ function Swatch({
           </defs>
           <path d="M1 12 C 6 12, 8 5, 14 6 S 18 8, 19 8" stroke="url(#legend-trail)" strokeWidth="3" fill="none" strokeLinecap="round" />
           <circle cx="19.5" cy="8" r="3.2" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.2" />
-        </svg>
-      );
-    case 'beam':
-      return (
-        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
-          {/* The shaft tapers rather than fading, which is what the map does. */}
-          <path d="M10.4 13 L11.7 1.5 L12.3 1.5 L13.6 13 Z" fill="#0b5fa5" opacity="0.45" />
-          <circle cx="12" cy="13" r="2.6" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.2" />
         </svg>
       );
     case 'group':

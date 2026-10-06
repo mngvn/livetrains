@@ -14,6 +14,7 @@ import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
 import { escapeHtml } from '../lib/safeUrl.ts';
+import { ATTRIBUTION_SHOW_MS, quietAttribution, type AttributionState, type QuietAttribution } from './attribution.ts';
 import { registerVehicleIcons } from './mapIcons.ts';
 import {
   DARK_FALLBACK_STYLE,
@@ -33,6 +34,7 @@ import {
   JOURNEY_DIMMING,
   ensureLayers,
   getPaint,
+  groupMergeRadius,
   revealLines,
   setPaint,
   stopBadgeFilter,
@@ -84,8 +86,6 @@ interface Props {
   /** A tap on the map that hit nothing: a place to pick, or a click away. */
   onMapClick: (lat: number, lon: number) => void;
   onViewportChange: (bbox: [number, number, number, number]) => void;
-  /** Whether vehicles throw their colour beams. */
-  showBeams: boolean;
   /** Whether vehicles gather into counted groups when zoomed out. */
   groupVehicles: boolean;
   /** Which background the map wears. */
@@ -163,9 +163,8 @@ export type CameraTarget =
 /**
  * Camera tilt in 3D mode.
  *
- * Far enough over to read building height and give the vehicle beams
- * somewhere to stand, short of the angle where the far half of the screen is
- * horizon and the near half is one intersection.
+ * Far enough over to read building height, short of the angle where the far
+ * half of the screen is horizon and the near half is one intersection.
  */
 const PITCH_3D = 55;
 
@@ -195,8 +194,6 @@ const GROUP_REFRESH_MS = 500;
 /** While the camera moves, groups follow it at about this rate. */
 const GROUP_REFRESH_MOVING_MS = 120;
 
-/** Vehicles closer together on screen than this gather into a group. */
-const GROUP_RADIUS_PX = 26;
 
 /** While riding, the camera re-centres on the vehicle this often, gliding between. */
 const FOLLOW_RIDE_MS = 1_500;
@@ -362,7 +359,6 @@ export function TransitMap({
   onSelectStop,
   onMapClick,
   onViewportChange,
-  showBeams,
   groupVehicles,
   basemap,
   dark,
@@ -404,8 +400,6 @@ export function TransitMap({
    * Current props, readable from the map's own listeners and the frame loop,
    * which are attached once and never see later props.
    */
-  const beamsWanted = useRef(showBeams);
-  beamsWanted.current = showBeams;
   const groupWanted = useRef(groupVehicles);
   groupWanted.current = groupVehicles;
   const selectedRef = useRef(selectedVehicleId);
@@ -446,6 +440,9 @@ export function TransitMap({
   const playingRef = useRef(focusJourney);
   playingRef.current = focusJourney;
   const attributionControl = useRef<maplibregl.AttributionControl | null>(null);
+  /** The credit's open state, kept across rebuilds of its control; see attribution.ts. */
+  const attributionState = useRef<AttributionState>({ open: true, settled: false });
+  const quietCredit = useRef<QuietAttribution | null>(null);
 
   const setData = useCallback((id: string, data: GeoJSON.FeatureCollection) => {
     const source = map.current?.getSource(id) as maplibregl.GeoJSONSource | undefined;
@@ -483,6 +480,14 @@ export function TransitMap({
       customAttribution: escapeHtml(agency.name),
     });
     instance.addControl(attributionControl.current, 'bottom-left');
+    quietCredit.current = quietAttribution(instance, attributionState.current);
+    // Shown on arrival, then folded into its (i) after a few seconds or the
+    // first touch of the map, whichever comes first.
+    const foldCredit = () => quietCredit.current?.fold();
+    const foldTimer = window.setTimeout(foldCredit, ATTRIBUTION_SHOW_MS);
+    const canvasContainer = instance.getCanvasContainer();
+    canvasContainer.addEventListener('pointerdown', foldCredit, { passive: true });
+    canvasContainer.addEventListener('wheel', foldCredit, { passive: true });
     instance.addControl(
       new maplibregl.GeolocateControl({
         positionOptions: { enableHighAccuracy: true },
@@ -528,7 +533,7 @@ export function TransitMap({
       if (!instance.getStyle()) return;
       try {
         registerVehicleIcons(instance);
-        if (ensureLayers(instance, paletteRef.current, beamsWanted.current)) setStyleEpoch((epoch) => epoch + 1);
+        if (ensureLayers(instance, paletteRef.current)) setStyleEpoch((epoch) => epoch + 1);
         syncGroundTexture(instance, paletteRef.current);
         syncBuildings(instance, threeWanted.current, paletteRef.current);
       } catch (err) {
@@ -647,6 +652,11 @@ export function TransitMap({
     });
 
     return () => {
+      window.clearTimeout(foldTimer);
+      canvasContainer.removeEventListener('pointerdown', foldCredit);
+      canvasContainer.removeEventListener('wheel', foldCredit);
+      quietCredit.current?.dispose();
+      quietCredit.current = null;
       instance.remove();
       map.current = null;
       ready.current = false;
@@ -705,7 +715,7 @@ export function TransitMap({
           const point = instance.project([v.displayLon, v.displayLat]);
           inputs.push({ id: v.id, x: point.x, y: point.y, lon: v.displayLon, lat: v.displayLat, rail: RAIL_MODES.has(v.mode) });
         }
-        grouping = groupOnScreen(inputs, GROUP_RADIUS_PX);
+        grouping = groupOnScreen(inputs, groupMergeRadius(instance.getZoom()));
         setData('vehicle-groups', {
           type: 'FeatureCollection',
           features: grouping.groups.map((group) => ({
@@ -1210,16 +1220,6 @@ export function TransitMap({
     });
   }, [cameraTarget]);
 
-  // --- Beams on or off ------------------------------------------------------
-  // `styleEpoch` is in the deps because a style swap rebuilds the layer, and
-  // the rebuilt one needs the preference applied to it rather than to the
-  // layer object that has just been discarded.
-  useEffect(() => {
-    const instance = map.current;
-    if (!ready.current || !instance?.getLayer('vehicles-beam')) return;
-    instance.setLayoutProperty('vehicles-beam', 'visibility', showBeams ? 'visible' : 'none');
-  }, [showBeams, styleEpoch]);
-
   // --- Grouping on or off ---------------------------------------------------
   useEffect(() => {
     cameraMoved.current = true;
@@ -1230,12 +1230,15 @@ export function TransitMap({
   useEffect(() => {
     const instance = map.current;
     if (!instance || !attributionControl.current) return;
+    quietCredit.current?.dispose();
     instance.removeControl(attributionControl.current);
     attributionControl.current = new maplibregl.AttributionControl({
       compact: true,
       customAttribution: planeAttribution ? [escapeHtml(agency.name), planeAttribution] : escapeHtml(agency.name),
     });
     instance.addControl(attributionControl.current, 'bottom-left');
+    // The rebuilt control opens itself; this puts it back the way it was.
+    quietCredit.current = quietAttribution(instance, attributionState.current);
   }, [planeAttribution, agency.name]);
 
   // --- Stops ----------------------------------------------------------------

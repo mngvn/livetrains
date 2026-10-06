@@ -17,9 +17,6 @@ import type * as maplibregl from 'maplibre-gl';
 
 /** Marker artwork is drawn at this nominal CSS size; `icon-size` scales it. */
 const ICON_SIZE = 40;
-/** The beam is tall and narrow, so it gets its own canvas shape. */
-const BEAM_WIDTH = 26;
-const BEAM_HEIGHT = 176;
 /** Supersampled so the distance field has sub-pixel accuracy. */
 const PIXEL_RATIO = 2;
 /**
@@ -269,38 +266,6 @@ function withNose(plate: Draw): Draw {
 }
 
 /**
- * The beam: a shaft of the route's colour rising from the vehicle.
- *
- * Zoomed out to a whole metro, a vehicle is a four-pixel dot on a pale map and
- * genuinely hard to find. A vertical streak is far easier for an eye to catch,
- * and where several overlap they pool into a wash that reads as "lots of
- * service here" — so the beams double as a density map.
- *
- * It rises in *screen* space rather than as true 3D geometry. The map is
- * top-down, where an extruded pillar would be an invisible flat square, and a
- * screen-space shaft also survives at any pitch without forcing a tilted view.
- *
- * The taper does the work a gradient would: an SDF is thresholded by the
- * shader, so alpha cannot fade along the shaft's length, but narrowing it to a
- * point reads as a fade anyway.
- */
-const drawBeam: Draw = (ctx, { width, height }) => {
-  const c = width / 2;
-  const baseHalf = width * 0.2;
-  const tipHalf = width * 0.035;
-  // Leave a pixel of headroom so the tip is not clipped by the canvas edge.
-  const top = 1.5;
-
-  ctx.beginPath();
-  ctx.moveTo(c - baseHalf, height);
-  ctx.lineTo(c - tipHalf, top);
-  ctx.lineTo(c + tipHalf, top);
-  ctx.lineTo(c + baseHalf, height);
-  ctx.closePath();
-  ctx.fill();
-};
-
-/**
  * Aircraft, seen from above with the nose up, so `icon-rotate` turns them to
  * their track. Silhouettes rather than plates on purpose: a thin outline has
  * a fraction of a plate's visual weight, which keeps planes in the
@@ -390,7 +355,6 @@ export const VEHICLE_ICONS: Record<string, IconSpec> = {
   'vehicle-ferry-dir': { draw: withNose(drawFerry) },
   'glyph-bus': { draw: drawBusGlyph },
   'glyph-train': { draw: drawTrainGlyph },
-  'vehicle-beam': { draw: drawBeam, box: { width: BEAM_WIDTH, height: BEAM_HEIGHT } },
   'plane-jet': { draw: drawJet },
   'plane-light': { draw: drawLightPlane },
   'plane-heli': { draw: drawHelicopter },

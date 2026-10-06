@@ -41,6 +41,39 @@ export const FONT_BOLD = ['Noto Sans Bold'];
 /** Below this zoom, vehicles that overlap on screen gather into counted discs. */
 export const GROUP_BELOW_ZOOM = 12;
 
+/**
+ * How big a vehicle's plate is drawn, by zoom, as a multiple of its artwork.
+ *
+ * It keeps shrinking as the map zooms out rather than stopping at a floor. A
+ * phone shows the whole metro about a zoom level and a half further out than
+ * a laptop does, and a floor sized for the laptop's view made every bus on a
+ * phone a coin the width of a neighbourhood. From zoom 11 in, the sizes are
+ * what they always were.
+ */
+const VEHICLE_SIZE: Expr = ['interpolate', ['linear'], ['zoom'], 7, 0.26, 9, 0.38, 11, 0.68, 13, 0.9, 16, 1.15];
+
+/** A group's disc: bigger for more vehicles, and smaller the further out the map is. */
+const GROUP_DISC_RADIUS: Expr = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  8,
+  ['step', ['get', 'count'], 7, 10, 8.5, 25, 10, 60, 11.5, 150, 13],
+  11,
+  ['step', ['get', 'count'], 9.5, 10, 11.5, 25, 13.5, 60, 15.5, 150, 18],
+];
+
+/**
+ * How close together, in screen pixels, vehicles must be to gather into one
+ * group at a zoom. Follows the plates' drawn size: close enough that their
+ * plates would pile up, and no further, so groups stay small and local
+ * rather than swallowing a whole downtown into one disc.
+ */
+export function groupMergeRadius(zoom: number): number {
+  const t = Math.min(1, Math.max(0, (zoom - 8) / (GROUP_BELOW_ZOOM - 8)));
+  return 14 + t * 8;
+}
+
 /** From this zoom the busiest bus stops are drawn too, not only line stops. */
 const MAJOR_STOPS_FROM_ZOOM = 12;
 /** Vehicles pulling in to stops are linked to them from this zoom in. */
@@ -164,12 +197,6 @@ function vehicleOpacity(focus: Expr | null): Expr {
   return focus ? ['case', focus, STALE_THEN_LIVE(1, 0.38), 0.2] : STALE_THEN_LIVE(1, 0.38);
 }
 
-function beamOpacity(focus: Expr | null): Expr {
-  // Gone well before the zoom at which you would inspect a single vehicle.
-  const at = (v: number): Expr | number => (focus ? ['case', focus, v, 0] : v);
-  return ['interpolate', ['linear'], ['zoom'], 8, at(0.5), 10.5, at(0.36), 12, at(0.16), 13.5, at(0)] as Expr;
-}
-
 /** Major stops at metro scale, every stop once you are looking at a street. */
 const MAJOR_STOP_RADIUS: Expr = [
   'interpolate',
@@ -193,7 +220,7 @@ const MAJOR_STOP_STROKE: Expr = [
  * Declares every source and layer, once, in draw order. Returns true when it
  * created them, which tells the caller the sources are empty and need filling.
  */
-export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean): boolean {
+export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
   if (map.getLayer('vehicles-hit')) return false;
 
   for (const id of [
@@ -564,8 +591,8 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   // Scenery, not service: thin yellow silhouettes beneath every bus and train,
   // fainter and a touch smaller the higher they fly, so the jets crossing at
   // 35,000ft recede and the arrivals low over the river are the ones you
-  // notice. No beams, no route colour, a name only once you are close or
-  // have chosen one.
+  // notice. No route colour, and a name only once you are close or have
+  // chosen one.
   map.addLayer({
     id: 'plane-trail-line',
     type: 'line',
@@ -786,24 +813,6 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
   });
 
   // --- Vehicles -------------------------------------------------------------------
-  // Beams first, so every marker draws over them. A finding aid for metro
-  // scale, gone by the time a vehicle is big enough to read.
-  map.addLayer({
-    id: 'vehicles-beam',
-    type: 'symbol',
-    source: 'vehicles',
-    filter: ['all', ['!', flag('stale')], NOT_GROUPED],
-    layout: {
-      'icon-image': 'vehicle-beam',
-      visibility: showBeams ? 'visible' : 'none',
-      'icon-anchor': 'bottom',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.95, 11, 0.7, 13, 0.42, 14, 0.3],
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-    },
-    paint: { 'icon-color': ['get', 'color'], 'icon-opacity': beamOpacity(null) },
-  });
-
   // Groups: a disc with a count, drawn where vehicles pile up on screen.
   map.addLayer({
     id: 'vehicle-groups-circle',
@@ -811,7 +820,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     source: 'vehicle-groups',
     paint: {
       'circle-color': p.surface2,
-      'circle-radius': ['step', ['get', 'count'], 11, 10, 14, 25, 17, 60, 21, 150, 26],
+      'circle-radius': GROUP_DISC_RADIUS,
       'circle-stroke-color': ['case', ['>', ['/', ['get', 'rail'], ['get', 'count']], 0.5], p.text, p.muted],
       'circle-stroke-width': 1.6,
     },
@@ -823,7 +832,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     layout: {
       'text-field': ['to-string', ['get', 'count']],
       'text-font': FONT_BOLD,
-      'text-size': 11.5,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9.5, 11, 11],
       'text-allow-overlap': true,
       'text-ignore-placement': true,
     },
@@ -837,7 +846,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     source: 'vehicles',
     filter: ['==', ['get', 'id'], ''],
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 13, 16, 22],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 9, 10, 13, 16, 22],
       'circle-color': ['get', 'color'],
       'circle-opacity': 0.28,
       'circle-stroke-color': ['get', 'color'],
@@ -855,7 +864,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       'icon-image': VEHICLE_ICON,
       'icon-rotate': ['case', flag('hasHeading'), ['get', 'bearing'], 0],
       'icon-rotation-alignment': 'map',
-      'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.46, 13, 0.9, 16, 1.15],
+      'icon-size': VEHICLE_SIZE,
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
@@ -1107,7 +1116,6 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
   set('vehicles-label', 'icon-opacity', vehicleOpacity(lineFocus));
-  set('vehicles-beam', 'icon-opacity', beamOpacity(lineFocus));
   set('vehicle-groups-circle', 'circle-opacity', ids ? 0.35 : 1);
   set('vehicle-groups-circle', 'circle-stroke-opacity', ids ? 0.35 : 1);
   set('vehicle-groups-count', 'text-opacity', ids ? 0.4 : 1);
@@ -1215,7 +1223,6 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'approach-line-stopped', property: 'line-opacity', value: 0 },
   { layer: 'approach-ring', property: 'circle-opacity', value: 0 },
   { layer: 'approach-ring', property: 'circle-stroke-opacity', value: 0 },
-  { layer: 'vehicles-beam', property: 'icon-opacity', value: 0 },
   { layer: 'vehicles-selected', property: 'circle-opacity', value: 0 },
   { layer: 'vehicles-dot', property: 'icon-opacity', value: 0.16 },
   { layer: 'vehicles-glyph', property: 'icon-opacity', value: 0.1 },

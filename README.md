@@ -36,10 +36,9 @@ worldwide — adding another city is a config entry rather than a rewrite.
   gliding at constant speed between reports, so vehicles never stop and start
   at each update. Each is a plate in its route's colour — round for a bus,
   square for a train — with a nose pointing its way, a pictogram once there is
-  room, and its route number beside it. Zoomed out, vehicles that overlap on
-  screen gather into counted discs while the rest keep moving, and each throws
-  a beam of its route colour so a dot is easy to find. Both can be switched
-  off in the legend.
+  room, and its route number beside it. Markers shrink as you zoom out, and
+  vehicles that overlap on screen gather into small counted discs while the
+  rest keep moving; grouping can be switched off in the legend.
 - **Planes overhead, quietly.** Aircraft over and around the Twin Cities,
   live from community ADS-B receivers: thin yellow silhouettes beneath the
   buses and trains, turned to their track and carried along it between
@@ -155,8 +154,11 @@ worldwide — adding another city is a config entry rather than a rewrite.
   the timetable is already cached, so stops, departures and planning keep
   working. The last vehicle positions seen are shown faded and dated, and old
   realtime predictions are dropped rather than presented as live.
-- **Phones and desktops.** A side panel on a desktop, a bottom sheet on a
-  phone; the camera always centres in the part of the map you can see.
+- **Phones and desktops.** A side panel on a desktop; on a phone, a shorter,
+  see-through bottom sheet that the planner and the stop or vehicle you
+  tapped take turns in, so most of the map stays in view. The camera always
+  centres in the part of the map you can see, and the map's credits fold
+  into an (i) after a few seconds.
 - **A short first-run tour** that ends by playing a real trip across the
   cities, replayable from the legend.
 

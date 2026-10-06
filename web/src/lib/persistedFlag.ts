@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
  * A boolean the browser remembers between visits.
  *
  * Map preferences are sticky by nature: someone who hides the side panel or
- * turns the beams off usually means it every time, not once. Storage throws in
+ * turns grouping off usually means it every time, not once. Storage throws in
  * private browsing and can be cleared under the app's feet, so every access is
  * guarded — a preference that cannot be saved quietly degrades to lasting only
  * for the session, which is better than failing.
