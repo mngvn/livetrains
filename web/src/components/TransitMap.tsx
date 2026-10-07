@@ -539,8 +539,10 @@ export function TransitMap({
       ready.current = true;
       // `load` never fires when the first style fails, so this is also the only
       // chance to report the initial viewport — without it the stops-in-view
-      // queries would never run.
-      emitViewport();
+      // queries would never run. Mid-move it waits for `moveend`: the alerts
+      // ripple restyles two dozen times a second, and each report would
+      // re-render the app on every step of a pan.
+      if (!instance.isMoving()) emitViewport();
     };
 
     instance.on('load', rebuild);
