@@ -56,11 +56,22 @@ const flag = (name: string): Expr => ['boolean', ['get', name], false];
 const ALERTS_CLUSTER_MAX_ZOOM = 13;
 /** In force now: a stop's own flag, or any stop inside a cluster. */
 const ALERT_LIVE: Expr = ['case', ['has', 'point_count'], ['>', ['get', 'live'], 0], flag('active')];
+/**
+ * How bad, lower being worse. A stop already carries its worst alert, those
+ * in force first; a cluster ranks its stops the same way, so a closure that
+ * is only coming does not make a disc of detours in force look closed.
+ */
+const ALERT_RANK: Expr = [
+  'case',
+  ['all', ['has', 'point_count'], ['>', ['get', 'live'], 0]],
+  ['get', 'liveRank'],
+  ['get', 'rank'],
+];
 const ALERT_CLUSTER_RADIUS: Expr = ['step', ['get', 'point_count'], 11, 10, 14, 40, 18];
 
 /** Red for closures, amber for detours and the like, grey for notices. */
 function alertTone(p: Palette): Expr {
-  return ['match', ['get', 'rank'], 0, p.danger, 1, p.late, p.muted];
+  return ['match', ALERT_RANK, 0, p.danger, 1, p.late, p.muted];
 }
 
 /**
@@ -193,7 +204,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
   // Alerted stops gather into counted discs until there is room for them,
-  // each disc remembering the worst alert inside it.
+  // each disc remembering the worst alert inside it and the worst in force.
   if (!map.getSource('alerts')) {
     map.addSource('alerts', {
       type: 'geojson',
@@ -203,6 +214,9 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       clusterMaxZoom: ALERTS_CLUSTER_MAX_ZOOM,
       clusterProperties: {
         rank: ['min', ['get', 'rank']],
+        // Stops not yet in force count as 9, past every real rank, so this is
+        // the worst of those in force. It is read only when there are some.
+        liveRank: ['min', ['case', ['get', 'active'], ['get', 'rank'], 9]],
         live: ['+', ['case', ['get', 'active'], 1, 0]],
       },
     });
@@ -700,13 +714,17 @@ export function ensureLayers(map: maplibregl.Map, p: Palette, showBeams: boolean
       id: ring.id,
       type: 'circle',
       source: 'alerts',
-      filter: ['all', ring.marker, ['==', ['get', 'rank'], 0], ALERT_LIVE],
+      filter: ['all', ring.marker, ['==', ALERT_RANK, 0], ALERT_LIVE],
       paint: {
         'circle-radius': ring.radius + alertPulseSpread(0),
         'circle-color': 'transparent',
         'circle-stroke-color': alertTone(p),
         'circle-stroke-width': 1.6,
         'circle-stroke-opacity': 0,
+        // The ripple is moved on a frame at a time; the usual eased
+        // transition would trail it and pull each ring back as it grew.
+        'circle-radius-transition': { duration: 0, delay: 0 },
+        'circle-stroke-opacity-transition': { duration: 0, delay: 0 },
       },
     });
   }

@@ -74,6 +74,9 @@ export function AlertsView({
   useEffect(() => {
     onShownChange?.([...agencyWide, ...listed]);
   }, [agencyWide, listed, onShownChange]);
+  // Closing the view forgets its filters, so the map should too: reopened, it
+  // starts from every alert rather than flashing the last filtered few.
+  useEffect(() => () => onShownChange?.([]), [onShownChange]);
 
   const activeCount = alerts.filter((a) => isActive(a, now)).length;
 
