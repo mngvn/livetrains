@@ -3,7 +3,7 @@ import type { GtfsStore } from './gtfs/store.js';
 import { PatternSet } from './planner/patterns.js';
 import { RealtimeState } from './realtime/state.js';
 import { createMockSystem } from './mock/index.js';
-import { routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from './queries.js';
+import { alertPlaces, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from './queries.js';
 
 let store: GtfsStore;
 let patterns: PatternSet;
@@ -190,5 +190,19 @@ describe('store: nearby stops stay cheap wherever they are asked about', () => {
     const near = store.nearbyStops(44.9784, -93.2699, 400);
     expect(near.length).toBeGreaterThan(0);
     expect(near.map((n) => store.stops[n.index].id)).toContain('BL03');
+  });
+});
+
+describe('alertPlaces', () => {
+  it('places every stop the alerts name, once each', () => {
+    const alert = realtime.alerts.find((a) => a.id === 'mock-alert-1')!;
+    const places = alertPlaces(store, [alert, { ...alert, id: 'again' }]);
+    expect(places).toEqual([{ stopId: 'BL03', name: 'Nicollet Mall Station', lat: 44.9784, lon: -93.2699 }]);
+  });
+
+  it('leaves out stops the timetable does not know, and needs a timetable', () => {
+    const alert = { ...realtime.alerts[0], stopIds: ['NOT-A-STOP'] };
+    expect(alertPlaces(store, [alert])).toEqual([]);
+    expect(alertPlaces(null, realtime.alerts)).toEqual([]);
   });
 });

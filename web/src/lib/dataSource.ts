@@ -17,7 +17,7 @@ import type {
   PlanResponse,
   Reachability,
   RouteSummary,
-  ServiceAlert,
+  AlertsResponse,
   StopSummary,
   Vehicle,
 } from './api.ts';
@@ -105,7 +105,7 @@ export interface DataSource {
   geocode(q: string, near?: { lat: number; lon: number }, signal?: AbortSignal): Promise<Place[]>;
   reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<Place>;
   plan(params: Parameters<typeof api.plan>[0], signal?: AbortSignal): Promise<PlanResponse>;
-  alerts(signal?: AbortSignal): Promise<{ alerts: ServiceAlert[] }>;
+  alerts(signal?: AbortSignal): Promise<AlertsResponse>;
 }
 
 /** Backed by the transit engine in a worker. */
@@ -161,7 +161,7 @@ class BrowserSource implements DataSource {
   reverseGeocode = (lat: number, lon: number) => this.engine.request<Place>('reverseGeocode', { lat, lon });
   plan = (params: Parameters<typeof api.plan>[0]) =>
     this.engine.request<PlanResponse>('plan', params as unknown as Record<string, unknown>);
-  alerts = () => this.engine.request<{ alerts: ServiceAlert[] }>('alerts');
+  alerts = () => this.engine.request<AlertsResponse>('alerts');
 }
 
 /** Backed by the Node API server over HTTP. */

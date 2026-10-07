@@ -533,7 +533,7 @@ fallback so deep links work.
 | `GET /api/vehicles/stream` | Server-Sent Events: a `vehicles` frame on every poll, keep-alive every 25 s |
 | `GET /api/search`, `/api/geocode`, `/api/reverse-geocode` | Transit search, place search, naming a dropped pin |
 | `GET /api/plan` | Ranked itineraries (`departAt`, `arriveBy`, `maxWalk`, `maxTransfers`, `walkSpeed`) |
-| `GET /api/alerts`, `/api/planes` | All alerts; aircraft over the area (relayed, cached 4 s) |
+| `GET /api/alerts`, `/api/planes` | All alerts, with the position of each stop they name; aircraft over the area (relayed, cached 4 s) |
 
 The vehicle stream uses SSE rather than WebSockets: the traffic is
 one-directional and periodic, and SSE survives proxies and reconnects with no
@@ -641,7 +641,10 @@ reports, which also feeds the delay history used by "why is it late?".
   for a suspended line.
 - **Alerts**: everywhere they matter, plus an Alerts tab filtered by kind and
   route; elevator/ramp outages are promoted to "Accessibility" even when filed
-  as generic notices.
+  as generic notices. While the tab is open the map draws what it lists
+  (`lib/alertMap.ts`): one dot per alerted stop in its worst alert's tone,
+  clustered at network scale, upcoming ones faded, and lines with a
+  route-wide alert brought forward.
 - **Leave reminder** (`lib/leaveReminder.ts`): "Leave in 6 min", re-derived
   every 30 s from the live prediction for that exact trip at the boarding stop,
   minus the walk, minus a minute's slack. An armed reminder fires two minutes

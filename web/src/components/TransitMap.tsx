@@ -24,7 +24,9 @@ import {
   type BasemapId,
 } from './basemaps.ts';
 import {
+  ALERT_PULSE_RINGS,
   APPROACH_FROM_ZOOM,
+  alertPulseSpread,
   EMPTY,
   GROUND_PLANES_FROM_ZOOM,
   GROUP_BELOW_ZOOM,
@@ -135,6 +137,8 @@ interface Props {
   planeAttribution: string | null;
   /** Where the chosen plane is going, drawn ahead of it. */
   planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
+  /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
+  alerts: GeoJSON.FeatureCollection | null;
 }
 
 export interface MapPadding {
@@ -325,6 +329,11 @@ class NetworkViewControl implements maplibregl.IControl {
 
 /** Layers a tap can land on, most specific first. */
 const PICKABLE_LAYERS = [
+  // Alerted stops are only drawn while the alerts view is open, and then
+  // they are what a tap means. Below the vehicles they would never be
+  // reached: at network scale every cluster sits under a bus or a group.
+  'alerts-cluster',
+  'alerts-dot',
   'vehicles-hit',
   'vehicle-groups-circle',
   // Beneath the vehicles, as they are drawn: where a plane passes over a
@@ -374,6 +383,7 @@ export function TransitMap({
   onSelectPlane,
   planeAttribution,
   planeBound,
+  alerts,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -569,7 +579,8 @@ export function TransitMap({
         { layers },
       );
       if (hits.length === 0) return null;
-      // Vehicles over groups over stops, whatever order they were drawn in.
+      // Alerts (while shown) over vehicles over groups over stops, whatever
+      // order they were drawn in.
       hits.sort((a, b) => PICKABLE_LAYERS.indexOf(a.layer.id) - PICKABLE_LAYERS.indexOf(b.layer.id));
       // Except that a tap right on a plane means the plane. A bus's hit
       // target is generous, and planes cross busy streets: without this, a
@@ -597,6 +608,13 @@ export function TransitMap({
         // vehicles that were within a few pixels of each other.
         const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
         instance.easeTo({ center, zoom: Math.min(GROUP_BELOW_ZOOM + 0.5, instance.getZoom() + 2), duration: 450 });
+      } else if (layer === 'alerts-cluster') {
+        const center = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        const source = instance.getSource('alerts') as maplibregl.GeoJSONSource | undefined;
+        source
+          ?.getClusterExpansionZoom(Number(feature.properties?.cluster_id))
+          .then((zoom) => instance.easeTo({ center, zoom: zoom + 0.25, duration: 450 }))
+          .catch(() => undefined);
       } else if (layer === 'vehicles-hit') {
         handlers.current.onSelectVehicle(String(feature.properties?.id ?? ''));
       } else if (layer === 'planes-hit') {
@@ -1214,6 +1232,38 @@ export function TransitMap({
     if (!ready.current) return;
     setData('stops', stopFeatures(stops));
   }, [stops, setData, styleEpoch]);
+
+  // Service alerts, while the alerts view is open.
+  useEffect(() => {
+    if (!ready.current) return;
+    setData('alerts', alerts ?? EMPTY);
+  }, [alerts, setData, styleEpoch]);
+
+  // A slow ripple off whatever is severe and in force, only while there is
+  // something to ripple. Every ring is sized by a plain number, so restyling
+  // them is a repaint, not a re-tiling of the source.
+  const rippling = alerts?.features.some((f) => f.properties?.rank === 0 && f.properties?.active === true) ?? false;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !rippling) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const beat = 2400;
+    const restyle = (spread: number, opacity: number) => {
+      for (const ring of ALERT_PULSE_RINGS) {
+        if (!instance.getLayer(ring.id)) continue;
+        instance.setPaintProperty(ring.id, 'circle-radius', ring.radius + spread);
+        instance.setPaintProperty(ring.id, 'circle-stroke-opacity', opacity);
+      }
+    };
+    const timer = window.setInterval(() => {
+      const phase = (performance.now() % beat) / beat;
+      restyle(alertPulseSpread(phase), 0.7 * (1 - phase));
+    }, 1000 / 24);
+    return () => {
+      window.clearInterval(timer);
+      restyle(alertPulseSpread(0), 0);
+    };
+  }, [rippling, styleEpoch]);
 
   // Every stop drawn, by id, for linking arriving vehicles to their stops.
   useEffect(() => {
