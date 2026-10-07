@@ -158,7 +158,7 @@ worldwide — adding another city is a config entry rather than a rewrite.
   see-through bottom sheet that the planner and the stop or vehicle you
   tapped take turns in, so most of the map stays in view. The camera always
   centres in the part of the map you can see, and the map's credits fold
-  into an (i) after a few seconds.
+  into an (i), always in view, after a few seconds.
 - **A short first-run tour** that ends by playing a real trip across the
   cities, replayable from the legend.
 

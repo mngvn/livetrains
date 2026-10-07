@@ -592,21 +592,27 @@ more than the animation.
   sets a focus; `syncSelectionFocus` rewrites paint properties so unrelated
   lines, stops and vehicles step back.
 - **Marker size** follows zoom all the way out. A phone shows the whole metro
-  about a zoom level and a half further out than a laptop, so markers keep
+  about two zoom levels further out than a laptop, so markers keep
   shrinking below zoom 11 instead of stopping at a floor that would turn every
   bus on a phone into a blob.
 - **Grouping** (`lib/grouping.ts`): below zoom 12, vehicles that would pile up
   on screen gather into counted discs. The merge distance follows the drawn
   marker size (14 px at metro scale, 22 px near street level), and the discs
-  grow with their count and shrink with zoom. Only *membership* is recomputed
+  grow with their count and shrink with zoom. A tidying pass then merges any
+  two groups whose discs would touch and folds in any lone vehicle whose plate
+  would land on a disc, so counts never run together and a tap inside a disc
+  always opens the group. Only *membership* is recomputed
   (twice a second, faster while the camera moves); ungrouped vehicles stay on
   the per-frame layer and keep gliding — map-side clustering would make them
   step once a second.
 - **Credits** (`components/attribution.ts`): MapLibre's compact attribution is
-  shown on arrival and folded into its (i) after five seconds or the first
-  touch of the map, as the OpenStreetMap Foundation's attribution guidelines
-  allow; after that only the rider's taps open or close it, even when the
-  control is rebuilt for a new aircraft credit.
+  shown on arrival and folded into its (i) five seconds after the basemap
+  (and with it the OpenStreetMap credit) has arrived and the first-run tour is
+  out of the way, or at the first touch of the map, as the OpenStreetMap
+  Foundation's attribution guidelines allow; after that only the rider's taps
+  open or close it, even when the control is rebuilt for a new aircraft
+  credit. On a wide screen it sits just beside the planner rather than under
+  it, so the (i) is always in view and one tap away.
 - **Approach links** (`lib/approach.ts`): zoomed in, a line ties each vehicle
   to the stop it is pulling into (the feed's word if given, else the nearest
   stop ahead on its route within 300 m), turning green while it stands there.
@@ -615,9 +621,11 @@ more than the animation.
 - **Camera padding** follows the panels (measured with `ResizeObserver`), so
   the camera always centres in the part of the map you can see.
 - **On a phone** the planner and the detail panel take turns in one bottom
-  sheet, capped at 46% of the visible height (`--phone-sheet-height`, in
-  dynamic viewport units so browser toolbars do not eat into the map) and
-  see-through: a tint of the panel colour over a blur of the map beneath.
+  sheet, capped at half the visible height (`--phone-sheet-height`, in
+  dynamic viewport units so browser toolbars do not eat into the map, and
+  never under 300 px) and see-through: an 88% tint of the panel colour over a
+  light blur of the map beneath, solid for anyone who asks their system for
+  reduced transparency.
 
 ### 10.2 Moving vehicles (`lib/vehicleTracker.ts`)
 

@@ -1896,18 +1896,20 @@ button {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 720px) {
-  /* How much of a phone the bottom sheet may take: enough for a stop's next
-     departures or a trip's summary, while leaving most of the map in view.
-     Shared by the planner and the detail panel, which take turns in the same
-     place, and by everything that has to clear them. */
+  /* How much of a phone the bottom sheet may take: half the screen, enough
+     for a stop's next departures or a trip's summary while the other half
+     stays map, and never so little on a short phone that the planner's own
+     fields drop out of sight. Shared by the planner and the detail panel,
+     which take turns in the same place, and by everything that has to clear
+     them. */
   :root {
-    --phone-sheet-height: 46vh;
+    --phone-sheet-height: max(50vh, 300px);
   }
 
   @supports (height: 1dvh) {
     :root {
       /* The visible height, not the height behind the browser's toolbars. */
-      --phone-sheet-height: 46dvh;
+      --phone-sheet-height: max(50dvh, 300px);
     }
   }
 
@@ -1924,13 +1926,17 @@ button {
   }
 
   /* See-through, so the map still reads behind the panel: a tint of the
-     panel colour over a blur of whatever is underneath. Browsers without
-     color-mix keep the solid panel from the rule above. The detail panel
-     gets the same treatment in its own phone rules, further down. */
-  .sheet {
-    background: color-mix(in srgb, var(--surface) 82%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.3);
-    backdrop-filter: blur(14px) saturate(1.3);
+     panel colour over a light blur of whatever is underneath, dense enough
+     that faint text stays legible over bright aerial imagery. Browsers
+     without color-mix keep the solid panel from the rule above, and so does
+     anyone who has asked for less transparency. The detail panel gets the
+     same treatment in its own phone rules, further down. */
+  @supports (background: color-mix(in srgb, red 50%, transparent)) {
+    .sheet {
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      -webkit-backdrop-filter: blur(8px) saturate(1.2);
+      backdrop-filter: blur(8px) saturate(1.2);
+    }
   }
 
   /* A little tighter, so the shorter sheet still shows its content. */
@@ -1966,6 +1972,23 @@ button {
   .maplibregl-ctrl-bottom-right,
   .maplibregl-ctrl-bottom-left {
     bottom: calc(var(--phone-sheet-height) + 4px);
+  }
+
+  /* Opened, the credit wraps short of the buttons in the other corner. */
+  .maplibregl-ctrl-bottom-left .maplibregl-ctrl-attrib.maplibregl-compact-show {
+    max-width: calc(100vw - 64px);
+  }
+
+  /* Smaller action chips, so a stop's four fit on one row on most phones
+     and its departures start higher up the sheet. */
+  .panel-actions {
+    gap: 5px;
+    margin: 10px 0;
+  }
+
+  .panel-actions .chip {
+    padding: 5px 9px;
+    font-size: 12.5px;
   }
 }
 
@@ -2351,9 +2374,26 @@ button {
   filter: invert(1);
 }
 
-/* Folded into its (i), the credit is there to be found, not to be noticed. */
-.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) {
-  opacity: 0.7;
+/* Folded into its (i), the credit is there to be found, not to be noticed:
+   the glyph is quieter, while its button stays solid so whatever passes
+   underneath does not show through it. */
+.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-button {
+  opacity: 0.75;
+}
+
+/* The bottom-left corner is under the planner on a wide screen, so the credit
+   sits just beside it while it is shown. Below 1024px the detail panel
+   pushes the planner away, and the corner is clear again. */
+@media (min-width: 1024px) {
+  .app:not(:has(.sheet.is-hidden)) .maplibregl-ctrl-bottom-left {
+    left: calc(var(--sheet-width) + 12px);
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1023px) {
+  .app:not(.has-detail):not(:has(.sheet.is-hidden)) .maplibregl-ctrl-bottom-left {
+    left: calc(var(--sheet-width) + 12px);
+  }
 }
 
 .segmented__option:hover {
@@ -3304,14 +3344,39 @@ button {
     border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
     animation: detail-in-phone var(--t-med) var(--ease-out);
-    /* See-through like the planner it takes turns with. */
-    background: color-mix(in srgb, var(--surface) 82%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.3);
-    backdrop-filter: blur(14px) saturate(1.3);
   }
 
-  .detail:not(.has-accent) .detail__bar {
-    background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  /* See-through like the planner it takes turns with. */
+  @supports (background: color-mix(in srgb, red 50%, transparent)) {
+    .detail {
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      -webkit-backdrop-filter: blur(8px) saturate(1.2);
+      backdrop-filter: blur(8px) saturate(1.2);
+    }
+
+    .detail:not(.has-accent) .detail__bar {
+      background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .sheet,
+    .detail {
+      background: var(--surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .detail:not(.has-accent) .detail__bar {
+      background: var(--surface-2);
+    }
+  }
+
+  /* With the planner tucked away, a stop or vehicle still fills the same
+     place, so the map's controls stay above it rather than behind it. */
+  .app.has-detail:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-right,
+  .app.has-detail:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-left {
+    bottom: calc(var(--phone-sheet-height) + 4px);
   }
 
   .app.has-detail .legend,

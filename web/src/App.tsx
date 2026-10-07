@@ -1080,6 +1080,7 @@ export function App() {
             : null
         }
         alerts={alertMapMarkers}
+        creditHeld={showTour}
       />
 
       {reach && (

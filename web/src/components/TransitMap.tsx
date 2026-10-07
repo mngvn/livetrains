@@ -34,6 +34,7 @@ import {
   JOURNEY_DIMMING,
   ensureLayers,
   getPaint,
+  groupDiscRadius,
   groupMergeRadius,
   revealLines,
   setPaint,
@@ -42,6 +43,7 @@ import {
   namePlanes,
   syncOverlayTheme,
   syncPlaneFocus,
+  vehiclePlateRadius,
   syncSelectionFocus,
   type MapFocus,
 } from './mapLayers.ts';
@@ -139,6 +141,8 @@ interface Props {
   planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
   /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
   alerts: GeoJSON.FeatureCollection | null;
+  /** Something covers the map, such as the tour: the credit's few seconds of being shown wait for it. */
+  creditHeld?: boolean;
 }
 
 export interface MapPadding {
@@ -380,6 +384,7 @@ export function TransitMap({
   planeAttribution,
   planeBound,
   alerts,
+  creditHeld = false,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -443,6 +448,9 @@ export function TransitMap({
   /** The credit's open state, kept across rebuilds of its control; see attribution.ts. */
   const attributionState = useRef<AttributionState>({ open: true, settled: false });
   const quietCredit = useRef<QuietAttribution | null>(null);
+  const creditHeldRef = useRef(creditHeld);
+  /** (Re)starts the credit's few seconds on show, once it can actually be seen. */
+  const armCreditFold = useRef<() => void>(() => undefined);
 
   const setData = useCallback((id: string, data: GeoJSON.FeatureCollection) => {
     const source = map.current?.getSource(id) as maplibregl.GeoJSONSource | undefined;
@@ -482,9 +490,32 @@ export function TransitMap({
     instance.addControl(attributionControl.current, 'bottom-left');
     quietCredit.current = quietAttribution(instance, attributionState.current);
     // Shown on arrival, then folded into its (i) after a few seconds or the
-    // first touch of the map, whichever comes first.
+    // first touch of the map, whichever comes first. The seconds count from
+    // when the credit is complete and in view: the OpenStreetMap line only
+    // arrives with the basemap, and the tour covers the map on a first visit.
     const foldCredit = () => quietCredit.current?.fold();
-    const foldTimer = window.setTimeout(foldCredit, ATTRIBUTION_SHOW_MS);
+    let foldTimer = 0;
+    let basemapIn = false;
+    armCreditFold.current = () => {
+      window.clearTimeout(foldTimer);
+      if (basemapIn && !creditHeldRef.current) foldTimer = window.setTimeout(foldCredit, ATTRIBUTION_SHOW_MS);
+    };
+    const basemapArrived = () => {
+      if (basemapIn) return;
+      basemapIn = true;
+      instance.off('sourcedata', basemapDescribed);
+      armCreditFold.current();
+    };
+    // The OpenStreetMap credit comes with the basemap's tile description,
+    // usually well before `load`, which waits for every first tile.
+    const basemapDescribed = (event: maplibregl.MapSourceDataEvent) => {
+      const type = event.source?.type;
+      if (event.sourceDataType === 'metadata' && (type === 'vector' || type === 'raster')) basemapArrived();
+    };
+    instance.on('sourcedata', basemapDescribed);
+    instance.once('load', basemapArrived);
+    // Neither comes if the basemap cannot be fetched; do not wait forever.
+    const basemapLate = window.setTimeout(basemapArrived, 3 * ATTRIBUTION_SHOW_MS);
     const canvasContainer = instance.getCanvasContainer();
     canvasContainer.addEventListener('pointerdown', foldCredit, { passive: true });
     canvasContainer.addEventListener('wheel', foldCredit, { passive: true });
@@ -598,6 +629,18 @@ export function TransitMap({
       // Alerts (while shown) over vehicles over groups over stops, whatever
       // order they were drawn in.
       hits.sort((a, b) => PICKABLE_LAYERS.indexOf(a.layer.id) - PICKABLE_LAYERS.indexOf(b.layer.id));
+      // Except that a tap inside a group's drawn disc means the group: a
+      // bus's hit target is wider than its plate, and should not reach in
+      // over a disc beside it.
+      if (hits[0].layer.id === 'vehicles-hit') {
+        const zoom = instance.getZoom();
+        const group = hits.find((hit) => {
+          if (hit.layer.id !== 'vehicle-groups-circle') return false;
+          const at = instance.project((hit.geometry as GeoJSON.Point).coordinates as [number, number]);
+          return Math.hypot(at.x - point.x, at.y - point.y) <= groupDiscRadius(Number(hit.properties?.count ?? 0), zoom);
+        });
+        if (group) return group;
+      }
       // Except that a tap right on a plane means the plane. A bus's hit
       // target is generous, and planes cross busy streets: without this, a
       // plane over Lake Street could never be tapped at all.
@@ -653,6 +696,8 @@ export function TransitMap({
 
     return () => {
       window.clearTimeout(foldTimer);
+      window.clearTimeout(basemapLate);
+      armCreditFold.current = () => undefined;
       canvasContainer.removeEventListener('pointerdown', foldCredit);
       canvasContainer.removeEventListener('wheel', foldCredit);
       quietCredit.current?.dispose();
@@ -715,7 +760,11 @@ export function TransitMap({
           const point = instance.project([v.displayLon, v.displayLat]);
           inputs.push({ id: v.id, x: point.x, y: point.y, lon: v.displayLon, lat: v.displayLat, rail: RAIL_MODES.has(v.mode) });
         }
-        grouping = groupOnScreen(inputs, groupMergeRadius(instance.getZoom()));
+        const zoom = instance.getZoom();
+        grouping = groupOnScreen(inputs, groupMergeRadius(zoom), null, {
+          disc: (count) => groupDiscRadius(count, zoom),
+          plate: vehiclePlateRadius(zoom),
+        });
         setData('vehicle-groups', {
           type: 'FeatureCollection',
           features: grouping.groups.map((group) => ({
@@ -1240,6 +1289,13 @@ export function TransitMap({
     // The rebuilt control opens itself; this puts it back the way it was.
     quietCredit.current = quietAttribution(instance, attributionState.current);
   }, [planeAttribution, agency.name]);
+
+  // The tour covering the map holds the credit's seconds on show; closing it
+  // starts them again.
+  useEffect(() => {
+    creditHeldRef.current = creditHeld;
+    armCreditFold.current();
+  }, [creditHeld]);
 
   // --- Stops ----------------------------------------------------------------
   useEffect(() => {

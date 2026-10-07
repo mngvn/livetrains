@@ -3,11 +3,10 @@ import type * as maplibregl from 'maplibre-gl';
 /**
  * Keeps the map's credit line folded into its (i) once it has been seen.
  *
- * MapLibre's compact attribution opens itself whenever the control is created
- * or its credits change, and folds itself only when the map is dragged — so a
- * pinch-zoom never closed it, and this app, which rebuilds the control when the
- * aircraft credit changes, kept popping it open over the map a few seconds
- * after every load.
+ * MapLibre's compact attribution opens itself whenever the control is created,
+ * and folds itself only when the map is dragged — so a pinch-zoom never closed
+ * it, and this app, which rebuilds the control whenever the aircraft credit
+ * changes, kept popping it open over the map a few seconds after every load.
  *
  * The OpenStreetMap Foundation's attribution guidelines allow the credit to
  * collapse into an (i) after five seconds or on the first interaction with the
@@ -48,19 +47,21 @@ export function quietAttribution(map: maplibregl.Map, state: AttributionState): 
   const apply = () => {
     // Wide enough for the full line, MapLibre does not compact it: nothing to fold.
     if (!container.classList.contains('maplibregl-compact')) return;
-    // It is a <details>; the content is shown or hidden by class, so it stays open.
-    if (!container.hasAttribute('open')) container.setAttribute('open', '');
+    // It is a <details>: its `open` and MapLibre's class move together, as
+    // MapLibre's own do, so a screen reader hears "collapsed" when it is.
+    container.toggleAttribute('open', state.open);
     container.classList.toggle('maplibregl-compact-show', state.open);
   };
 
   const observer = new MutationObserver(() => {
     const shown = container.classList.contains('maplibregl-compact-show');
-    if (shown !== state.open || !container.hasAttribute('open')) apply();
+    if (shown !== state.open || container.hasAttribute('open') !== state.open) apply();
   });
   observer.observe(container, { attributes: true, attributeFilter: ['class', 'open'] });
 
   const onClick = (event: Event) => {
-    if (!(event.target instanceof Element) || !event.target.closest('.maplibregl-ctrl-attrib-button')) return;
+    const target = event.target as Partial<Element> | null;
+    if (!target?.closest?.('.maplibregl-ctrl-attrib-button')) return;
     // The rider's tap is the only thing that opens it again: handled here, in
     // the capture phase, before the <details> or MapLibre can toggle anything.
     event.preventDefault();

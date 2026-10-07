@@ -42,36 +42,77 @@ export const FONT_BOLD = ['Noto Sans Bold'];
 export const GROUP_BELOW_ZOOM = 12;
 
 /**
- * How big a vehicle's plate is drawn, by zoom, as a multiple of its artwork.
+ * How big a vehicle's plate is drawn, by zoom, as a multiple of its artwork:
+ * [zoom, multiple] pairs, kept as data so the grouping can read the same
+ * curve the map draws.
  *
  * It keeps shrinking as the map zooms out rather than stopping at a floor. A
- * phone shows the whole metro about a zoom level and a half further out than
- * a laptop does, and a floor sized for the laptop's view made every bus on a
+ * phone shows the whole metro about two zoom levels further out than a
+ * laptop does, and a floor sized for the laptop's view made every bus on a
  * phone a coin the width of a neighbourhood. From zoom 11 in, the sizes are
  * what they always were.
  */
-const VEHICLE_SIZE: Expr = ['interpolate', ['linear'], ['zoom'], 7, 0.26, 9, 0.38, 11, 0.68, 13, 0.9, 16, 1.15];
+const VEHICLE_SIZE_STOPS: [number, number][] = [[7, 0.26], [9, 0.38], [11, 0.68], [13, 0.9], [16, 1.15]];
+const VEHICLE_SIZE: Expr = ['interpolate', ['linear'], ['zoom'], ...VEHICLE_SIZE_STOPS.flat()];
 
-/** A group's disc: bigger for more vehicles, and smaller the further out the map is. */
+/** Half a plate at a multiple of 1, in pixels: the 40-pixel artwork less its halo room. */
+const PLATE_HALF_PX = 14;
+
+/**
+ * A group's disc: bigger for more vehicles, and smaller the further out the
+ * map is. Radii in pixels for at least 1, 10, 25, 60 and 150 vehicles, at
+ * zoom 8 and at zoom 11, eased between and held beyond.
+ */
+const GROUP_DISC_COUNTS = [10, 25, 60, 150];
+const GROUP_DISC_AT: [number, number[]][] = [
+  [8, [7, 8.5, 10, 11.5, 13]],
+  [11, [9.5, 11.5, 13.5, 15.5, 18]],
+];
 const GROUP_DISC_RADIUS: Expr = [
   'interpolate',
   ['linear'],
   ['zoom'],
-  8,
-  ['step', ['get', 'count'], 7, 10, 8.5, 25, 10, 60, 11.5, 150, 13],
-  11,
-  ['step', ['get', 'count'], 9.5, 10, 11.5, 25, 13.5, 60, 15.5, 150, 18],
+  ...GROUP_DISC_AT.flatMap(([zoom, radii]): [number, Expr] => [
+    zoom,
+    ['step', ['get', 'count'], radii[0], ...GROUP_DISC_COUNTS.flatMap((count, i) => [count, radii[i + 1]])],
+  ]),
 ];
+
+const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
+
+/** A group disc's drawn radius in pixels, as `GROUP_DISC_RADIUS` draws it. */
+export function groupDiscRadius(count: number, zoom: number): number {
+  const tier = GROUP_DISC_COUNTS.filter((threshold) => count >= threshold).length;
+  const [[z0, near], [z1, far]] = GROUP_DISC_AT;
+  return near[tier] + clamp01((zoom - z0) / (z1 - z0)) * (far[tier] - near[tier]);
+}
+
+/** Half a lone vehicle's plate in pixels, as `VEHICLE_SIZE` draws it. */
+export function vehiclePlateRadius(zoom: number): number {
+  const stops = VEHICLE_SIZE_STOPS;
+  let size = stops[stops.length - 1][1];
+  if (zoom <= stops[0][0]) size = stops[0][1];
+  else {
+    for (let i = 1; i < stops.length; i++) {
+      const [z1, s1] = stops[i];
+      if (zoom > z1) continue;
+      const [z0, s0] = stops[i - 1];
+      size = s0 + ((zoom - z0) / (z1 - z0)) * (s1 - s0);
+      break;
+    }
+  }
+  return PLATE_HALF_PX * size;
+}
 
 /**
  * How close together, in screen pixels, vehicles must be to gather into one
  * group at a zoom. Follows the plates' drawn size: close enough that their
- * plates would pile up, and no further, so groups stay small and local
- * rather than swallowing a whole downtown into one disc.
+ * plates would pile up. Groups are then merged wherever their discs would
+ * touch (see `groupVehicles`), so a busy downtown reads as one count rather
+ * than a stack of overlapping ones.
  */
 export function groupMergeRadius(zoom: number): number {
-  const t = Math.min(1, Math.max(0, (zoom - 8) / (GROUP_BELOW_ZOOM - 8)));
-  return 14 + t * 8;
+  return 14 + clamp01((zoom - 8) / (GROUP_BELOW_ZOOM - 8)) * 8;
 }
 
 /** From this zoom the busiest bus stops are drawn too, not only line stops. */

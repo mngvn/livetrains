@@ -74,7 +74,9 @@ Fonts are self-hosted; no font or script is loaded from a CDN.
   is being looked at, plus IP and browser headers.
 - **Data and licence**: map data © OpenStreetMap contributors, under the Open
   Database License (ODbL); OpenFreeMap is a free, keyless public tile host.
-  Attribution is supplied by the tile source and shown in the map corner.
+  Attribution is supplied by the tile source and shown in the map corner:
+  open on arrival, then folded into an (i) that one tap reopens, as the
+  OpenStreetMap Foundation's attribution guidelines allow.
 - **If unavailable**: the map falls back to a plain background and keeps
   drawing every vehicle, stop and route; only the street imagery is lost.
   Previously viewed tiles are served from the service worker's cache.

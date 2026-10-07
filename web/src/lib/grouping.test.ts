@@ -36,3 +36,57 @@ describe('groupVehicles', () => {
     expect(forward.groups.map((g) => g.count)).toEqual(backward.groups.map((g) => g.count));
   });
 });
+
+describe('groupVehicles with a footprint', () => {
+  const footprint = { disc: (count: number) => (count >= 10 ? 12 : 8), plate: 4 };
+
+  it('merges groups whose discs would overlap', () => {
+    // Two clusters whose centres are 14 px apart: each groups on its own,
+    // but their 8 px discs would overlap.
+    const points = [at('a', 0, 0), at('b', 2, 0), at('c', 4, 0), at('d', 14, 0), at('e', 16, 0), at('f', 18, 0)];
+    expect(groupVehicles(points, 6).groups).toHaveLength(2);
+    const { groups, grouped } = groupVehicles(points, 6, null, footprint);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].count).toBe(6);
+    expect(grouped.size).toBe(6);
+  });
+
+  it('folds a lone vehicle whose plate would land on a disc into it', () => {
+    const points = [at('a', 0, 0), at('b', 2, 0), at('c', 4, 0), at('lone', 13, 0), at('far', 60, 0)];
+    const { groups, grouped } = groupVehicles(points, 6, null, footprint);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].count).toBe(4);
+    expect(grouped.has('lone')).toBe(true);
+    expect(grouped.has('far')).toBe(false);
+  });
+
+  it('leaves no two discs overlapping and no plate on a disc, however dense', () => {
+    const points: GroupInput[] = [];
+    for (let i = 0; i < 400; i++) {
+      // A deterministic scatter, densest in the middle.
+      const angle = i * 2.399963;
+      const r = Math.sqrt(i) * 6;
+      points.push(at(`v${i}`, 200 + r * Math.cos(angle), 200 + r * Math.sin(angle), i % 4 === 0));
+    }
+    const { groups, grouped } = groupVehicles(points, 14, null, footprint);
+    const centre = (g: { lon: number; lat: number }) => ({ x: g.lon * 100, y: g.lat * 100 });
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        const a = centre(groups[i]);
+        const b = centre(groups[j]);
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(
+          footprint.disc(groups[i].count) + footprint.disc(groups[j].count) - 1e-9,
+        );
+      }
+    }
+    for (const p of points) {
+      if (grouped.has(p.id)) continue;
+      for (const g of groups) {
+        const c = centre(g);
+        expect(Math.hypot(p.x - c.x, p.y - c.y)).toBeGreaterThanOrEqual(footprint.disc(g.count) + footprint.plate - 1e-9);
+      }
+    }
+    expect(groups.reduce((n, g) => n + g.count, 0)).toBe(grouped.size);
+    expect(groups.reduce((n, g) => n + g.rail, 0)).toBe([...grouped].filter((id) => Number(id.slice(1)) % 4 === 0).length);
+  });
+});
