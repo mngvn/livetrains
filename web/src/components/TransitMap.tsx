@@ -629,30 +629,34 @@ export function TransitMap({
       // Alerts (while shown) over vehicles over groups over stops, whatever
       // order they were drawn in.
       hits.sort((a, b) => PICKABLE_LAYERS.indexOf(a.layer.id) - PICKABLE_LAYERS.indexOf(b.layer.id));
-      // Except that a tap inside a group's drawn disc means the group: a
-      // bus's hit target is wider than its plate, and should not reach in
-      // over a disc beside it.
-      if (hits[0].layer.id === 'vehicles-hit') {
+      const away = (hit: MapGeoJSONFeature) => {
+        const at = instance.project((hit.geometry as GeoJSON.Point).coordinates as [number, number]);
+        return Math.hypot(at.x - point.x, at.y - point.y);
+      };
+      let picked = hits[0];
+      if (picked.layer.id === 'vehicles-hit') {
+        // Of several buses under a finger, the one nearest it.
+        for (const hit of hits) if (hit.layer.id === 'vehicles-hit' && away(hit) < away(picked)) picked = hit;
+        // A bus's hit target is wider than its plate, and should not reach in
+        // over a group's disc beside it: a tap inside the disc means the
+        // group, unless it is right on a plate drawn over the disc (the
+        // chosen vehicle's route is never folded into groups).
         const zoom = instance.getZoom();
-        const group = hits.find((hit) => {
-          if (hit.layer.id !== 'vehicle-groups-circle') return false;
-          const at = instance.project((hit.geometry as GeoJSON.Point).coordinates as [number, number]);
-          return Math.hypot(at.x - point.x, at.y - point.y) <= groupDiscRadius(Number(hit.properties?.count ?? 0), zoom);
-        });
-        if (group) return group;
+        if (away(picked) > vehiclePlateRadius(zoom)) {
+          const group = hits.find(
+            (hit) =>
+              hit.layer.id === 'vehicle-groups-circle' &&
+              away(hit) <= groupDiscRadius(Number(hit.properties?.count ?? 0), zoom),
+          );
+          if (group) return group;
+        }
       }
       // Except that a tap right on a plane means the plane. A bus's hit
       // target is generous, and planes cross busy streets: without this, a
       // plane over Lake Street could never be tapped at all.
       const plane = hits.find((hit) => hit.layer.id === 'planes-hit');
-      if (plane && plane !== hits[0]) {
-        const away = (hit: MapGeoJSONFeature) => {
-          const at = instance.project((hit.geometry as GeoJSON.Point).coordinates as [number, number]);
-          return Math.hypot(at.x - point.x, at.y - point.y);
-        };
-        if (away(plane) <= PLANE_TAP_PX && away(plane) < away(hits[0])) return plane;
-      }
-      return hits[0];
+      if (plane && plane !== picked && away(plane) <= PLANE_TAP_PX && away(plane) < away(picked)) return plane;
+      return picked;
     };
 
     instance.on('click', (event) => {
