@@ -191,9 +191,10 @@ OpenStreetMap and OpenFreeMap.
 | GitHub Pages | Hosts the static, browser-mode site |
 | npm registry | Dependencies, locked by `package-lock.json` |
 
-GitHub Actions used: `actions/checkout@v4`, `actions/setup-node@v4`,
-`actions/configure-pages@v5`, `actions/upload-pages-artifact@v3`,
-`actions/deploy-pages@v4` — all first-party GitHub actions. CI runs on Node 22.
+GitHub Actions used: `actions/checkout@v7`, `actions/setup-node@v7`,
+`actions/configure-pages@v6`, `actions/upload-pages-artifact@v5`,
+`actions/deploy-pages@v5` — all first-party GitHub actions, running on the
+Node 24 actions runtime. The project itself builds and tests on Node 22.
 
 ---
 
@@ -208,7 +209,7 @@ GitHub Actions used: `actions/checkout@v4`, `actions/setup-node@v4`,
 | `fflate` | 0.8 | MIT | web (and server tests) | Unzipping the timetable in the browser; writing fixtures |
 | `@fontsource/inter`, `@fontsource/inter-tight` | 5.3 | OFL-1.1 (fonts by Rasmus Andersson) | web | Self-hosted typefaces (Latin subsets, bundled into the build) |
 | `fastify` | 5.12 | MIT | server | HTTP server |
-| `@fastify/cors` | 10.1 | MIT | server | CORS headers |
+| `@fastify/cors` | 11.3 | MIT | server | CORS headers |
 | `@fastify/static` | 10.1 | MIT | server | Serving the built client with `SERVE_STATIC` |
 | `gtfs-realtime-bindings` | 1.1 | Apache-2.0 | server + web | Official GTFS-Realtime protobuf definitions (MobilityData) |
 | `protobufjs` | 7.6 | BSD-3-Clause | server + web (via the above) | Protobuf decoding |
@@ -232,8 +233,8 @@ install; none of it is used at runtime or shipped to browsers.
 
 ### 5.3 The whole production tree
 
-185 third-party packages are installed for production (`npm ls --omit=dev`,
-excluding the two workspace packages). Their licences: MIT 118, ISC 21, BSD-3-Clause 19, BSD-2-Clause 10, Apache-2.0 7,
+182 third-party packages are installed for production (`npm ls --omit=dev`,
+excluding the two workspace packages). Their licences: MIT 115, ISC 21, BSD-3-Clause 19, BSD-2-Clause 10, Apache-2.0 7,
 BlueOak-1.0.0 5 (glob, minimatch and friends), OFL-1.1 2 (fonts),
 Unlicense 1, Python-2.0 1 (`argparse`), MIT-or-Apache-2.0 1 — all permissive.
 `npm audit` reports no known vulnerabilities as of this pass.
