@@ -492,14 +492,23 @@ export function TransitMap({
       'bottom-right',
     );
 
+    /** The view last reported, so a restyle that moved nothing says nothing. */
+    let reported = '';
     const emitViewport = () => {
       const bounds = instance.getBounds();
-      handlers.current.onViewportChange([
+      const view: [number, number, number, number] = [
         bounds.getWest(),
         bounds.getSouth(),
         bounds.getEast(),
         bounds.getNorth(),
-      ]);
+      ];
+      // `rebuild` runs on every `styledata`, and the alerts ripple restyles
+      // the map two dozen times a second. Each report re-renders the app and
+      // restarts the debounced stops-in-view load, which then never runs.
+      const key = view.join(',');
+      if (key === reported) return;
+      reported = key;
+      handlers.current.onViewportChange(view);
     };
 
     /**
