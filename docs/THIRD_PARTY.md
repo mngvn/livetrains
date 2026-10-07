@@ -224,7 +224,7 @@ install; none of it is used at runtime or shipped to browsers.
 | Package | Version | Licence | Used for |
 | --- | --- | --- | --- |
 | `typescript` | 5.9 | Apache-2.0 | Type checking and server build |
-| `vite`, `@vitejs/plugin-react` | 6.4 / 4.7 | MIT | Client dev server and bundler |
+| `vite`, `@vitejs/plugin-react` | 8.3 / 6.1 | MIT | Client dev server and bundler |
 | `vitest` | 5.0 | MIT | Unit tests (both packages) |
 | `tsx` | 4.x | MIT | Running TypeScript directly in development and scripts |
 | `concurrently` | 9.x | MIT | Running server and client together in development |
@@ -233,8 +233,8 @@ install; none of it is used at runtime or shipped to browsers.
 
 ### 5.3 The whole production tree
 
-182 third-party packages are installed for production (`npm ls --omit=dev`,
-excluding the two workspace packages). Their licences: MIT 115, ISC 21, BSD-3-Clause 19, BSD-2-Clause 10, Apache-2.0 7,
+181 third-party packages are installed for production (`npm ls --omit=dev`,
+excluding the two workspace packages). Their licences: MIT 115, ISC 20, BSD-3-Clause 19, BSD-2-Clause 10, Apache-2.0 7,
 BlueOak-1.0.0 5 (glob, minimatch and friends), OFL-1.1 2 (fonts),
 Unlicense 1, Python-2.0 1 (`argparse`), MIT-or-Apache-2.0 1 — all permissive.
 `npm audit` reports no known vulnerabilities as of this pass.

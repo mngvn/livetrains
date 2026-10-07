@@ -118,14 +118,26 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    rollupOptions: {
+    // The browsers Vite 6 built for by default. Vite 7 raised its default to
+    // Safari/iOS 16.4, Chrome 111 and Firefox 114, which leaves MapLibre's
+    // class static blocks in the bundle: a syntax error on older phones that
+    // stops the whole app loading. Keep lowering syntax for the riders who
+    // still carry them.
+    target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
+    rolldownOptions: {
       output: {
         // MapLibre is by far the largest dependency and changes rarely. Giving
         // it its own chunk lets the browser cache it across app deploys, and
         // lets the sheet render while the map engine is still arriving.
-        manualChunks: {
-          maplibre: ['maplibre-gl'],
-          react: ['react', 'react-dom'],
+        // Rolldown has no object form of `manualChunks`; these groups are
+        // its equivalent. They match script modules only, so styles stay in
+        // one stylesheet and the `?worker&url` import of MapLibre's worker
+        // stays with the code that imports it.
+        codeSplitting: {
+          groups: [
+            { name: 'maplibre', test: /[\\/]node_modules[\\/]maplibre-gl[\\/][^?]*\.m?js$/ },
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/][^?]*\.js$/ },
+          ],
         },
       },
     },
