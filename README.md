@@ -131,7 +131,10 @@ worldwide — adding another city is a config entry rather than a rewrite.
 - **Saved trips, and how reliable they really are.** Save the trips you make
   often. While the app is open it notes how each of their buses and trains
   actually ran as they left, and shows "on time 8 in 10 · usually 2 min late"
-  from what this device has seen.
+  from what this device has seen. They live in their own Saved tab.
+- **Clear map.** Whenever the map is narrowed to a trip, a route, a stop, a
+  vehicle or a stop's reach, a Clear map button at the top brings back the
+  whole network in one press.
 - **Ride along.** "Ride this bus", or "Ride it" on a planned trip, follows the
   vehicle you are on. Choose your stop and a banner counts the stops down:
   "get ready" two stops out, "your stop is next", then "get off here", with
