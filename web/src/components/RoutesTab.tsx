@@ -105,7 +105,7 @@ export function RoutesTab({
 
           <div className="panel-actions">
             <button type="button" className="chip chip--primary" onClick={onClear}>
-              Back to the whole network
+              Show all routes
             </button>
             <ShareButton url={shareUrl({ route: active.id })} title={`Route ${active.shortName} — live vehicles`} />
           </div>

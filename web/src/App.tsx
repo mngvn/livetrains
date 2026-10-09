@@ -1176,6 +1176,17 @@ export function App() {
         </div>
       )}
 
+      {/* One route stays focused on every tab, so the way back to the whole
+          network has to be in reach wherever the route's own card is not. */}
+      {activeRouteId && !mapPickTarget && (tab !== 'routes' || panelHidden || detailOpen) && (
+        <div className="map-pick-hint" role="status">
+          Showing route {routesById.get(activeRouteId)?.shortName ?? ''}
+          <button type="button" className="chip" onClick={clearRoute}>
+            Show all routes
+          </button>
+        </div>
+      )}
+
       <div
         className={`sheet${panelHidden ? ' is-hidden' : ''}`}
         id="livetrains-panel"
