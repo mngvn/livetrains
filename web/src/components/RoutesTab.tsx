@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import type { RouteDetail, RouteSummary } from '../lib/api.ts';
+import type { RouteDetail, RouteSummary, Vehicle } from '../lib/api.ts';
 import { sortAlerts } from '../lib/alerts.ts';
-import { modeLabel } from '../lib/format.ts';
+import { delayText, modeLabel } from '../lib/format.ts';
 import { AlertCard } from './AlertCard.tsx';
 import { RouteBadge } from './RouteBadge.tsx';
 import { ShareButton } from './ShareButton.tsx';
@@ -26,6 +26,8 @@ export function RoutesTab({
   onSelect,
   onClear,
   onShowRoute,
+  vehicles,
+  onShowVehicle,
 }: {
   routes: RouteSummary[];
   activeRouteId: string | null;
@@ -37,6 +39,9 @@ export function RoutesTab({
   onSelect: (route: RouteSummary) => void;
   onClear: () => void;
   onShowRoute: (routeId: string) => void;
+  /** The vehicles out on the active route now. */
+  vehicles: Vehicle[];
+  onShowVehicle: (vehicleId: string) => void;
 }) {
   const groups = useMemo(() => {
     const byOperator = new Map<string, RouteSummary[]>();
@@ -92,6 +97,38 @@ export function RoutesTab({
                 .map((d) => `To ${d.headsign} · ${d.stops.length} stops`)
                 .join('  ·  ')}
             </p>
+          )}
+
+          {activeDetail && (
+            <section className="route-card__vehicles" aria-label="On this route now">
+              <h3 className="panel-section__title">
+                {vehicles.length === 0
+                  ? 'Nothing running on this route right now'
+                  : `${vehicles.length} running on this route now`}
+              </h3>
+              {vehicles.length > 0 && (
+                <ul className="route-vehicles">
+                  {[...vehicles]
+                    .sort((a, b) => (a.headsign ?? '').localeCompare(b.headsign ?? '') || a.id.localeCompare(b.id))
+                    .map((vehicle) => {
+                      const delay = delayText(vehicle.delaySeconds);
+                      return (
+                        <li key={vehicle.id}>
+                          <button type="button" className="route-vehicles__item" onClick={() => onShowVehicle(vehicle.id)}>
+                            <span className="route-vehicles__dot" style={{ background: `#${vehicle.color}` }} aria-hidden="true" />
+                            <span className="route-vehicles__name">
+                              {vehicle.headsign ? `To ${vehicle.headsign}` : `${modeLabel(vehicle.mode)} ${vehicle.id}`}
+                            </span>
+                            {vehicle.delaySeconds !== undefined && (
+                              <span className={`delay-tag delay-tag--${delay.tone}`}>{delay.label}</span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
+            </section>
           )}
 
           {alerts.length > 0 && (

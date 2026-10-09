@@ -729,6 +729,13 @@ export function App() {
     [activeRouteId, source, clearRoute],
   );
 
+  /** The vehicles out on the route being browsed, refreshed with the clock. */
+  const activeRouteVehicles = useMemo(
+    () => (activeRouteId && tab === 'routes' ? tracker.snapshot().filter((v) => v.routeId === activeRouteId) : []),
+    // `now` stands in for the live fleet moving on: the tracker itself never changes.
+    [activeRouteId, tab, tracker, now],
+  );
+
   /** Routes by id, for drawing badges wherever only an id is at hand. */
   const routesById = useMemo(() => new Map(routes.map((route) => [route.id, route])), [routes]);
 
@@ -1434,6 +1441,8 @@ export function App() {
               onSelect={showRoute}
               onClear={clearRoute}
               onShowRoute={openRoute}
+              vehicles={activeRouteVehicles}
+              onShowVehicle={showVehicle}
             />
           )}
 

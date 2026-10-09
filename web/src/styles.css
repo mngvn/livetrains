@@ -1475,6 +1475,51 @@ button {
   color: var(--text-muted);
 }
 
+.route-card__vehicles {
+  margin-top: 12px;
+}
+
+.route-vehicles {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.route-vehicles__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 6px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.route-vehicles__item:hover {
+  background: var(--surface-2);
+}
+
+.route-vehicles__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.route-vehicles__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .route-card__contact a {
   color: var(--text);
 }

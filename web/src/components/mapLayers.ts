@@ -895,6 +895,22 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
   });
 
+  // A ring round every vehicle on the route being browsed, so the ones out
+  // on it now stand out from the dimmed rest of the fleet.
+  map.addLayer({
+    id: 'vehicles-route',
+    type: 'circle',
+    source: 'vehicles',
+    filter: ['all', NOT_GROUPED, ['in', ['get', 'routeId'], ['literal', []]]] as maplibregl.FilterSpecification,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 7, 10, 10, 16, 17],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.22,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 2,
+    },
+  });
+
   // The plate, nose and all, then the pictogram upright on top of it.
   map.addLayer({
     id: 'vehicles-dot',
@@ -1154,6 +1170,14 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
 
   for (const layer of ['vehicles-dot', 'vehicles-glyph']) {
     set(layer, 'icon-opacity', layer === 'vehicles-glyph' ? glyphOpacity(lineFocus) : vehicleOpacity(lineFocus));
+  }
+  // The browsed route's vehicles ringed, and drawn over any they overlap.
+  if (map.getLayer('vehicles-route')) {
+    const ringed = focus?.kind === 'route' && ids ? ids : [];
+    map.setFilter('vehicles-route', ['all', NOT_GROUPED, ['in', ['get', 'routeId'], ['literal', ringed]]] as maplibregl.FilterSpecification);
+  }
+  for (const layer of ['vehicles-dot', 'vehicles-glyph', 'vehicles-label']) {
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'symbol-sort-key', lineFocus ? ['case', lineFocus, 1, 0] : 0);
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
   set('vehicles-label', 'icon-opacity', vehicleOpacity(lineFocus));
