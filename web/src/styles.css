@@ -314,6 +314,8 @@ button {
   display: flex;
   gap: 0;
   padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
   border-bottom: 1px solid var(--border);
 }
 
@@ -324,7 +326,7 @@ button {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
   background: none;
   border: none;
@@ -1865,6 +1867,17 @@ button {
   border-radius: var(--radius-sm);
 }
 
+.tab__count--quiet {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.map-reset__what {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* --------------------------------------------------------------------------
    Map overlays
    -------------------------------------------------------------------------- */
@@ -2009,6 +2022,16 @@ button {
     top: 12px;
     width: calc(100% - 24px);
     justify-content: space-between;
+  }
+
+  /* Tucked into the top-left corner, clear of the legend and view buttons. */
+  .map-pick-hint.map-reset {
+    left: 12px;
+    transform: none;
+    width: auto;
+    max-width: calc(100% - 150px);
+    padding: 6px 6px 6px 11px;
+    font-size: 12px;
   }
 }
 

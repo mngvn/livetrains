@@ -63,10 +63,11 @@ import { routeFits, usePlaneDetails } from './lib/planeLookup.ts';
 import { greatCircle, whereBound } from './lib/planeBound.ts';
 import type { Plane } from '@shared/planes.ts';
 
-type Tab = 'plan' | 'nearby' | 'routes' | 'status' | 'alerts';
+type Tab = 'plan' | 'saved' | 'nearby' | 'routes' | 'status' | 'alerts';
 
 const TAB_LABELS: Record<Tab, string> = {
   plan: 'Plan',
+  saved: 'Saved',
   nearby: 'Nearby',
   routes: 'Routes',
   status: 'Status',
@@ -601,6 +602,8 @@ export function App() {
       source
         .plan({ fromLat: from.lat, fromLon: from.lon, toLat: to.lat, toLon: to.lon })
         .then((result) => {
+          // Cleared or replaced while it was being worked out.
+          if (run !== planRun.current) return;
           // Show the plan immediately with its estimated walks. Real walking
           // directions are a network round trip per leg, and making the whole
           // trip wait on them would trade a visible answer for a spinner.
@@ -621,11 +624,14 @@ export function App() {
           });
         })
         .catch((err: unknown) => {
+          if (run !== planRun.current) return;
           setItineraries([]);
           setSelectedItinerary(null);
           setPlanMessage(err instanceof Error ? err.message : 'Could not plan that trip.');
         })
-        .finally(() => setPlanning(false));
+        .finally(() => {
+          if (run === planRun.current) setPlanning(false);
+        });
     },
     [source, walkRouter],
   );
@@ -830,6 +836,30 @@ export function App() {
   // --- Riding along -----------------------------------------------------------
   /** The vehicle you are on, and the stop you are getting off at once chosen. */
   const [ride, setRide] = useState<{ vehicleId: string; stopId: string | null } | null>(null);
+  // --- Back to the whole network ----------------------------------------------
+  /** Forgets the planned trip: both ends, its itineraries, and any playback. */
+  const clearPlan = useCallback(() => {
+    planRun.current += 1;
+    setPlanning(false);
+    setOrigin(null);
+    setDestination(null);
+    endJourney();
+  }, [endJourney]);
+
+  /**
+   * Puts the map back to its default: every line and vehicle at full
+   * strength, nothing chosen, nothing planned. Saved trips are kept.
+   */
+  const resetMap = useCallback(() => {
+    clearPlan();
+    clearRoute();
+    closeDetail();
+    setHighlightRouteIds(null);
+    setReach(null);
+    setRide(null);
+    setMapPickTarget(null);
+  }, [clearPlan, clearRoute, closeDetail]);
+
   const { trip: rideTrip } = useVehicleTrip(source.vehicleTrip, ride?.vehicleId ?? null);
   const progress = useMemo(
     () =>
@@ -1037,6 +1067,23 @@ export function App() {
   }
 
 
+  /** What the map is narrowed to, in a few words, or null at its default. */
+  const mapNarrowed = ride
+    ? 'Riding along'
+    : origin || destination
+      ? 'Showing your trip'
+      : reach
+        ? `Reach from ${reach.stopName}`
+        : activeRouteId
+          ? `Showing route ${routesById.get(activeRouteId)?.shortName ?? ''}`
+          : selectedVehicleId
+            ? 'Showing one vehicle'
+            : selectedStopId
+              ? 'Showing one stop'
+              : selectedPlaneId
+                ? 'Showing one aircraft'
+                : null;
+
   return (
     <div
       className={`app${mapPickTarget ? ' is-picking' : ''}${detailOpen ? ' has-detail' : ''}${ride ? ' is-riding' : ''}`}
@@ -1183,13 +1230,13 @@ export function App() {
         </div>
       )}
 
-      {/* One route stays focused on every tab, so the way back to the whole
-          network has to be in reach wherever the route's own card is not. */}
-      {activeRouteId && !mapPickTarget && (tab !== 'routes' || panelHidden || detailOpen) && (
-        <div className="map-pick-hint" role="status">
-          Showing route {routesById.get(activeRouteId)?.shortName ?? ''}
-          <button type="button" className="chip" onClick={clearRoute}>
-            Show all routes
+      {/* Whatever the map has been narrowed to — a trip, a route, a stop, a
+          vehicle, a stop's reach — one press brings back the whole network. */}
+      {mapNarrowed && !mapPickTarget && !playingJourney && (
+        <div className="map-pick-hint map-reset" role="status">
+          <span className="map-reset__what">{mapNarrowed}</span>
+          <button type="button" className="chip chip--primary" onClick={resetMap}>
+            Clear map
           </button>
         </div>
       )}
@@ -1257,6 +1304,11 @@ export function App() {
               onClick={() => setTab(id)}
             >
               {TAB_LABELS[id]}
+              {id === 'saved' && saved.trips.length > 0 && (
+                <span className="tab__count tab__count--quiet" aria-label={`${saved.trips.length} saved`}>
+                  {saved.trips.length}
+                </span>
+              )}
               {id === 'alerts' && activeAlertCount > 0 && (
                 <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
                   {activeAlertCount}
@@ -1350,6 +1402,9 @@ export function App() {
                             <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
                           </button>
                         )}
+                        <button type="button" className="chip" onClick={clearPlan}>
+                          Clear trip
+                        </button>
                         {origin && destination && (
                           <ShareButton
                             url={shareUrl({ from: origin, to: destination })}
@@ -1378,18 +1433,26 @@ export function App() {
               )}
 
               {!origin && !destination && !planning && (
+                <p className="panel-hint">
+                  Pick a destination to see the fastest way there, with live vehicle positions
+                  along the way. You can also tap any stop or vehicle on the map.
+                </p>
+              )}
+            </div>
+          )}
+
+          {tab === 'saved' && (
+            <div className="saved-tab">
+              {saved.trips.length > 0 ? (
                 <SavedTrips
                   trips={saved.trips}
                   summaries={reliability}
                   onOpen={openSavedTrip}
                   onRemove={saved.remove}
                 />
-              )}
-
-              {!origin && !destination && !planning && (
+              ) : (
                 <p className="panel-hint">
-                  Pick a destination to see the fastest way there, with live vehicle positions
-                  along the way. You can also tap any stop or vehicle on the map.
+                  No saved trips yet. Plan a trip and press Save to keep it here, one tap from a fresh plan.
                 </p>
               )}
             </div>
