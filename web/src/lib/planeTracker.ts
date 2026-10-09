@@ -43,8 +43,31 @@ export interface PlaneFeedStatus {
 /** Asks the feed for the planes in the area. */
 export type PlaneFetcher = (signal: AbortSignal) => Promise<PlanesResponse>;
 
-/** How often the feed is asked, while the page is visible and planes are on. */
-export const PLANE_POLL_MS = 10_000;
+/**
+ * How often the feed is asked, by how long since anyone touched the page.
+ *
+ * Every poll is a request against someone's free allowance — the relay's
+ * host and the community feed behind it — so the map asks briskly while it
+ * is being used and less as it sits: a tab left open on a desk all day costs
+ * a fraction of one being explored. Between polls the planes keep moving by
+ * dead reckoning, so a slower rhythm shows as the odd small correction, not
+ * as planes stopping. A hidden tab asks nothing at all.
+ */
+export const PLANE_POLL_MS = 15_000;
+const IDLE_POLL_MS = 30_000;
+const ASLEEP_POLL_MS = 120_000;
+const IDLE_AFTER_MS = 5 * 60_000;
+const ASLEEP_AFTER_MS = 30 * 60_000;
+
+/** How long to wait before the next poll, given the last sign of someone there. */
+export function pollDelay(sinceActivityMs: number): number {
+  if (sinceActivityMs >= ASLEEP_AFTER_MS) return ASLEEP_POLL_MS;
+  if (sinceActivityMs >= IDLE_AFTER_MS) return IDLE_POLL_MS;
+  return PLANE_POLL_MS;
+}
+
+/** What counts as someone being at the page. */
+const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'] as const;
 
 /** After a failed poll, how long before the next try; doubling to the cap. */
 const RETRY_MS = 20_000;
@@ -53,19 +76,21 @@ const RETRY_MAX_MS = 120_000;
 /**
  * How far past its last report a plane is carried forward.
  *
- * A little more than one poll plus the report's own age, so a single late
+ * Comfortably more than one poll plus the report's own age, so a single late
  * response does not freeze anything. Beyond it a plane holds where it was
- * last placed, and goes stale: a guess a minute old would be a fiction.
+ * last placed, and goes stale: a guess a minute old would be a fiction. (A
+ * map left untouched for half an hour polls every two minutes, and its
+ * planes honestly freeze and fade between polls rather than fly on.)
  */
-const MAX_EXTRAPOLATE_SECONDS = 25;
-const STALE_AFTER_SECONDS = 45;
+const MAX_EXTRAPOLATE_SECONDS = 40;
+const STALE_AFTER_SECONDS = 60;
 
 /**
  * With nothing heard for this long, a plane is gone, feed or no feed. Unlike
  * a bus, whose last stop is still worth knowing, a plane frozen for minutes
  * is a fiction: it is twenty miles on.
  */
-const FORGET_AFTER_SECONDS = 120;
+const FORGET_AFTER_SECONDS = 200;
 
 /** A plane missing from this many seconds of good polls has left. */
 const DROP_AFTER_SECONDS = 30;
@@ -124,6 +149,14 @@ export class PlaneTracker {
   private frameHandle: number | null = null;
   private controller: AbortController | null = null;
   private retryMs = RETRY_MS;
+  /** The last sign of someone at the page: a touch, a click, a key, a scroll. */
+  private lastActivity = Date.now();
+  private readonly onActivity = () => {
+    const was = Date.now() - this.lastActivity;
+    this.lastActivity = Date.now();
+    // Back from a while away: ask now, rather than wait out a slow poll.
+    if (was >= IDLE_AFTER_MS && this.fetcher && document.visibilityState === 'visible') this.schedule(0);
+  };
   private readonly onVisibility = () => {
     if (!this.fetcher) return;
     // A hidden tab asks for nothing: these are free community feeds, and a
@@ -138,7 +171,9 @@ export class PlaneTracker {
     this.stop();
     this.fetcher = fetcher;
     this.setStatus({ state: 'loading', error: null });
+    this.lastActivity = Date.now();
     document.addEventListener('visibilitychange', this.onVisibility);
+    for (const type of ACTIVITY_EVENTS) window.addEventListener(type, this.onActivity, { passive: true });
     if (document.visibilityState !== 'hidden') this.schedule(0);
     this.startFrames();
   }
@@ -150,6 +185,7 @@ export class PlaneTracker {
     this.controller?.abort();
     this.controller = null;
     document.removeEventListener('visibilitychange', this.onVisibility);
+    for (const type of ACTIVITY_EVENTS) window.removeEventListener(type, this.onActivity);
     if (this.frameHandle !== null) cancelAnimationFrame(this.frameHandle);
     this.frameHandle = null;
     this.tracks.clear();
@@ -289,13 +325,14 @@ export class PlaneTracker {
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    // Long enough for a couple of relays to be tried in turn.
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
       const response = await fetcher(controller.signal);
       if (this.fetcher !== fetcher) return;
       this.ingest(response);
       this.retryMs = RETRY_MS;
-      this.schedule(PLANE_POLL_MS);
+      this.schedule(pollDelay(Date.now() - this.lastActivity));
     } catch (err) {
       if (this.fetcher !== fetcher) return;
       // Planes already drawn stay, and go stale as they age; the legend says

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Plane, PlanesResponse } from '@shared/planes.ts';
-import { PlaneTracker, deadReckon } from './planeTracker.ts';
+import { PLANE_POLL_MS, PlaneTracker, deadReckon, pollDelay } from './planeTracker.ts';
 
 function plane(overrides: Partial<Plane> = {}): Plane {
   return {
@@ -66,8 +66,8 @@ describe('PlaneTracker', () => {
   it('stops guessing after a while, and says the position is old', () => {
     const tracker = new PlaneTracker();
     tracker.ingest(at(1000, [plane()]), 1000);
-    const a = tracker.frame(1030)[0];
-    const b = tracker.frame(1050)[0];
+    const a = tracker.frame(1045)[0];
+    const b = tracker.frame(1070)[0];
     expect(b.displayLat).toBe(a.displayLat);
     expect(b.stale).toBe(true);
   });
@@ -75,8 +75,8 @@ describe('PlaneTracker', () => {
   it('forgets a plane nothing has been heard of for minutes, even with the feed down', () => {
     const tracker = new PlaneTracker();
     tracker.ingest(at(1000, [plane()]), 1000);
-    expect(tracker.frame(1100)).toHaveLength(1);
-    expect(tracker.frame(1130)).toHaveLength(0);
+    expect(tracker.frame(1190)).toHaveLength(1);
+    expect(tracker.frame(1210)).toHaveLength(0);
     expect(tracker.get('a095aa')).toBeUndefined();
   });
 
@@ -118,5 +118,14 @@ describe('PlaneTracker', () => {
     tracker.onStatus((status) => statuses.push(`${status.state}:${status.count}`));
     tracker.ingest({ planes: [plane()], now: 1000, source: 'adsb.lol' }, 1000);
     expect(statuses).toEqual(['off:0', 'live:1']);
+  });
+});
+
+describe('pollDelay', () => {
+  it('asks briskly while the map is in use, and less as it sits untouched', () => {
+    expect(pollDelay(0)).toBe(PLANE_POLL_MS);
+    expect(pollDelay(4 * 60_000)).toBe(15_000);
+    expect(pollDelay(6 * 60_000)).toBe(30_000);
+    expect(pollDelay(45 * 60_000)).toBe(120_000);
   });
 });

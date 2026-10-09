@@ -1,0 +1,12 @@
+{
+  "name": "livetrains-planes-relay",
+  "private": true,
+  "description": "The aircraft relay on its own: no dependencies, runs on Cloudflare, Deno or Node.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node node-server.js"
+  }
+}

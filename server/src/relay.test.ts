@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-// The relay is a standalone Cloudflare Worker, plain JavaScript so it can be
-// deployed as one file; it is tested from here because this is where the
-// tests run.
-import relay from '../../relay/planes-worker.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readPlanes } from './shared/planes.js';
+
+// The relay is standalone plain JavaScript, so it can be deployed as one file
+// to Cloudflare, Deno or Node; it is tested from here because this is where
+// the tests run. It holds recent answers in memory, so each test loads a
+// fresh copy.
+let relay: { fetch: (request: Request, env?: Record<string, string>, ctx?: unknown) => Promise<Response> };
+beforeEach(async () => {
+  vi.resetModules();
+  relay = (await import('../../relay/planes-worker.js')).default;
+});
 
 const ask = (path: string, init: RequestInit & { origin?: string } = {}, env: Record<string, string> = {}) =>
   relay.fetch(
@@ -15,7 +21,10 @@ const ask = (path: string, init: RequestInit & { origin?: string } = {}, env: Re
     { waitUntil: () => undefined },
   ) as Promise<Response>;
 
-const FEED = { ac: [{ hex: 'a095aa', flight: 'EDV5350 ', lat: 44.87, lon: -93.17, alt_baro: 1050, seen_pos: 0.2 }], now: 1791140619001 };
+const FEED = {
+  ac: [{ hex: 'a095aa', flight: 'EDV5350 ', lat: 44.87, lon: -93.17, alt_baro: 1050, seen_pos: 0.2, rssi: -21, messages: 128093, nic: 8 }],
+  now: 1791140619001,
+};
 
 describe('the aircraft relay worker', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -78,5 +87,34 @@ describe('the aircraft relay worker', () => {
     const response = await ask('/planes/44.95/-93.2/37');
     expect(response.status).toBe(502);
     expect((await response.json()).error).toMatch(/No aircraft feed answered/);
+  });
+});
+
+describe('what the relay passes on', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('keeps only the fields the map reads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(FEED), { status: 200 })));
+    const body = await (await ask('/planes/44.95/-93.2/37')).json();
+    expect(body.ac[0]).toEqual({ hex: 'a095aa', flight: 'EDV5350 ', lat: 44.87, lon: -93.17, alt_baro: 1050, seen_pos: 0.2 });
+  });
+
+  it('answers a crowd from one fetch, with the clock moved on by how long it was held', async () => {
+    vi.useFakeTimers({ now: 1_791_140_619_000, toFake: ['Date'] });
+    const fetch = vi.fn(async () => new Response(JSON.stringify(FEED), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    await ask('/planes/44.95/-93.2/37');
+    vi.setSystemTime(1_791_140_622_000);
+    const second = await (await ask('/planes/44.95/-93.2/37')).json();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // adsb.lol keeps time in milliseconds: three seconds on.
+    expect(second.now).toBe(FEED.now + 3000);
+    // Past the five seconds, it asks again.
+    vi.setSystemTime(1_791_140_625_500);
+    await ask('/planes/44.95/-93.2/37');
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

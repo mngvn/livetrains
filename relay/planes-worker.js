@@ -37,6 +37,38 @@ const FEEDS = [
 /** A metro never needs more; the feeds themselves stop at 250. */
 const MAX_RADIUS_NM = 100;
 const CACHE_SECONDS = 5;
+
+/**
+ * The fields the map reads from each aircraft. A feed sends forty-odd per
+ * aircraft (signal strength, message counts, accuracy codes); passing on
+ * only these makes each answer about a third the size, which is what a free
+ * host's bandwidth allowance is measured in.
+ */
+const KEEP = [
+  'hex', 'flight', 'r', 't', 'desc', 'ownOp', 'category', 'lat', 'lon', 'alt_baro', 'alt_geom', 'gs',
+  'track', 'true_heading', 'mag_heading', 'baro_rate', 'geom_rate', 'squawk', 'emergency', 'seen_pos', 'seen',
+];
+
+function trim(body) {
+  const list = Array.isArray(body.ac) ? 'ac' : Array.isArray(body.aircraft) ? 'aircraft' : null;
+  if (!list) return { now: body.now };
+  return {
+    now: body.now,
+    [list]: body[list].map((a) => {
+      const kept = {};
+      for (const key of KEEP) if (a && a[key] !== undefined) kept[key] = a[key];
+      return kept;
+    }),
+  };
+}
+
+/**
+ * The last answer for each area, held in memory and shared by every request
+ * this copy of the relay serves, so a crowd of visitors costs the feed one
+ * request every few seconds. (In memory rather than a platform cache so it
+ * works the same on Cloudflare, Deno and Node.)
+ */
+const answers = new Map();
 const PATH = /^\/planes\/(-?\d{1,2}(?:\.\d+)?)\/(-?\d{1,3}(?:\.\d+)?)\/(\d{1,3})$/;
 
 /** The origin to allow, or null when this one is not welcome. */
@@ -68,8 +100,21 @@ function json(body, status, origin, extra = {}) {
   });
 }
 
+const CACHE_HEADER = { 'cache-control': `public, max-age=${CACHE_SECONDS}` };
+
+/**
+ * A held answer with its clock moved on by however long it was held, so the
+ * map reads its positions as exactly as old as they are. The feeds keep time
+ * in milliseconds (adsb.lol) or seconds (adsb.fi).
+ */
+function aged({ at, body }) {
+  const ms = Date.now() - at;
+  if (typeof body.now !== 'number') return body;
+  return { ...body, now: body.now + (body.now > 1e11 ? ms : ms / 1000) };
+}
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const origin = allowedOrigin(request, env);
     if (origin === null) return new Response('Forbidden', { status: 403 });
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin) });
@@ -83,10 +128,9 @@ export default {
     // Two decimals is about a kilometre: close enough to share a cache.
     const area = [lat.toFixed(2), lon.toFixed(2), Math.min(MAX_RADIUS_NM, Math.max(1, Number(match[3])))];
 
-    const cache = typeof caches !== 'undefined' ? caches.default : null;
-    const key = new Request(`https://planes-relay.invalid/${area.join('/')}`);
-    const hit = cache ? await cache.match(key) : null;
-    if (hit) return new Response(hit.body, { status: 200, headers: { ...Object.fromEntries(hit.headers), ...corsHeaders(origin) } });
+    const key = area.join('/');
+    const held = answers.get(key);
+    if (held && Date.now() - held.at < CACHE_SECONDS * 1000) return json(aged(held), 200, origin, CACHE_HEADER);
 
     // Every feed's answer, so a failure says which refused and how.
     const failures = [];
@@ -97,11 +141,10 @@ export default {
           signal: AbortSignal.timeout(8000),
         });
         if (!upstream.ok) throw new Error(`${feed.source} answered ${upstream.status}`);
-        const body = await upstream.json();
-        body.source = feed.source;
-        const response = json(body, 200, origin, { 'cache-control': `public, max-age=${CACHE_SECONDS}` });
-        if (cache) ctx?.waitUntil?.(cache.put(key, response.clone()));
-        return response;
+        const body = { ...trim(await upstream.json()), source: feed.source };
+        if (answers.size > 50) answers.clear();
+        answers.set(key, { at: Date.now(), body });
+        return json(body, 200, origin, CACHE_HEADER);
       } catch (err) {
         failures.push(err instanceof Error ? err.message : String(err));
       }

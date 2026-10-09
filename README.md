@@ -355,30 +355,40 @@ has to relay them:
 
 - **Server mode** relays them itself at `/api/planes`, one fetch every few
   seconds shared by every visitor. Nothing to set up.
-- **A static build** (GitHub Pages) needs a relay named at build time. One is
-  included: `relay/planes-worker.js`, a single-file Cloudflare Worker that
-  answers only the one question the app asks and caches the answer for five
-  seconds, so the feed itself is asked at most every five seconds from each
-  Cloudflare location however many people are looking. Each open tab asks the
-  worker every ten seconds, and only while it is visible, so the free tier's
-  100,000 requests a day is about 280 hours of someone watching the map.
+- **A static build** (GitHub Pages) needs a relay named at build time. The
+  relay is one dependency-free file, `relay/planes-worker.js`, which answers
+  only the one question the app asks, strips each answer down to the fields
+  the map reads (about a third the size) and shares it between visitors for
+  five seconds. It runs three ways:
 
-  ```bash
-  npx wrangler deploy relay/planes-worker.js --name livetrains-planes \
-    --compatibility-date 2026-01-01
-  ```
+  | Where | How | Limits |
+  | --- | --- | --- |
+  | [Deno Deploy](https://deno.com/deploy) | paste `relay/deno.js` into a playground | ~1M requests/month free |
+  | Any Node host, or a computer at home | `node relay/node-server.js` (listens on `$PORT`) | the host's own; none at home |
+  | Cloudflare Workers | `npx wrangler deploy relay/planes-worker.js` | adsb.lol rate-limits Cloudflare's shared servers (429) and adsb.fi blocks them (403), so this one only works if they stop |
 
-  **Cloudflare's shared servers may be turned away**, as they were when this
-  was first set up: adsb.lol rate-limits them (429) and adsb.fi blocks them
-  (403). The same relay then runs on [Deno Deploy](https://deno.com/deploy)
-  instead, free with a GitHub sign-in: paste `relay/deno.js` into a new
-  playground and use its `https://<name>.deno.dev` address below.
+  For a free Node host, [Render](https://render.com)'s free web service is
+  one option (untested here; whether the feeds accept its servers is only
+  known once it runs): a Web Service from this repository with Root Directory `relay`,
+  Start Command `node node-server.js` and the Free instance type. It sleeps
+  after 15 quiet minutes and takes about a minute to wake, during which the
+  app uses the next relay in the list.
 
-  Then, under Settings → Secrets and variables → Actions → Variables, add
-  `PLANES_URL` =
-  `https://livetrains-planes.<you>.workers.dev/planes/{lat}/{lon}/{radius}`
-  and re-run the Pages workflow. Optionally set `ALLOWED_ORIGINS` on the
-  worker (e.g. `https://mngvn.github.io`) so only your site can use it.
+  **Several relays can be listed** in `PLANES_URL`, separated by spaces. The
+  app keeps to whichever answered last, moves on the moment one fails or runs
+  out of its allowance, and goes back to the first listed every five minutes,
+  so free tiers on different hosts add up.
+
+  The app is frugal with them: it asks every 15 seconds while the map is in
+  use, every 30 once it has sat untouched for five minutes, every two minutes
+  after half an hour, and not at all from a hidden tab. Planes keep moving by
+  dead reckoning in between.
+
+  Then, under Settings → Secrets and variables → Actions → Variables, set
+  `PLANES_URL` to the relay address with `/planes/{lat}/{lon}/{radius}` on the
+  end (several separated by spaces), and re-run the Pages workflow. Set
+  `ALLOWED_ORIGINS` on a relay (e.g. `https://mngvn.github.io`) so only your
+  site's pages can use it.
 
 Without a relay the static site simply has no planes — the legend does not
 offer them. Routes and aircraft details come from
