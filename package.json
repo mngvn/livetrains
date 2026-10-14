@@ -27,7 +27,7 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "playwright": "^1.63.0",
-    "typescript": "^5.7.3"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "shell-quote": "^1.11.0"
