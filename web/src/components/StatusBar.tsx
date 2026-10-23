@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { FeedStatus } from '../lib/api.ts';
 import type { StreamStatus } from '../lib/vehicleTracker.ts';
 import { clockTime } from '../lib/format.ts';
@@ -24,10 +25,17 @@ function age(seconds: number): string {
 }
 
 /** The fleet, said like a person would. */
-function fleetLine(count: number): string {
+function fleetLine(count: number): ReactNode {
   if (count === 0) return 'No vehicles reporting right now';
-  if (count === 1) return '1 vehicle moving right now';
-  return `${count.toLocaleString()} vehicles moving right now`;
+  const vehicles = count === 1 ? '1 vehicle' : `${count.toLocaleString()} vehicles`;
+  // On a phone the count beside its live dot says enough, and the rest
+  // would only be cut off.
+  return (
+    <>
+      {vehicles}
+      <span className="status-bar__more"> moving right now</span>
+    </>
+  );
 }
 
 export function StatusBar({
