@@ -47,7 +47,7 @@ export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, plan
             <rect x="8.5" y="10.75" width="6" height="2.5" rx="1.25" fill="currentColor" />
           </svg>
         </span>
-        Legend
+        <span className="legend__toggle-label">Legend</span>
       </button>
 
       {open && (

@@ -311,6 +311,8 @@ button {
    -------------------------------------------------------------------------- */
 
 .tabs {
+  /* A scroller, so without this a long panel below squeezes it to nothing. */
+  flex: none;
   display: flex;
   gap: 0;
   padding: 0 8px;
@@ -1108,19 +1110,31 @@ button {
   margin: 12px 0;
 }
 
-/* "Watch this trip" and "Share", side by side under the chosen trip. */
+/* Under the chosen trip: watching it across the top, and keeping, sharing
+   and clearing it in even columns underneath, each its own clear target. */
 .plan-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   margin: 10px 0 2px;
 }
 
 .plan-actions .journey-start {
-  flex: 1 1 auto;
+  flex: 1 1 100%;
   width: auto;
   margin: 0;
+}
+
+.plan-actions .chip {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 8px;
+  white-space: nowrap;
 }
 
 .share {
@@ -1954,14 +1968,15 @@ button {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 720px) {
-  /* How much of a phone the bottom sheet may take: half the screen, enough
-     for a stop's next departures or a trip's summary while the other half
-     stays map, and never so little on a short phone that the planner's own
-     fields drop out of sight. Shared by the planner and the detail panel,
-     which take turns in the same place, and by everything that has to clear
-     them. */
+  /* How much of a phone the bottom sheet and the tab bar under it may take:
+     half the screen, enough for a stop's next departures or a trip's summary
+     while the other half stays map, and never so little on a short phone
+     that the planner's own fields drop out of sight. Shared by the planner
+     and the detail panel, which take turns in the same place, and by
+     everything that has to clear them. */
   :root {
     --phone-sheet-height: max(50vh, 300px);
+    --phone-tabbar-height: calc(58px + env(safe-area-inset-bottom));
   }
 
   @supports (height: 1dvh) {
@@ -1975,12 +1990,11 @@ button {
     top: auto;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--phone-tabbar-height);
     width: auto;
-    max-height: var(--phone-sheet-height);
+    max-height: calc(var(--phone-sheet-height) - var(--phone-tabbar-height));
     border-radius: var(--radius) var(--radius) 0 0;
     border-bottom: none;
-    padding-bottom: env(safe-area-inset-bottom);
   }
 
   /* See-through, so the map still reads behind the panel: a tint of the
@@ -1997,18 +2011,49 @@ button {
     }
   }
 
-  /* A little tighter, so the shorter sheet still shows its content. */
+  /* A little tighter, so the shorter sheet still shows its content. The
+     handle above it is the sheet's own top edge. */
   .sheet__header {
-    padding: 10px 14px 8px;
+    padding: 0 14px 10px;
   }
 
-  .sheet__brand {
-    margin-bottom: 8px;
-    font-size: 19px;
+  /* The wordmark gives its row to the map: the tab bar already says where
+     you are. It stays the page's heading for screen readers, and the handle
+     takes over from the close button. */
+  .sheet__title-row {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sheet__collapse {
+    display: none;
+  }
+
+  .status-bar__more {
+    display: none;
+  }
+
+  .transit-search {
+    margin-top: 8px;
+  }
+
+  /* Search results need what room the sheet has: it stands at its full
+     height while they are up, however short the tab beneath, and the list
+     stops short of its bottom edge rather than running off it. */
+  .sheet:has(.transit-search__panel) {
+    height: calc(var(--phone-sheet-height) - var(--phone-tabbar-height));
+  }
+
+  .transit-search__results {
+    max-height: calc(var(--phone-sheet-height) - var(--phone-tabbar-height) - 120px);
   }
 
   .sheet__body {
-    padding: 10px 14px 16px;
+    padding: 12px 14px 16px;
   }
 
   .sheet__body,
@@ -2029,7 +2074,7 @@ button {
     left: 12px;
     transform: none;
     width: auto;
-    max-width: calc(100% - 150px);
+    max-width: calc(100% - 76px);
     padding: 6px 6px 6px 11px;
     font-size: 12px;
   }
@@ -2049,16 +2094,44 @@ button {
     max-width: calc(100vw - 66px);
   }
 
-  /* Smaller action chips, so a stop's four fit on one row on most phones
-     and its departures start higher up the sheet. */
+  /* A stop's actions in two even columns of full-size buttons, each easy to
+     hit with a thumb, rather than a row squeezed small enough to fit four. */
   .panel-actions {
-    gap: 5px;
-    margin: 10px 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
   }
 
   .panel-actions .chip {
-    padding: 5px 9px;
-    font-size: 12.5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 10px;
+    text-align: center;
+  }
+
+  .panel-actions .share__status {
+    grid-column: 1 / -1;
+  }
+
+  /* Alert filters in one row that scrolls sideways, edge to edge, the way a
+     phone shows a row of filters, rather than wrapping into a block. */
+  .alerts-view__filters {
+    flex-wrap: nowrap;
+    margin: 0 -14px;
+    padding: 0 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .alerts-view__filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .alerts-view__filters .chip {
+    flex: none;
+    padding: 8px 12px;
   }
 }
 
@@ -2291,6 +2364,124 @@ button {
 .panel-reveal:hover {
   border-color: var(--rule-strong);
   color: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   The phone's tab bar and sheet handle
+   --------------------------------------------------------------------------
+   Rendered only at phone width. The tabs leave the sheet for the bottom
+   edge, where a thumb rests and where map and transit apps keep their
+   sections: six even columns, an icon over a word in each, set apart from
+   the panel they open and on screen while it is tucked away. */
+
+.tabbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  height: var(--phone-tabbar-height);
+  padding: 0 4px env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.tabbar__tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+/* The current tab's icon sits on a block a step up the grey ramp. */
+.tabbar__icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--radius);
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.tabbar__tab.is-active {
+  color: var(--text);
+}
+
+.tabbar__tab.is-active .tabbar__icon {
+  background: var(--surface-3);
+}
+
+.tabbar__tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* On the corner of the icon, the way a phone badges what needs a look. */
+.tabbar__badge {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 8px);
+  min-width: 17px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  line-height: 15px;
+  letter-spacing: 0;
+  text-align: center;
+  color: #0b0e14;
+  background: var(--late);
+  border: 1px solid var(--surface);
+  border-radius: 9px;
+}
+
+/* Something to pull: a tap or a pull down tucks the sheet away. */
+.sheet__grabber {
+  flex: none;
+  display: block;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet__grabber::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto;
+  background: var(--rule-strong);
+  border-radius: 2px;
+}
+
+.sheet__grabber:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar__tab,
+  .tabbar__icon {
+    transition: none;
+  }
 }
 
 .network-view-button {
@@ -2688,12 +2879,39 @@ button {
   }
 
   .map-controls {
-    top: 52px;
+    top: 56px;
     right: 10px;
+  }
+
+  /* Square icon buttons, like the map's own zoom and locate buttons, so the
+     corner stays a corner rather than a column of words. The words stay for
+     screen readers. */
+  .legend__toggle,
+  .map-controls__toggle {
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
   }
 
   .map-controls__toggle {
     display: inline-flex;
+  }
+
+  .legend__toggle-label,
+  .map-controls__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .legend__toggle svg,
+  .map-controls__toggle svg {
+    width: 18px;
+    height: 18px;
   }
 
   .map-controls__panel {
@@ -2704,21 +2922,15 @@ button {
     display: flex;
   }
 
+  /* Down behind the tab bar, which stays. */
   .sheet.is-hidden {
     transform: translateY(calc(100% + 16px));
-  }
-
-  .panel-reveal {
-    top: auto;
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    left: 50%;
-    transform: translateX(-50%);
   }
 
   /* With the sheet collapsed, MapLibre's controls can use the full height. */
   .app:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-right,
   .app:has(.sheet.is-hidden) .maplibregl-ctrl-bottom-left {
-    bottom: 64px;
+    bottom: calc(var(--phone-tabbar-height) + 8px);
   }
 }
 
@@ -2921,13 +3133,13 @@ button {
 }
 
 /* On a phone the legend and map controls own the top-right, and the sheet owns
-   the bottom half, so the player sits just above the sheet's handle. */
+   the bottom half, so the player sits just above the tab bar while the sheet
+   is tucked away for it. */
 @media (max-width: 720px) {
   .journey,
   .journey.is-wide {
     left: 50%;
-    /* Clear of the sheet's collapsed handle. */
-    bottom: calc(66px + env(safe-area-inset-bottom));
+    bottom: calc(var(--phone-tabbar-height) + 10px);
     width: calc(100vw - 20px);
   }
 }
@@ -3397,22 +3609,21 @@ button {
   }
 }
 
-/* On a phone the detail panel takes the bottom sheet's place. The planner
-   slides out to the left as the detail slides in from the right: one panel
-   pushing the other away, never both at once. */
+/* On a phone the detail panel takes the bottom sheet's place, over the same
+   tab bar. The planner slides out to the left as the detail slides in from
+   the right: one panel pushing the other away, never both at once. */
 @media (max-width: 720px) {
   .detail {
     top: auto;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--phone-tabbar-height);
     width: auto;
-    height: var(--phone-sheet-height);
+    height: calc(var(--phone-sheet-height) - var(--phone-tabbar-height));
     border-radius: var(--radius) var(--radius) 0 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
-    padding-bottom: env(safe-area-inset-bottom);
     animation: detail-in-phone var(--t-med) var(--ease-out);
   }
 
@@ -4194,7 +4405,7 @@ button.board-row__button:hover,
   }
 
   .app.is-riding .map-controls {
-    top: 134px;
+    top: 138px;
   }
 }
 

@@ -62,17 +62,10 @@ import { PlanePanel } from './components/PlanePanel.tsx';
 import { routeFits, usePlaneDetails } from './lib/planeLookup.ts';
 import { greatCircle, whereBound } from './lib/planeBound.ts';
 import type { Plane } from '@shared/planes.ts';
+import { TabBar, type Tab } from './components/TabBar.tsx';
+import { SheetGrabber } from './components/SheetGrabber.tsx';
+import { PHONE_QUERY, useMediaQuery } from './lib/mediaQuery.ts';
 
-type Tab = 'plan' | 'saved' | 'nearby' | 'routes' | 'status' | 'alerts';
-
-const TAB_LABELS: Record<Tab, string> = {
-  plan: 'Plan',
-  saved: 'Saved',
-  nearby: 'Nearby',
-  routes: 'Routes',
-  status: 'Status',
-  alerts: 'Alerts',
-};
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
 
@@ -184,6 +177,8 @@ export function App() {
    * uncovered every time, not once per visit.
    */
   const [panelHidden, togglePanel] = usePersistedFlag('livetrains.panelHidden');
+  /** A phone's layout: the tabs leave the panel for a bar along the bottom. */
+  const onPhone = useMediaQuery(PHONE_QUERY);
 
   /**
    * Whether vehicles gather into counted groups at metro zoom.
@@ -326,7 +321,8 @@ export function App() {
    * left. On a desktop the planner covers the left and the detail panel the
    * right. Below 1024px there is room for only one: the detail panel, when
    * open, has pushed the planner away. On a phone whichever is showing is a
-   * bottom sheet, measured because its height follows its content.
+   * bottom sheet, measured because its height follows its content, over the
+   * tab bar that stays when both are away.
    */
   const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
   const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
@@ -337,6 +333,7 @@ export function App() {
     const phone = window.matchMedia('(max-width: 720px)');
     const narrow = window.matchMedia('(max-width: 1023px)');
     const detail = document.querySelector<HTMLElement>('.detail');
+    const tabBar = document.querySelector<HTMLElement>('.tabbar');
     const measure = () => {
       const next: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
       const detailRect = detailOpen && detail ? detail.getBoundingClientRect() : null;
@@ -344,6 +341,7 @@ export function App() {
       if (phone.matches) {
         if (detailRect) next.bottom = Math.round(window.innerHeight - detailRect.top);
         else if (!panelHidden) next.bottom = Math.round(window.innerHeight - sheetRect.top);
+        else if (tabBar) next.bottom = Math.round(window.innerHeight - tabBar.getBoundingClientRect().top);
       } else {
         if (detailRect) next.right = Math.round(window.innerWidth - detailRect.left);
         if (!panelHidden && !(detailRect && narrow.matches)) next.left = Math.round(sheetRect.right);
@@ -372,7 +370,7 @@ export function App() {
       phone.removeEventListener('change', measure);
       narrow.removeEventListener('change', measure);
     };
-  }, [shellReady, panelHidden, detailOpen]);
+  }, [shellReady, panelHidden, detailOpen, onPhone]);
 
   // --- Boot -----------------------------------------------------------------
   useEffect(() => {
@@ -677,6 +675,27 @@ export function App() {
     setSelectedVehicleId(null);
     setSelectedPlaneId(null);
   }, []);
+
+  /**
+   * A tab, chosen. On a phone the tabs sit apart from the panel, so they are
+   * also its way back: a tab brings the panel up if it was tucked away or a
+   * stop or vehicle had taken its place, and the tab already showing tucks
+   * it away again.
+   */
+  const selectTab = useCallback(
+    (next: Tab) => {
+      if (onPhone) {
+        if (detailOpen) {
+          closeDetail();
+          if (panelHidden) togglePanel();
+        } else if (panelHidden || next === tab) {
+          togglePanel();
+        }
+      }
+      setTab(next);
+    },
+    [onPhone, detailOpen, closeDetail, panelHidden, togglePanel, tab],
+  );
 
   const handleMapClick = useCallback(
     (lat: number, lon: number) => {
@@ -1208,7 +1227,8 @@ export function App() {
         planes={planeTemplate ? { on: planesOn, status: planeStatus, onToggle: togglePlanes } : null}
       />
 
-      {panelHidden && (
+      {/* A phone's tab bar is its way back to the panel. */}
+      {panelHidden && !onPhone && (
         <button
           type="button"
           className="panel-reveal"
@@ -1250,6 +1270,7 @@ export function App() {
         aria-hidden={panelHidden}
         inert={panelHidden}
       >
+        {onPhone && <SheetGrabber onHide={togglePanel} />}
         <header className="sheet__header">
           <div className="sheet__title-row">
             <h1 className="sheet__brand">
@@ -1294,29 +1315,15 @@ export function App() {
           />
         </header>
 
-        <nav className="tabs" role="tablist">
-          {(Object.keys(TAB_LABELS) as Tab[]).map((id) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={tab === id}
-              className={`tab${tab === id ? ' is-active' : ''}`}
-              onClick={() => setTab(id)}
-            >
-              {TAB_LABELS[id]}
-              {id === 'saved' && saved.trips.length > 0 && (
-                <span className="tab__count tab__count--quiet" aria-label={`${saved.trips.length} saved`}>
-                  {saved.trips.length}
-                </span>
-              )}
-              {id === 'alerts' && activeAlertCount > 0 && (
-                <span className="tab__count" aria-label={`${activeAlertCount} in effect`}>
-                  {activeAlertCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
+        {!onPhone && (
+          <TabBar
+            variant="strip"
+            tab={tab}
+            onSelect={selectTab}
+            savedCount={saved.trips.length}
+            alertCount={activeAlertCount}
+          />
+        )}
 
         <div className="sheet__body">
           {tab === 'plan' && (
@@ -1402,9 +1409,6 @@ export function App() {
                             <span aria-hidden="true">{savedCurrent ? '★' : '☆'}</span> {savedCurrent ? 'Saved' : 'Save'}
                           </button>
                         )}
-                        <button type="button" className="chip" onClick={clearPlan}>
-                          Clear trip
-                        </button>
                         {origin && destination && (
                           <ShareButton
                             url={shareUrl({ from: origin, to: destination })}
@@ -1416,6 +1420,10 @@ export function App() {
                             }
                           />
                         )}
+                        {/* Last, where the one that throws the trip away is not hit by mistake. */}
+                        <button type="button" className="chip" onClick={clearPlan}>
+                          <span aria-hidden="true">×</span> Clear trip
+                        </button>
                       </div>
                       <ItineraryDetail
                         itinerary={chosen}
@@ -1597,6 +1605,16 @@ export function App() {
             />
           ) : null}
         </DetailPanel>
+      )}
+
+      {onPhone && (
+        <TabBar
+          variant="bar"
+          tab={tab}
+          onSelect={selectTab}
+          savedCount={saved.trips.length}
+          alertCount={activeAlertCount}
+        />
       )}
     </div>
   );

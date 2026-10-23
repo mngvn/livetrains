@@ -57,7 +57,7 @@ export function MapControls({
             strokeLinejoin="round"
           />
         </svg>
-        View
+        <span className="map-controls__label">View</span>
       </button>
       <div className="map-controls__panel" id="map-view-options">
         <Segmented

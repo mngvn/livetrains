@@ -159,7 +159,10 @@ worldwide — adding another city is a config entry rather than a rewrite.
   realtime predictions are dropped rather than presented as live.
 - **Phones and desktops.** A side panel on a desktop; on a phone, a shorter,
   see-through bottom sheet that the planner and the stop or vehicle you
-  tapped take turns in, so most of the map stays in view. The camera always
+  tapped take turns in, so most of the map stays in view, over a tab bar
+  along the bottom edge: Plan, Saved, Nearby, Routes, Status and Alerts, an
+  icon over a word for each. Pull the sheet's handle down to tuck it away;
+  any tab brings it back. The camera always
   centres in the part of the map you can see, and the map's credits fold
   into an (i), always in view, after a few seconds.
 - **A short first-run tour** that ends by playing a real trip across the

@@ -625,7 +625,10 @@ more than the animation.
   dynamic viewport units so browser toolbars do not eat into the map, and
   never under 300 px) and see-through: an 88% tint of the panel colour over a
   light blur of the map beneath, solid for anyone who asks their system for
-  reduced transparency.
+  reduced transparency. Its tabs leave the sheet for a bar along the bottom
+  edge (`components/TabBar.tsx`), which stays while the sheet is tucked away
+  and is the way back to it; the sheet's handle (`SheetGrabber.tsx`) tucks
+  it away with a tap or a pull down.
 
 ### 10.2 Moving vehicles (`lib/vehicleTracker.ts`)
 
