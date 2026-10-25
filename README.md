@@ -41,6 +41,12 @@ worldwide — adding another city is a config entry rather than a rewrite.
   room, and its route number beside it. Markers shrink as you zoom out, and
   vehicles that overlap on screen gather into small counted discs while the
   rest keep moving; grouping can be switched off in the legend.
+- **Point at a line to ask about it.** Resting the mouse on a route draws it
+  bold and rings every bus or train out on it now, stepping them out of any
+  group while the rest of the fleet fades; a tooltip beside the pointer names
+  the route and gives the status board's verdict on it (how many vehicles are
+  running, how many are late, any alert in force) and the other routes on the
+  same street.
 - **Planes overhead, quietly.** Aircraft over and around the Twin Cities,
   live from community ADS-B receivers: thin yellow silhouettes beneath the
   buses and trains, turned to their track and carried along it between

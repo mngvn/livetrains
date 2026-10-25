@@ -614,6 +614,17 @@ more than the animation.
   open or close it, even when the control is rebuilt for a new aircraft
   credit. On a wide screen it sits just beside the planner rather than under
   it, so the (i) is always in view and one tap away.
+- **Route hover** (`lib/routeHover.ts`, `components/RouteTooltip.tsx`): with a
+  mouse (not on touch screens, where a tap's synthetic move would leave it
+  stuck), the network line within 6 px of a resting pointer is named, unless
+  something tappable is under it or the map is moving. Where routes share a
+  street the train wins over a branded bus over an ordinary bus, then the
+  nearest line; the rest are listed as "Also here". The route is drawn bold
+  and cased (`network-hover`), and each vehicle carries `hovered` / `hoverDim`
+  in the per-frame data, so its own vehicles are ringed and drawn on top, and
+  stepped out of groups, while the others and the group discs fade, with no
+  paint rewrites per hover. The tooltip is `routeHealth` from the status
+  board, re-read every two seconds while the pointer stays.
 - **Approach links** (`lib/approach.ts`): zoomed in, a line ties each vehicle
   to the stop it is pulling into (the feed's word if given, else the nearest
   stop ahead on its route within 300 m), turning green while it stands there.
