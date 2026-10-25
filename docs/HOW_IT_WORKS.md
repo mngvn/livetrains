@@ -474,8 +474,9 @@ service day, capped at 600 rows.
 
 **Stop importance.** Every stop is classed for the map: *major* (on a rail or
 branded line, a station, or served by ≥ 6 routes), *interchange* (two lines,
-or a line plus three more routes, or ≥ 8 routes — drawn as a larger hollow
-ring), and *onLine* (shown from the widest view).
+or a line plus three more routes, or ≥ 8 routes — drawn a touch larger), and
+*onLine* (on a rail or branded line). The map draws no stops at all until
+zoom 15, where a street's worth of them is on screen.
 
 **Line tiers** (`shared/lines.ts`): `rail` (any train), `branded` (buses sold
 as a line — "METRO", "BRT", "Rapid", "… Line"), and `bus`. Decided by name,
@@ -584,8 +585,8 @@ more than the animation.
   a plain background and keeps drawing all transit data.
 - **Layers, bottom to top:** isochrone, network casing/line/highlight, route
   shape, the selected vehicle's trip (drawn on end to end, then split into
-  faded behind / bold ahead), its 20-minute trail, the itinerary, stops (three
-  classes) and labels, approach links, endpoints, aircraft (trail, way ahead,
+  faded behind / bold ahead), its 20-minute trail, the itinerary, stops (two
+  classes, from zoom 15 only) and labels, approach links, endpoints, aircraft (trail, way ahead,
   icon, label), vehicle groups, vehicles (dot, glyph, label, hit area), and
   the journey traveller.
 - **Selection dims everything else**: choosing a vehicle, stop, route or plan
@@ -638,7 +639,19 @@ it is *drawn* towards where it last *reported*, timed to arrive slightly
 after the next report is due (×1.2). When that report lands the vehicle is
 still moving and simply turns towards the new target — one continuous glide.
 The cadence is measured from the gap between messages (smoothed, clamped), not
-assumed. Headings rotate the short way round. A feed repeating the same
+assumed. Headings rotate the short way round.
+
+The glide follows the vehicle's line rather than the straight line between
+the two points (`lib/routeTracks.ts`): the network underlay's line for its
+route, and for a selected or ridden vehicle its own trip's shape too. Both
+ends are matched to the nearest place on the line within 60 m, so a vehicle
+sits on its line rather than beside it; where a line passes the same spot
+twice each pass is a candidate, and the pair chosen is the shortest way
+along the line, preferring forwards. Along the line the vehicle faces the
+way the line runs, so it swings round corners. A report further than 60 m
+from every line (a detour, a branch the underlay does not draw), or a way
+round more than three times the straight distance plus 300 m, glides
+straight as before. The trail is drawn along the line the same way. A feed repeating the same
 report does not restart the glide. Vehicles missing from a message are kept
 for a 60-second grace period; a position older than three minutes is drawn
 greyed ("stale"), never dropped. Each vehicle keeps a 20-minute trail of
