@@ -4,6 +4,13 @@ import { useCallback, useSyncExternalStore } from 'react';
 export const PHONE_QUERY = '(max-width: 720px)';
 
 /**
+ * Where the tab rail, the planner and the detail panel leave too little map
+ * between them, so the detail panel pushes the planner away instead. Keep in
+ * step with styles.css.
+ */
+export const ONE_PANEL_QUERY = '(max-width: 1199px)';
+
+/**
  * Whether a media query matches, kept current as the window is resized or a
  * phone is turned.
  *

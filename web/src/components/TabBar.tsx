@@ -11,33 +11,47 @@ export const TAB_LABELS: Record<Tab, string> = {
   alerts: 'Alerts',
 };
 
+/** What each tab's panel is headed with, where there is room for a heading. */
+export const TAB_TITLES: Record<Tab, string> = {
+  plan: 'Plan a trip',
+  saved: 'Saved trips',
+  nearby: 'Stops nearby',
+  routes: 'Routes',
+  status: 'Network status',
+  alerts: 'Service alerts',
+};
+
 const TABS = Object.keys(TAB_LABELS) as Tab[];
 
 /**
- * The planner's six tabs.
+ * The planner's six tabs, as the map and transit apps people already know
+ * lay them out: an icon over a word for each, apart from the panel they
+ * open and on screen while it is tucked away, so they double as the way
+ * back to it.
  *
- * On a wide screen they are a strip of words between the search and the
- * panel they switch. On a phone they are the bar along the bottom edge that
- * map and transit apps keep their sections in: an icon over a word for
- * each, evenly spaced, within a thumb's reach, and apart from the panel, so
- * they stay on screen while it is tucked away and double as the way back.
+ * On a phone they are the bar along the bottom edge, within a thumb's
+ * reach. On anything wider they are a rail down the left edge, with the
+ * panel for the chosen tab opening beside it.
  */
 export function TabBar({
   variant,
   tab,
   onSelect,
-  savedCount,
   alertCount,
 }: {
-  variant: 'strip' | 'bar';
+  variant: 'bar' | 'rail';
   tab: Tab;
   onSelect: (tab: Tab) => void;
-  savedCount: number;
   alertCount: number;
 }) {
-  const bar = variant === 'bar';
   return (
-    <nav className={bar ? 'tabbar' : 'tabs'} role="tablist">
+    <nav
+      className={`tabbar tabbar--${variant}`}
+      role="tablist"
+      aria-orientation={variant === 'rail' ? 'vertical' : 'horizontal'}
+    >
+      {/* The rail is the one piece of chrome always in view, so the mark rides at its head. */}
+      {variant === 'rail' && <span className="tabbar__brand" aria-hidden="true" title="livetrains" />}
       {TABS.map((id) => (
         <button
           key={id}
@@ -45,37 +59,19 @@ export function TabBar({
           role="tab"
           aria-selected={tab === id}
           aria-controls="livetrains-panel"
-          className={`${bar ? 'tabbar__tab' : 'tab'}${tab === id ? ' is-active' : ''}`}
+          className={`tabbar__tab${tab === id ? ' is-active' : ''}`}
           onClick={() => onSelect(id)}
         >
-          {bar ? (
-            <>
-              <span className="tabbar__icon" aria-hidden="true">
-                {ICONS[id]}
-              </span>
-              {TAB_LABELS[id]}
-              {/* Only what needs attention gets a badge on a phone: how many
-                  trips are saved is no reason to look. */}
-              {id === 'alerts' && alertCount > 0 && (
-                <span className="tabbar__badge" aria-label={`${alertCount} in effect`}>
-                  {alertCount}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              {TAB_LABELS[id]}
-              {id === 'saved' && savedCount > 0 && (
-                <span className="tab__count tab__count--quiet" aria-label={`${savedCount} saved`}>
-                  {savedCount}
-                </span>
-              )}
-              {id === 'alerts' && alertCount > 0 && (
-                <span className="tab__count" aria-label={`${alertCount} in effect`}>
-                  {alertCount}
-                </span>
-              )}
-            </>
+          <span className="tabbar__icon" aria-hidden="true">
+            {ICONS[id]}
+          </span>
+          {TAB_LABELS[id]}
+          {/* Only what needs attention gets a badge: how many trips are
+              saved is no reason to look. */}
+          {id === 'alerts' && alertCount > 0 && (
+            <span className="tabbar__badge" aria-label={`${alertCount} in effect`}>
+              {alertCount}
+            </span>
           )}
         </button>
       ))}

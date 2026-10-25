@@ -47,6 +47,8 @@
   --t-fast: 120ms;
   --t-med: 200ms;
   --sheet-width: 400px;
+  /* The tab rail down the left edge, on anything wider than a phone. */
+  --rail-width: 76px;
   color-scheme: dark;
 }
 
@@ -133,17 +135,26 @@ button {
   inset: 0;
 }
 
+/* Wider than a phone, the map and everything over it start where the tab
+   rail ends: moving the app's frame over moves them all clear of it at once,
+   so every offset below is measured from the map's edge, not the window's. */
+@media (min-width: 721px) {
+  .app {
+    margin-left: var(--rail-width);
+  }
+}
+
+/* The panel for the chosen tab, opening out of the rail at its full height. */
 .sheet {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  bottom: 12px;
+  top: 0;
+  left: 0;
+  bottom: 0;
   width: var(--sheet-width);
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-right: 1px solid var(--border);
   box-shadow: var(--shadow);
   overflow: hidden;
   z-index: 5;
@@ -154,42 +165,15 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-/* The wordmark: set like the name on a station sign. */
-.sheet__brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 10px;
+/* The tab's own name, set like a sign. */
+.sheet__title {
+  min-width: 0;
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
-  line-height: 1;
+  line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-}
-
-/* A line and a station: the mark is the map in miniature. */
-.sheet__brand::before {
-  content: '';
-  width: 18px;
-  height: 18px;
-  flex: none;
-  background:
-    radial-gradient(circle at 50% 50%, var(--surface) 0 2.5px, var(--text) 2.6px 4.6px, transparent 4.7px),
-    linear-gradient(var(--brand-red), var(--brand-red)) 50% 50% / 100% 4px no-repeat,
-    var(--brand-blue);
-  border-radius: var(--radius-sm);
-}
-
-.sheet__agency {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sheet__body {
@@ -308,43 +292,165 @@ button {
 
 /* --------------------------------------------------------------------------
    Tabs
-   -------------------------------------------------------------------------- */
+   --------------------------------------------------------------------------
+   Apart from the panel they open, as map and transit apps keep their
+   sections, and on screen while it is tucked away: a rail down the left
+   edge wider than a phone, a bar along the bottom on one. An icon over a
+   word for each, either way. */
 
-.tabs {
-  /* A scroller, so without this a long panel below squeezes it to nothing. */
-  flex: none;
-  display: flex;
-  gap: 0;
-  padding: 0 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  border-bottom: 1px solid var(--border);
+.tabbar {
+  z-index: 9;
+  background: var(--surface);
 }
 
-.tab {
-  flex: 1;
-  padding: 12px 4px 10px;
+.tabbar--rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--rail-width);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 6px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-right: 1px solid var(--border);
+}
+
+/* Six even columns along the bottom edge, where a thumb rests. */
+.tabbar--bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  height: var(--phone-tabbar-height);
+  padding: 0 4px env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+}
+
+/* A line and a station: the mark is the map in miniature. */
+.tabbar__brand {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin: 0 auto 12px;
+  background:
+    radial-gradient(circle at 50% 50%, var(--surface) 0 4px, var(--text) 4.1px 7.4px, transparent 7.5px),
+    linear-gradient(var(--brand-red), var(--brand-red)) 50% 50% / 100% 6px no-repeat,
+    var(--brand-blue);
+  border-radius: var(--radius);
+}
+
+.tabbar__tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 10.5px;
   font-weight: 700;
+  line-height: 1.2;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  white-space: nowrap;
-  transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--t-fast) var(--ease-out);
 }
 
-.tab:hover {
+.tabbar--rail .tabbar__tab {
+  flex: none;
+  height: 62px;
+  border-radius: var(--radius);
+}
+
+/* The current tab's icon sits on a block a step up the grey ramp. */
+.tabbar__icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--radius);
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.tabbar__tab.is-active,
+.tabbar--rail .tabbar__tab:hover {
   color: var(--text);
 }
 
-.tab.is-active {
-  color: var(--text);
-  border-bottom-color: var(--text);
+.tabbar--rail .tabbar__tab:hover .tabbar__icon {
+  background: var(--surface-2);
+}
+
+.tabbar__tab.is-active .tabbar__icon,
+.tabbar--rail .tabbar__tab.is-active:hover .tabbar__icon {
+  background: var(--surface-3);
+}
+
+.tabbar__tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* On the corner of the icon, the way a phone badges what needs a look. */
+.tabbar__badge {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 8px);
+  min-width: 17px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  line-height: 15px;
+  letter-spacing: 0;
+  text-align: center;
+  color: #0b0e14;
+  background: var(--late);
+  border: 1px solid var(--surface);
+  border-radius: 9px;
+}
+
+/* The phone sheet's handle, something to pull: a tap or a pull down tucks
+   the sheet away. */
+.sheet__grabber {
+  flex: none;
+  display: block;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet__grabber::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto;
+  background: var(--rule-strong);
+  border-radius: 2px;
+}
+
+.sheet__grabber:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabbar__tab,
+  .tabbar__icon {
+    transition: none;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1868,24 +1974,6 @@ button {
   border-color: var(--text);
 }
 
-.tab__count {
-  display: inline-block;
-  min-width: 17px;
-  margin-left: 5px;
-  padding: 0 5px;
-  font-size: 11px;
-  line-height: 17px;
-  letter-spacing: 0;
-  color: #0b0e14;
-  background: var(--late);
-  border-radius: var(--radius-sm);
-}
-
-.tab__count--quiet {
-  color: var(--text-muted);
-  background: var(--surface-2);
-}
-
 .map-reset__what {
   white-space: nowrap;
   overflow: hidden;
@@ -1912,6 +2000,42 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
+}
+
+/* At the top left of the map the panels leave, as on a phone, and never so
+   wide it reaches the legend and view buttons in the other corner. */
+@media (min-width: 721px) {
+  .map-pick-hint {
+    left: calc(var(--sheet-width) + 12px);
+    transform: none;
+    max-width: calc(100% - var(--sheet-width) - 76px);
+  }
+
+  .app:has(.sheet.is-hidden) .map-pick-hint {
+    left: 12px;
+    max-width: calc(100% - 76px);
+  }
+
+  .app.has-detail .map-pick-hint {
+    max-width: calc(100% - var(--sheet-width) - var(--detail-width) - 90px);
+  }
+
+  .app.has-detail:has(.sheet.is-hidden) .map-pick-hint {
+    max-width: calc(100% - var(--detail-width) - 90px);
+  }
+}
+
+/* Below this the detail panel pushes the planner away. */
+@media (min-width: 721px) and (max-width: 1199px) {
+  .app.has-detail .map-pick-hint {
+    left: 12px;
+    max-width: calc(100% - var(--detail-width) - 90px);
+  }
+}
+
+.map-pick-hint .chip {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------------
@@ -1993,8 +2117,9 @@ button {
     bottom: var(--phone-tabbar-height);
     width: auto;
     max-height: calc(var(--phone-sheet-height) - var(--phone-tabbar-height));
-    border-radius: var(--radius) var(--radius) 0 0;
+    border: 1px solid var(--border);
     border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
   }
 
   /* See-through, so the map still reads behind the panel: a tint of the
@@ -2017,19 +2142,9 @@ button {
     padding: 0 14px 10px;
   }
 
-  /* The wordmark gives its row to the map: the tab bar already says where
-     you are. It stays the page's heading for screen readers, and the handle
-     takes over from the close button. */
-  .sheet__title-row {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .sheet__collapse {
+  /* The tab's name and close button give their row to the map: the tab bar
+     already says where you are, and the handle tucks the sheet away. */
+  .sheet__header .sheet__title-row {
     display: none;
   }
 
@@ -2317,171 +2432,26 @@ button {
   pointer-events: none;
 }
 
+/* The tab's name and the button that tucks its panel back into the rail;
+   the rail is the way back out. */
 .sheet__title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-bottom: 10px;
 }
 
-.sheet__title-row .sheet__brand {
-  /* Let a long agency name give way, so it never pushes the close button out. */
-  min-width: 0;
-  margin-bottom: 8px;
+.sheet__title-row .sheet__title {
+  margin: 0;
 }
 
 .sheet__collapse {
   flex: none;
-  margin-top: -4px;
   margin-right: -4px;
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-}
-
-/* The way back to a collapsed panel. */
-.panel-reveal {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-}
-
-.panel-reveal:hover {
-  border-color: var(--rule-strong);
-  color: var(--text);
-}
-
-/* --------------------------------------------------------------------------
-   The phone's tab bar and sheet handle
-   --------------------------------------------------------------------------
-   Rendered only at phone width. The tabs leave the sheet for the bottom
-   edge, where a thumb rests and where map and transit apps keep their
-   sections: six even columns, an icon over a word in each, set apart from
-   the panel they open and on screen while it is tucked away. */
-
-.tabbar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  height: var(--phone-tabbar-height);
-  padding: 0 4px env(safe-area-inset-bottom);
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-}
-
-.tabbar__tab {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  min-width: 0;
-  padding: 0;
-  font-family: var(--font-display);
-  font-size: 10.5px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: color var(--t-fast) var(--ease-out);
-}
-
-/* The current tab's icon sits on a block a step up the grey ramp. */
-.tabbar__icon {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 28px;
-  border-radius: var(--radius);
-  transition: background var(--t-fast) var(--ease-out);
-}
-
-.tabbar__tab.is-active {
-  color: var(--text);
-}
-
-.tabbar__tab.is-active .tabbar__icon {
-  background: var(--surface-3);
-}
-
-.tabbar__tab:focus-visible {
-  outline-offset: -2px;
-}
-
-/* On the corner of the icon, the way a phone badges what needs a look. */
-.tabbar__badge {
-  position: absolute;
-  top: 5px;
-  left: calc(50% + 8px);
-  min-width: 17px;
-  padding: 0 4px;
-  font-size: 10.5px;
-  line-height: 15px;
-  letter-spacing: 0;
-  text-align: center;
-  color: #0b0e14;
-  background: var(--late);
-  border: 1px solid var(--surface);
-  border-radius: 9px;
-}
-
-/* Something to pull: a tap or a pull down tucks the sheet away. */
-.sheet__grabber {
-  flex: none;
-  display: block;
-  width: 100%;
-  height: 22px;
-  padding: 0;
-  background: none;
-  border: none;
-  touch-action: none;
-  cursor: grab;
-}
-
-.sheet__grabber::before {
-  content: '';
-  display: block;
-  width: 36px;
-  height: 4px;
-  margin: 0 auto;
-  background: var(--rule-strong);
-  border-radius: 2px;
-}
-
-.sheet__grabber:focus-visible {
-  outline-offset: -2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tabbar__tab,
-  .tabbar__icon {
-    transition: none;
-  }
 }
 
 .network-view-button {
@@ -2522,7 +2492,7 @@ button {
    the top-right corner reads as one set of map controls. */
 .map-controls {
   position: absolute;
-  top: 56px;
+  top: 58px;
   right: 12px;
   z-index: 5;
   display: flex;
@@ -2531,24 +2501,29 @@ button {
   gap: 6px;
 }
 
+/* Folded behind the View button until asked for: stacked down the side of the
+   map they covered more of it than they controlled. */
 .map-controls__panel {
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
 }
 
-/* The phone-only "View" button; on a desktop the switches are always out. */
+.map-controls.is-open .map-controls__panel {
+  display: flex;
+}
+
+/* The legend and view buttons are squares like the map's own zoom and locate
+   buttons, so the corner stays a corner rather than a column of words. The
+   words stay for screen readers. */
 .map-controls__toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2643,17 +2618,17 @@ button {
 }
 
 /* The bottom-left corner is under the planner on a wide screen, so the credit
-   sits just beside it while it is shown. Below 1024px the detail panel
+   sits just beside it while it is shown. Below 1200px the detail panel
    pushes the planner away, and the corner is clear again. */
-@media (min-width: 1024px) {
+@media (min-width: 1200px) {
   .app:not(:has(.sheet.is-hidden)) .maplibregl-ctrl-bottom-left {
-    left: calc(var(--sheet-width) + 12px);
+    left: var(--sheet-width);
   }
 }
 
-@media (min-width: 721px) and (max-width: 1023px) {
+@media (min-width: 721px) and (max-width: 1199px) {
   .app:not(.has-detail):not(:has(.sheet.is-hidden)) .maplibregl-ctrl-bottom-left {
-    left: calc(var(--sheet-width) + 12px);
+    left: var(--sheet-width);
   }
 }
 
@@ -2692,13 +2667,10 @@ button {
 .legend__toggle {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2724,6 +2696,22 @@ button {
 
 .legend.is-open .legend__toggle-icon {
   color: inherit;
+}
+
+.legend__toggle-label,
+.map-controls__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.legend__toggle svg,
+.map-controls__toggle svg {
+  width: 18px;
+  height: 18px;
 }
 
 .legend__panel {
@@ -2883,45 +2871,6 @@ button {
     right: 10px;
   }
 
-  /* Square icon buttons, like the map's own zoom and locate buttons, so the
-     corner stays a corner rather than a column of words. The words stay for
-     screen readers. */
-  .legend__toggle,
-  .map-controls__toggle {
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-  }
-
-  .map-controls__toggle {
-    display: inline-flex;
-  }
-
-  .legend__toggle-label,
-  .map-controls__label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .legend__toggle svg,
-  .map-controls__toggle svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .map-controls__panel {
-    display: none;
-  }
-
-  .map-controls.is-open .map-controls__panel {
-    display: flex;
-  }
-
   /* Down behind the tab bar, which stays. */
   .sheet.is-hidden {
     transform: translateY(calc(100% + 16px));
@@ -2955,12 +2904,11 @@ button {
      the legend and map switches in the opposite corner. */
   bottom: 12px;
   /* Centred over the map rather than over the window, so the side panel does
-     not sit under it. When the panel is hidden the map is the window, and the
-     offset drops away. */
-  left: calc(50% + (var(--sheet-width) + 12px) / 2);
+     not sit under it. When the panel is hidden the offset drops away. */
+  left: calc(50% + var(--sheet-width) / 2);
   transform: translateX(-50%);
   z-index: 8;
-  width: min(420px, calc(100vw - 24px));
+  width: min(420px, calc(100% - 24px));
   padding: 12px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3292,7 +3240,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: min(560px, calc(100vw - 24px));
+  max-width: min(560px, calc(100% - 24px));
   padding: 9px 10px 9px 14px;
   font-size: 13px;
   color: var(--text);
@@ -3326,8 +3274,9 @@ button {
    First-run introduction
    -------------------------------------------------------------------------- */
 
+/* Over the whole window, tab rail and all, not only the map. */
 .onboarding {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 40;
   display: grid;
@@ -3577,7 +3526,7 @@ button {
 }
 
 .app.has-detail .journey:not(.is-wide) {
-  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
+  left: calc(50% + (var(--sheet-width) - var(--detail-width) - 12px) / 2);
 }
 
 .app.has-detail .journey.is-wide {
@@ -3587,7 +3536,7 @@ button {
 /* Below this width two panels and a map do not fit: the detail panel pushes
    the planner off to the left while it is open, and the planner slides back
    when it closes. */
-@media (max-width: 1023px) {
+@media (max-width: 1199px) {
   .app.has-detail .sheet {
     transform: translateX(calc(-100% - 24px));
     opacity: 0;
@@ -3597,10 +3546,6 @@ button {
       transform var(--t-med) var(--ease-out),
       opacity var(--t-med) var(--ease-out),
       visibility 0s linear 0.28s;
-  }
-
-  .app.has-detail .panel-reveal {
-    display: none;
   }
 
   .app.has-detail .journey,
@@ -4265,13 +4210,13 @@ button.board-row__button:hover,
   --ride-tone: var(--text);
   position: absolute;
   top: 12px;
-  left: calc(50% + (var(--sheet-width) + 12px) / 2);
+  left: calc(50% + var(--sheet-width) / 2);
   transform: translateX(-50%);
   z-index: 25;
   display: flex;
   align-items: stretch;
   gap: 8px;
-  width: min(460px, calc(100vw - var(--sheet-width) - 48px));
+  width: min(460px, calc(100% - var(--sheet-width) - 36px));
   padding: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -4361,24 +4306,24 @@ button.board-row__button:hover,
 /* Centred over whatever map the panels leave: both, either, or neither. */
 .app:has(.sheet.is-hidden) .ride-banner {
   left: 50%;
-  width: min(460px, calc(100vw - 24px));
+  width: min(460px, calc(100% - 24px));
 }
 
 .app.has-detail .ride-banner {
-  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
-  width: min(460px, calc(100vw - var(--sheet-width) - var(--detail-width) - 72px));
+  left: calc(50% + (var(--sheet-width) - var(--detail-width) - 12px) / 2);
+  width: min(460px, calc(100% - var(--sheet-width) - var(--detail-width) - 60px));
 }
 
 .app.has-detail:has(.sheet.is-hidden) .ride-banner {
   left: calc(50% - (var(--detail-width) + 12px) / 2);
-  width: min(460px, calc(100vw - var(--detail-width) - 48px));
+  width: min(460px, calc(100% - var(--detail-width) - 48px));
 }
 
 /* Below this the detail panel pushes the planner away. */
-@media (max-width: 1023px) {
+@media (max-width: 1199px) {
   .app.has-detail .ride-banner {
     left: calc(50% - (var(--detail-width) + 12px) / 2);
-    width: min(460px, calc(100vw - var(--detail-width) - 48px));
+    width: min(460px, calc(100% - var(--detail-width) - 48px));
   }
 }
 
@@ -4483,13 +4428,13 @@ button.board-row__button:hover,
 .reach-legend {
   position: absolute;
   bottom: 12px;
-  left: calc(50% + (var(--sheet-width) + 12px) / 2);
+  left: calc(50% + var(--sheet-width) / 2);
   transform: translateX(-50%);
   z-index: 8;
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: calc(100vw - var(--sheet-width) - 48px);
+  max-width: calc(100% - var(--sheet-width) - 36px);
   padding: 8px 8px 8px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -4554,18 +4499,18 @@ button.board-row__button:hover,
 
 .app:has(.sheet.is-hidden) .reach-legend {
   left: 50%;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100% - 24px);
 }
 
 .app.has-detail .reach-legend {
-  left: calc(50% + (var(--sheet-width) - var(--detail-width)) / 2);
-  max-width: calc(100vw - var(--sheet-width) - var(--detail-width) - 72px);
+  left: calc(50% + (var(--sheet-width) - var(--detail-width) - 12px) / 2);
+  max-width: calc(100% - var(--sheet-width) - var(--detail-width) - 60px);
 }
 
-@media (max-width: 1023px) {
+@media (max-width: 1199px) {
   .app.has-detail .reach-legend {
     left: calc(50% - (var(--detail-width) + 12px) / 2);
-    max-width: calc(100vw - var(--detail-width) - 48px);
+    max-width: calc(100% - var(--detail-width) - 48px);
   }
 }
 

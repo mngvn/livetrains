@@ -62,9 +62,9 @@ import { PlanePanel } from './components/PlanePanel.tsx';
 import { routeFits, usePlaneDetails } from './lib/planeLookup.ts';
 import { greatCircle, whereBound } from './lib/planeBound.ts';
 import type { Plane } from '@shared/planes.ts';
-import { TabBar, type Tab } from './components/TabBar.tsx';
+import { TAB_TITLES, TabBar, type Tab } from './components/TabBar.tsx';
 import { SheetGrabber } from './components/SheetGrabber.tsx';
-import { PHONE_QUERY, useMediaQuery } from './lib/mediaQuery.ts';
+import { ONE_PANEL_QUERY, PHONE_QUERY, useMediaQuery } from './lib/mediaQuery.ts';
 
 /** Which field a map tap should fill, when the user chose "pick on map". */
 type MapPickTarget = 'origin' | 'destination' | null;
@@ -177,7 +177,7 @@ export function App() {
    * uncovered every time, not once per visit.
    */
   const [panelHidden, togglePanel] = usePersistedFlag('livetrains.panelHidden');
-  /** A phone's layout: the tabs leave the panel for a bar along the bottom. */
+  /** A phone's layout: the tabs are a bar along the bottom rather than a rail down the left. */
   const onPhone = useMediaQuery(PHONE_QUERY);
 
   /**
@@ -318,11 +318,12 @@ export function App() {
 
   /**
    * How much of the map the panels cover, so the camera centres in what is
-   * left. On a desktop the planner covers the left and the detail panel the
-   * right. Below 1024px there is room for only one: the detail panel, when
-   * open, has pushed the planner away. On a phone whichever is showing is a
-   * bottom sheet, measured because its height follows its content, over the
-   * tab bar that stays when both are away.
+   * left. On a desktop the planner covers the left, beside the tab rail and
+   * so measured from the edge of the map rather than the window, and the
+   * detail panel the right. Below 1200px there is room for only one: the
+   * detail panel, when open, has pushed the planner away. On a phone
+   * whichever is showing is a bottom sheet, measured because its height
+   * follows its content, over the tab bar that stays when both are away.
    */
   const [mapPadding, setMapPadding] = useState<MapPadding>({ top: 0, right: 0, bottom: 0, left: 0 });
   const shellReady = engine.state === 'ready' && agency !== null && welcomeDone;
@@ -331,20 +332,22 @@ export function App() {
     const sheet = sheetRef.current;
     if (!shellReady || !sheet) return;
     const phone = window.matchMedia('(max-width: 720px)');
-    const narrow = window.matchMedia('(max-width: 1023px)');
+    const narrow = window.matchMedia(ONE_PANEL_QUERY);
     const detail = document.querySelector<HTMLElement>('.detail');
     const tabBar = document.querySelector<HTMLElement>('.tabbar');
     const measure = () => {
       const next: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 };
       const detailRect = detailOpen && detail ? detail.getBoundingClientRect() : null;
       const sheetRect = sheet.getBoundingClientRect();
+      // The app's own frame, which starts where the tab rail ends.
+      const frame = (sheet.parentElement ?? document.body).getBoundingClientRect();
       if (phone.matches) {
         if (detailRect) next.bottom = Math.round(window.innerHeight - detailRect.top);
         else if (!panelHidden) next.bottom = Math.round(window.innerHeight - sheetRect.top);
         else if (tabBar) next.bottom = Math.round(window.innerHeight - tabBar.getBoundingClientRect().top);
       } else {
-        if (detailRect) next.right = Math.round(window.innerWidth - detailRect.left);
-        if (!panelHidden && !(detailRect && narrow.matches)) next.left = Math.round(sheetRect.right);
+        if (detailRect) next.right = Math.round(frame.right - detailRect.left);
+        if (!panelHidden && !(detailRect && narrow.matches)) next.left = Math.round(sheetRect.right - frame.left);
       }
       next.bottom = Math.max(0, next.bottom);
       next.left = Math.max(0, next.left);
@@ -677,24 +680,22 @@ export function App() {
   }, []);
 
   /**
-   * A tab, chosen. On a phone the tabs sit apart from the panel, so they are
-   * also its way back: a tab brings the panel up if it was tucked away or a
-   * stop or vehicle had taken its place, and the tab already showing tucks
-   * it away again.
+   * A tab, chosen. The tabs sit apart from the panel, so they are also its
+   * way back: a tab brings the panel out if it was tucked away, or if a stop
+   * or vehicle had taken its place where there is only room for one, and the
+   * tab already showing tucks it away again.
    */
   const selectTab = useCallback(
     (next: Tab) => {
-      if (onPhone) {
-        if (detailOpen) {
-          closeDetail();
-          if (panelHidden) togglePanel();
-        } else if (panelHidden || next === tab) {
-          togglePanel();
-        }
+      if (detailOpen && window.matchMedia(ONE_PANEL_QUERY).matches) {
+        closeDetail();
+        if (panelHidden) togglePanel();
+      } else if (panelHidden || next === tab) {
+        togglePanel();
       }
       setTab(next);
     },
-    [onPhone, detailOpen, closeDetail, panelHidden, togglePanel, tab],
+    [detailOpen, closeDetail, panelHidden, togglePanel, tab],
   );
 
   const handleMapClick = useCallback(
@@ -787,7 +788,7 @@ export function App() {
       const route = routesById.get(routeId);
       if (!route) return;
       // Where only one panel fits, the route list is what was asked for.
-      if (window.matchMedia('(max-width: 1023px)').matches) closeDetail();
+      if (window.matchMedia(ONE_PANEL_QUERY).matches) closeDetail();
       setTab('routes');
       if (activeRouteId !== routeId) showRoute(route);
     },
@@ -1227,20 +1228,6 @@ export function App() {
         planes={planeTemplate ? { on: planesOn, status: planeStatus, onToggle: togglePlanes } : null}
       />
 
-      {/* A phone's tab bar is its way back to the panel. */}
-      {panelHidden && !onPhone && (
-        <button
-          type="button"
-          className="panel-reveal"
-          onClick={togglePanel}
-          aria-expanded={false}
-          aria-controls="livetrains-panel"
-        >
-          <span aria-hidden="true">☰</span>
-          Plan a trip
-        </button>
-      )}
-
       {mapPickTarget && (
         <div className="map-pick-hint" role="status">
           Tap the map to set your {mapPickTarget === 'origin' ? 'starting point' : 'destination'}
@@ -1272,11 +1259,11 @@ export function App() {
       >
         {onPhone && <SheetGrabber onHide={togglePanel} />}
         <header className="sheet__header">
+          {/* The mark is on the tab rail and the agency in the map's credit;
+              the page keeps its name for screen readers. */}
+          <h1 className="visually-hidden">livetrains · {agency.name}</h1>
           <div className="sheet__title-row">
-            <h1 className="sheet__brand">
-              livetrains
-              <span className="sheet__agency">{agency.name}</span>
-            </h1>
+            <h2 className="sheet__title">{TAB_TITLES[tab]}</h2>
             <button
               type="button"
               className="icon-button sheet__collapse"
@@ -1314,16 +1301,6 @@ export function App() {
             }}
           />
         </header>
-
-        {!onPhone && (
-          <TabBar
-            variant="strip"
-            tab={tab}
-            onSelect={selectTab}
-            savedCount={saved.trips.length}
-            alertCount={activeAlertCount}
-          />
-        )}
 
         <div className="sheet__body">
           {tab === 'plan' && (
@@ -1607,15 +1584,7 @@ export function App() {
         </DetailPanel>
       )}
 
-      {onPhone && (
-        <TabBar
-          variant="bar"
-          tab={tab}
-          onSelect={selectTab}
-          savedCount={saved.trips.length}
-          alertCount={activeAlertCount}
-        />
-      )}
+      <TabBar variant={onPhone ? 'bar' : 'rail'} tab={tab} onSelect={selectTab} alertCount={activeAlertCount} />
     </div>
   );
 }

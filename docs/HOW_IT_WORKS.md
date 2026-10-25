@@ -620,15 +620,22 @@ more than the animation.
   tiles' `render_height`.
 - **Camera padding** follows the panels (measured with `ResizeObserver`), so
   the camera always centres in the part of the map you can see.
+- **The tabs** sit apart from the panel they open (`components/TabBar.tsx`),
+  so they stay while it is tucked away and are the way back to it: a rail
+  down the left edge wider than a phone, a bar along the bottom on one. The
+  rail is outside the app's frame, which starts where it ends, so the map and
+  everything positioned over it measure from the map's edge, not the
+  window's. Below 1200 px the rail, the planner and the detail panel leave
+  too little map between them, so the detail panel pushes the planner away
+  while it is open (`ONE_PANEL_QUERY` in `lib/mediaQuery.ts`, kept in step
+  with the stylesheet).
 - **On a phone** the planner and the detail panel take turns in one bottom
   sheet, capped at half the visible height (`--phone-sheet-height`, in
   dynamic viewport units so browser toolbars do not eat into the map, and
   never under 300 px) and see-through: an 88% tint of the panel colour over a
   light blur of the map beneath, solid for anyone who asks their system for
-  reduced transparency. Its tabs leave the sheet for a bar along the bottom
-  edge (`components/TabBar.tsx`), which stays while the sheet is tucked away
-  and is the way back to it; the sheet's handle (`SheetGrabber.tsx`) tucks
-  it away with a tap or a pull down.
+  reduced transparency. The sheet's handle (`SheetGrabber.tsx`) tucks it
+  away with a tap or a pull down.
 
 ### 10.2 Moving vehicles (`lib/vehicleTracker.ts`)
 

@@ -157,12 +157,14 @@ worldwide — adding another city is a config entry rather than a rewrite.
   the timetable is already cached, so stops, departures and planning keep
   working. The last vehicle positions seen are shown faded and dated, and old
   realtime predictions are dropped rather than presented as live.
-- **Phones and desktops.** A side panel on a desktop; on a phone, a shorter,
+- **Phones and desktops.** The six tabs (Plan, Saved, Nearby, Routes, Status
+  and Alerts, an icon over a word for each) sit apart from the panel they
+  open: a rail down the left edge on a desktop, with each tab's own sidebar
+  opening beside it, and a bar along the bottom on a phone, over a shorter,
   see-through bottom sheet that the planner and the stop or vehicle you
-  tapped take turns in, so most of the map stays in view, over a tab bar
-  along the bottom edge: Plan, Saved, Nearby, Routes, Status and Alerts, an
-  icon over a word for each. Pull the sheet's handle down to tuck it away;
-  any tab brings it back. The camera always
+  tapped take turns in, so most of the map stays in view. Choosing the tab
+  already showing tucks its panel away, as do the sidebar's × and the
+  sheet's handle; any tab brings it back. The camera always
   centres in the part of the map you can see, and the map's credits fold
   into an (i), always in view, after a few seconds.
 - **A short first-run tour** that ends by playing a real trip across the

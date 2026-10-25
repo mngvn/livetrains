@@ -25,8 +25,8 @@ export function MapControls({
   theme: ThemeChoice;
   onTheme: (theme: ThemeChoice) => void;
 }) {
-  // On a phone the three switches fold behind one button: stacked down the
-  // side of a small screen they covered more of the map than they controlled.
+  // The three switches fold behind one button: stacked down the side of the
+  // map they covered more of it than they controlled.
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -45,6 +45,7 @@ export function MapControls({
         className="map-controls__toggle"
         aria-expanded={open}
         aria-controls="map-view-options"
+        title="Map view"
         onClick={() => setOpen((value) => !value)}
       >
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
