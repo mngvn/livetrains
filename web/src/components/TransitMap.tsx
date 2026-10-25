@@ -282,7 +282,6 @@ function stopFeatures(stops: StopSummary[]): GeoJSON.FeatureCollection {
         name: stop.name,
         major: stop.major === true,
         interchange: stop.interchange === true,
-        onLine: stop.onLine === true,
         routeKey: routeKey(stop.routes),
         badges: badgeText(stop.routes),
       },
@@ -342,7 +341,6 @@ const PICKABLE_LAYERS = [
   // thing to tap.
   'planes-hit',
   'itinerary-stops',
-  'line-stops-circle',
   'major-stops-circle',
   'stops-circle',
   'vehicle-trip-stops',
