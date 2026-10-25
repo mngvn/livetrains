@@ -242,9 +242,31 @@ function onRoutes(ids: string[], property: 'routeId' | 'routeKey'): Expr {
 
 const STALE_THEN_LIVE = (live: number, stale: number): Expr => ['case', flag('stale'), stale, live];
 
+/**
+ * Set on every vehicle off the route under the pointer, while there is one,
+ * so that route's vehicles stand out from the rest of the fleet.
+ */
+const HOVER_DIMMED: Expr = flag('hoverDim');
+
 function vehicleOpacity(focus: Expr | null): Expr {
-  return focus ? ['case', focus, STALE_THEN_LIVE(1, 0.38), 0.2] : STALE_THEN_LIVE(1, 0.38);
+  const base = focus ? ['case', focus, STALE_THEN_LIVE(1, 0.38), 0.2] : STALE_THEN_LIVE(1, 0.38);
+  return ['case', HOVER_DIMMED, 0.22, base] as Expr;
 }
+
+/** Which vehicles are drawn on top where plates overlap: the hovered route's, then the focused routes'. */
+function vehicleSortKey(focus: Expr | null): Expr {
+  return (focus ? ['case', flag('hovered'), 2, focus, 1, 0] : ['case', flag('hovered'), 2, 0]) as Expr;
+}
+
+/** The route under the pointer, drawn a step bolder than a highlighted line. */
+const HOVER_WIDTH = [9, 3.4, 12, 5.2, 15, 8, 18, 13];
+const HOVER_LINE_WIDTH: Expr = ['interpolate', ['exponential', 1.4], ['zoom'], ...HOVER_WIDTH];
+const HOVER_CASING_WIDTH: Expr = [
+  'interpolate',
+  ['exponential', 1.4],
+  ['zoom'],
+  ...HOVER_WIDTH.map((value, i) => (i % 2 ? value + 3 : value)),
+];
 
 /** Stations and busy stops: a little larger than the rest, never a coin. */
 const MAJOR_STOP_RADIUS: Expr = [
@@ -343,6 +365,23 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
       'line-color': ['get', 'color'],
       'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 9, 3, 12, 4.6, 15, 7.2, 18, 12],
     },
+  });
+  // The route under the pointer, bold and cased over the rest of the network.
+  map.addLayer({
+    id: 'network-hover-casing',
+    type: 'line',
+    source: 'network',
+    filter: routeHoverFilter(null),
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': p.casing, 'line-width': HOVER_CASING_WIDTH },
+  });
+  map.addLayer({
+    id: 'network-hover',
+    type: 'line',
+    source: 'network',
+    filter: routeHoverFilter(null),
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': HOVER_LINE_WIDTH },
   });
 
   // --- A browsed route, drawn on from one end -------------------------------
@@ -901,6 +940,22 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
   });
 
+  // Every vehicle on the route under the pointer, ringed a little wider, so
+  // they can be picked out across the map while the rest of the fleet fades.
+  map.addLayer({
+    id: 'vehicles-hover',
+    type: 'circle',
+    source: 'vehicles',
+    filter: ['all', NOT_GROUPED, flag('hovered')] as maplibregl.FilterSpecification,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 8.5, 10, 11.5, 16, 19],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.28,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 2.5,
+    },
+  });
+
   // The plate, nose and all, then the pictogram upright on top of it.
   map.addLayer({
     id: 'vehicles-dot',
@@ -936,7 +991,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
     paint: {
       'icon-color': ['get', 'textColor'],
-      'icon-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13, 1] as Expr,
+      'icon-opacity': glyphOpacity(null),
     },
   });
   // The route number on a plate beside the vehicle, once there is room.
@@ -1068,6 +1123,7 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     if (map.getLayer(layer)) setPaint(map, layer, property, value);
   };
   set('network-casing', 'line-color', p.casing);
+  set('network-hover-casing', 'line-color', p.casing);
   set('isochrone-fill', 'fill-color', p.text);
   set('vehicle-trip-casing', 'line-color', p.casing);
   set('itinerary-casing', 'line-color', p.casing);
@@ -1167,13 +1223,15 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
     map.setFilter('vehicles-route', ['all', NOT_GROUPED, ['in', ['get', 'routeId'], ['literal', ringed]]] as maplibregl.FilterSpecification);
   }
   for (const layer of ['vehicles-dot', 'vehicles-glyph', 'vehicles-label']) {
-    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'symbol-sort-key', lineFocus ? ['case', lineFocus, 1, 0] : 0);
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'symbol-sort-key', vehicleSortKey(lineFocus));
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
   set('vehicles-label', 'icon-opacity', vehicleOpacity(lineFocus));
-  set('vehicle-groups-circle', 'circle-opacity', ids ? 0.35 : 1);
-  set('vehicle-groups-circle', 'circle-stroke-opacity', ids ? 0.35 : 1);
-  set('vehicle-groups-count', 'text-opacity', ids ? 0.4 : 1);
+  // Groups step back for a route under the pointer as for a selection: its
+  // vehicles have all stepped out of them.
+  set('vehicle-groups-circle', 'circle-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
+  set('vehicle-groups-circle', 'circle-stroke-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
+  set('vehicle-groups-count', 'text-opacity', ['case', HOVER_DIMMED, 0.4, ids ? 0.4 : 1]);
 
   const stopOpacity = (base: Expr | number): unknown => (stopFocus ? ['case', stopFocus, base, 0.22] : base);
   set('major-stops-circle', 'circle-opacity', stopFade(stopFocus));
@@ -1225,6 +1283,18 @@ export function syncPlaneFocus(
   namePlanes(map, selectedId, hoveredId);
 }
 
+/** The filter that draws only the route under the pointer, or nothing. */
+function routeHoverFilter(routeId: string | null): maplibregl.FilterSpecification {
+  return ['==', ['get', 'routeId'], routeId ?? ''];
+}
+
+/** Draws the route under the pointer bold over the network, or no route at all. */
+export function syncRouteHover(map: maplibregl.Map, routeId: string | null): void {
+  for (const layer of ['network-hover-casing', 'network-hover']) {
+    if (map.getLayer(layer)) map.setFilter(layer, routeHoverFilter(routeId));
+  }
+}
+
 /**
  * Names the chosen and hovered planes in full, and leaves the rest to the
  * quiet callsign layer. Filters only, so pointing at a plane never disturbs
@@ -1244,7 +1314,12 @@ function stopFade(focus: Expr | null = null): Expr {
 }
 
 function glyphOpacity(focus: Expr | null): Expr {
-  const at = (v: number): Expr | number => (focus ? ['case', focus, STALE_THEN_LIVE(v, v * 0.6), 0.15] : STALE_THEN_LIVE(v, v * 0.6));
+  const at = (v: number): Expr => [
+    'case',
+    HOVER_DIMMED,
+    v * 0.2,
+    focus ? ['case', focus, STALE_THEN_LIVE(v, v * 0.6), 0.15] : STALE_THEN_LIVE(v, v * 0.6),
+  ] as Expr;
   return ['interpolate', ['linear'], ['zoom'], 12.5, at(0), 13, at(1)] as Expr;
 }
 

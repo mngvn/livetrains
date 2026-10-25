@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { LngLatBoundsLike, MapGeoJSONFeature } from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import type { AgencyInfo, Itinerary, RouteNetwork, RouteSummary, StopSummary, VehicleTrip } from '../lib/api.ts';
+import type {
+  AgencyInfo,
+  Itinerary,
+  RouteNetwork,
+  RouteSummary,
+  ServiceAlert,
+  StopSummary,
+  VehicleTrip,
+} from '../lib/api.ts';
 import { approachFeatures, findApproaches, type ApproachStop } from '../lib/approach.ts';
 import { splitLineAt } from '../lib/geometry.ts';
 import type { TrackedVehicle, VehicleTracker } from '../lib/vehicleTracker.ts';
@@ -14,6 +22,8 @@ import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
 import { escapeHtml } from '../lib/safeUrl.ts';
+import { distanceToLines, pickRoute, type RouteHover } from '../lib/routeHover.ts';
+import { RouteTooltip } from './RouteTooltip.tsx';
 import { ATTRIBUTION_SHOW_MS, quietAttribution, type AttributionState, type QuietAttribution } from './attribution.ts';
 import { registerVehicleIcons } from './mapIcons.ts';
 import {
@@ -43,6 +53,7 @@ import {
   namePlanes,
   syncOverlayTheme,
   syncPlaneFocus,
+  syncRouteHover,
   vehiclePlateRadius,
   syncSelectionFocus,
   type MapFocus,
@@ -141,6 +152,10 @@ interface Props {
   planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
   /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
   alerts: GeoJSON.FeatureCollection | null;
+  /** Every route, for naming the one under the pointer. */
+  routes: RouteSummary[];
+  /** Every alert in the feed, for saying how the route under the pointer is doing. */
+  serviceAlerts: ServiceAlert[];
   /** Something covers the map, such as the tour: the credit's few seconds of being shown wait for it. */
   creditHeld?: boolean;
 }
@@ -197,6 +212,28 @@ const GROUP_REFRESH_MS = 500;
 
 /** While the camera moves, groups follow it at about this rate. */
 const GROUP_REFRESH_MOVING_MS = 120;
+
+/**
+ * The network's layers a resting pointer can name a route from, the bold
+ * hovered one first: it is wider than the line it covers, so a route stays
+ * named while the pointer wanders a little off its centre.
+ */
+const ROUTE_HOVER_LAYERS = ['network-hover', 'network-highlight', 'network-line'];
+
+/** How far either side of the pointer a line counts as under it: bus lines are a pixel wide zoomed out. */
+const ROUTE_HOVER_SLACK_PX = 6;
+
+/** A rendered line's geometry in screen pixels, for measuring how far the pointer is from it. */
+function screenLines(map: maplibregl.Map, geometry: GeoJSON.Geometry): [number, number][][] {
+  const lines =
+    geometry.type === 'LineString' ? [geometry.coordinates] : geometry.type === 'MultiLineString' ? geometry.coordinates : [];
+  return lines.map((line) =>
+    line.map((coordinate) => {
+      const at = map.project(coordinate as [number, number]);
+      return [at.x, at.y] as [number, number];
+    }),
+  );
+}
 
 
 /** While riding, the camera re-centres on the vehicle this often, gliding between. */
@@ -382,6 +419,8 @@ export function TransitMap({
   planeAttribution,
   planeBound,
   alerts,
+  routes,
+  serviceAlerts,
   creditHeld = false,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -438,6 +477,17 @@ export function TransitMap({
   planeBoundRef.current = planeBound;
   /** The plane under the pointer, named on the map while it is there. */
   const hoveredPlane = useRef<string | null>(null);
+  /**
+   * The route under a resting pointer, and what else runs there: named in a
+   * tooltip, drawn bold, its vehicles ringed and the rest of the fleet faded.
+   * State for the tooltip; the ref for the map's listeners and frame loop.
+   */
+  const [routeHover, setRouteHover] = useState<RouteHover | null>(null);
+  const routeHoverRef = useRef<RouteHover | null>(null);
+  const routeTip = useRef<HTMLDivElement>(null);
+  /** Where the pointer is in the window, to place the tooltip beside it. */
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const routesById = useMemo(() => new Map(routes.map((route) => [route.id, route])), [routes]);
   const transitFocused = Boolean(focus && focus.routeIds.length > 0);
   /** A journey is playing: the sky is cleared until it ends. */
   const playingRef = useRef(focusJourney);
@@ -449,6 +499,30 @@ export function TransitMap({
   const creditHeldRef = useRef(creditHeld);
   /** (Re)starts the credit's few seconds on show, once it can actually be seen. */
   const armCreditFold = useRef<() => void>(() => undefined);
+
+  /** Puts the route tooltip beside the pointer, flipped to stay in the window. */
+  const placeRouteTip = useCallback(() => {
+    const tip = routeTip.current;
+    const at = pointer.current;
+    if (!tip || !at) return;
+    const gap = 16;
+    const margin = 8;
+    let x = at.x + gap;
+    let y = at.y + gap;
+    if (x + tip.offsetWidth > window.innerWidth - margin) x = at.x - gap - tip.offsetWidth;
+    if (y + tip.offsetHeight > window.innerHeight - margin) y = at.y - gap - tip.offsetHeight;
+    tip.style.transform = `translate(${Math.max(margin, x)}px, ${Math.max(margin, y)}px)`;
+  }, []);
+
+  /** Names a route as the one under the pointer, or none; only a change is news. */
+  const hoverRoute = useCallback((next: RouteHover | null) => {
+    const current = routeHoverRef.current;
+    if (current?.routeId === next?.routeId && current?.others.join() === next?.others.join()) return;
+    routeHoverRef.current = next;
+    // Its vehicles step out of any group straight away, not at the next refresh.
+    if (current?.routeId !== next?.routeId) cameraMoved.current = true;
+    setRouteHover(next);
+  }, []);
 
   const setData = useCallback((id: string, data: GeoJSON.FeatureCollection) => {
     const source = map.current?.getSource(id) as maplibregl.GeoJSONSource | undefined;
@@ -685,6 +759,33 @@ export function TransitMap({
       }
     });
 
+    // The route a resting pointer is on. Anything tappable under it wins, as
+    // it does for a click; so does a moving map, which slides the lines out
+    // from under a still pointer.
+    const pickRouteAt = (point: maplibregl.Point): RouteHover | null => {
+      if (instance.isMoving() || playingRef.current) return null;
+      const layers = ROUTE_HOVER_LAYERS.filter((id) => instance.getLayer(id));
+      if (layers.length === 0) return null;
+      const slack = ROUTE_HOVER_SLACK_PX;
+      const hits = instance.queryRenderedFeatures(
+        [
+          [point.x - slack, point.y - slack],
+          [point.x + slack, point.y + slack],
+        ],
+        { layers },
+      );
+      return pickRoute(
+        hits.map((hit) => ({
+          routeId: String(hit.properties?.routeId ?? ''),
+          tier: String(hit.properties?.tier ?? 'bus'),
+          distance: distanceToLines(screenLines(instance, hit.geometry), [point.x, point.y]),
+        })),
+      );
+    };
+    // Hover is a mouse's. A tap sends a mousemove too, and on a phone the
+    // tooltip it opened would have no pointer to move away and close it.
+    const canHover = window.matchMedia?.('(hover: hover) and (pointer: fine)');
+
     instance.on('mousemove', (event) => {
       const feature = pickFeature(event.point);
       instance.getCanvas().style.cursor = feature ? 'pointer' : '';
@@ -694,7 +795,12 @@ export function TransitMap({
         hoveredPlane.current = plane;
         namePlanes(instance, selectedPlaneRef.current, plane);
       }
+      pointer.current = { x: event.originalEvent.clientX, y: event.originalEvent.clientY };
+      hoverRoute(!feature && canHover?.matches !== false ? pickRouteAt(event.point) : null);
+      placeRouteTip();
     });
+    instance.on('mouseout', () => hoverRoute(null));
+    instance.on('movestart', () => hoverRoute(null));
 
     return () => {
       window.clearTimeout(foldTimer);
@@ -755,10 +861,12 @@ export function TransitMap({
         cameraMoved.current = false;
         const selected = selectedRef.current;
         const focus = focusRef.current;
+        const hovered = routeHoverRef.current?.routeId;
         const inputs: GroupInput[] = [];
         for (const v of vehicles) {
-          // What the rider is looking at is never folded away into a count.
-          if (v.id === selected || (v.routeId !== undefined && focus.has(v.routeId))) continue;
+          // What the rider is looking at, or pointing at, is never folded
+          // away into a count.
+          if (v.id === selected || (v.routeId !== undefined && (focus.has(v.routeId) || v.routeId === hovered))) continue;
           const point = instance.project([v.displayLon, v.displayLat]);
           inputs.push({ id: v.id, x: point.x, y: point.y, lon: v.displayLon, lat: v.displayLat, rail: RAIL_MODES.has(v.mode) });
         }
@@ -772,12 +880,14 @@ export function TransitMap({
           features: grouping.groups.map((group) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [group.lon, group.lat] },
-            properties: { count: group.count, rail: group.rail },
+            properties: { count: group.count, rail: group.rail, hoverDim: hovered !== undefined },
           })),
         });
       }
 
       const feedQuiet = feedStaleRef.current;
+      const hoveredRoute = routeHoverRef.current?.routeId;
+      const chosen = selectedRef.current;
       setData('vehicles', {
         type: 'FeatureCollection',
         features: vehicles.map((v) => {
@@ -800,6 +910,10 @@ export function TransitMap({
               hasHeading: v.bearing !== undefined,
               stale,
               grouped: grouping?.grouped.has(v.id) ?? false,
+              // The route under the pointer: its vehicles ringed, the rest
+              // faded, bar the one the rider has chosen.
+              hovered: hoveredRoute !== undefined && v.routeId === hoveredRoute,
+              hoverDim: hoveredRoute !== undefined && v.routeId !== hoveredRoute && v.id !== chosen,
             },
           };
         }),
@@ -1020,6 +1134,16 @@ export function TransitMap({
     syncOverlayTheme(instance, PALETTES[mapIsDark ? 'dark' : 'light']);
     syncBuildingColor(instance, PALETTES[mapIsDark ? 'dark' : 'light']);
   }, [mapIsDark, styleEpoch]);
+
+  // --- The route under the pointer --------------------------------------------
+  const hoveredRouteId = routeHover?.routeId ?? null;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !ready.current) return;
+    syncRouteHover(instance, hoveredRouteId);
+  }, [hoveredRouteId, styleEpoch]);
+  // Placed again once the new route's details are in, now its size is known.
+  useLayoutEffect(placeRouteTip, [routeHover, placeRouteTip]);
 
   // --- Everything not about the selection steps back ------------------------
   const focusKey = focus ? `${focus.kind}:${focus.routeIds.join('|')}` : '';
@@ -1446,7 +1570,12 @@ export function TransitMap({
     setData('endpoints', { type: 'FeatureCollection', features });
   }, [origin, destination, setData, styleEpoch, mapIsDark]);
 
-  return <div ref={container} className="map" role="application" aria-label="Live transit map" />;
+  return (
+    <>
+      <div ref={container} className="map" role="application" aria-label="Live transit map" />
+      <RouteTooltip ref={routeTip} hover={routeHover} routes={routesById} alerts={serviceAlerts} tracker={tracker} />
+    </>
+  );
 }
 
 /**

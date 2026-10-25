@@ -1159,6 +1159,8 @@ export function App() {
             : null
         }
         alerts={alertMapMarkers}
+        routes={routes}
+        serviceAlerts={alerts}
         creditHeld={showTour}
       />
 
