@@ -590,6 +590,9 @@ export function App() {
     return () => controller.abort();
   }, [network, engine.state, source]);
 
+  // The same lines keep vehicles on their routes between reports.
+  useEffect(() => tracker.setNetwork(network), [tracker, network]);
+
   // --- Planning -------------------------------------------------------------
   const runPlan = useCallback(
     (from: Place, to: Place) => {
@@ -888,6 +891,9 @@ export function App() {
         : null,
     [ride, rideTrip, tracker, now],
   );
+  // The vehicles being watched keep to their own trip's shape, which is
+  // truer than their route's one drawn line where a branch leaves it.
+  useEffect(() => tracker.setTrips([vehicleTrip, rideTrip]), [tracker, vehicleTrip, rideTrip]);
   const startRide = useCallback((vehicleId: string, stopId: string | null) => {
     setRide({ vehicleId, stopId });
     // Asked now, while there is a tap to ask on and an obvious reason.
@@ -1154,6 +1160,8 @@ export function App() {
             : null
         }
         alerts={alertMapMarkers}
+        routes={routes}
+        serviceAlerts={alerts}
         creditHeld={showTour}
       />
 

@@ -9,9 +9,10 @@ import { MODE_TO_GLYPH, PLANE_ICON, VEHICLE_ICON } from './mapIcons.ts';
  * The visual language is a route diagram's. METRO lines are thick and
  * confident, each with a casing in the ground colour so that where two
  * cross, they read as two lines rather than a smudge. Local buses are a quiet
- * wash at metro scale and gain weight as you zoom in. Stops are circles;
- * interchanges are larger hollow ones. Selecting something dims everything
- * that is not about it, rather than only brightening what is.
+ * wash at metro scale and gain weight as you zoom in. Stops are small dots,
+ * drawn only once the map is down at street level; interchanges are a touch
+ * larger. Selecting something dims everything that is not about it, rather
+ * than only brightening what is.
  */
 
 type Expr = maplibregl.ExpressionSpecification;
@@ -115,8 +116,15 @@ export function groupMergeRadius(zoom: number): number {
   return 14 + clamp01((zoom - 8) / (GROUP_BELOW_ZOOM - 8)) * 8;
 }
 
-/** From this zoom the busiest bus stops are drawn too, not only line stops. */
-const MAJOR_STOPS_FROM_ZOOM = 12;
+/**
+ * Stops are only drawn from this zoom in, where a street's worth of them is
+ * on screen and each can be told apart. Any further out they were a field of
+ * circles over the very lines and vehicles the map is about; the selected
+ * stop keeps its pin at every zoom.
+ */
+export const STOPS_FROM_ZOOM = 15;
+/** Stops fade in over this much zoom past STOPS_FROM_ZOOM, rather than popping in. */
+const STOPS_FADE_ZOOM = 0.5;
 /** Vehicles pulling in to stops are linked to them from this zoom in. */
 export const APPROACH_FROM_ZOOM = 15;
 
@@ -234,27 +242,47 @@ function onRoutes(ids: string[], property: 'routeId' | 'routeKey'): Expr {
 
 const STALE_THEN_LIVE = (live: number, stale: number): Expr => ['case', flag('stale'), stale, live];
 
+/**
+ * Set on every vehicle off the route under the pointer, while there is one,
+ * so that route's vehicles stand out from the rest of the fleet.
+ */
+const HOVER_DIMMED: Expr = flag('hoverDim');
+
 function vehicleOpacity(focus: Expr | null): Expr {
-  return focus ? ['case', focus, STALE_THEN_LIVE(1, 0.38), 0.2] : STALE_THEN_LIVE(1, 0.38);
+  const base = focus ? ['case', focus, STALE_THEN_LIVE(1, 0.38), 0.2] : STALE_THEN_LIVE(1, 0.38);
+  return ['case', HOVER_DIMMED, 0.22, base] as Expr;
 }
 
-/** Major stops at metro scale, every stop once you are looking at a street. */
+/** Which vehicles are drawn on top where plates overlap: the hovered route's, then the focused routes'. */
+function vehicleSortKey(focus: Expr | null): Expr {
+  return (focus ? ['case', flag('hovered'), 2, focus, 1, 0] : ['case', flag('hovered'), 2, 0]) as Expr;
+}
+
+/** The route under the pointer, drawn a step bolder than a highlighted line. */
+const HOVER_WIDTH = [9, 3.4, 12, 5.2, 15, 8, 18, 13];
+const HOVER_LINE_WIDTH: Expr = ['interpolate', ['exponential', 1.4], ['zoom'], ...HOVER_WIDTH];
+const HOVER_CASING_WIDTH: Expr = [
+  'interpolate',
+  ['exponential', 1.4],
+  ['zoom'],
+  ...HOVER_WIDTH.map((value, i) => (i % 2 ? value + 3 : value)),
+];
+
+/** Stations and busy stops: a little larger than the rest, never a coin. */
 const MAJOR_STOP_RADIUS: Expr = [
   'interpolate',
   ['linear'],
   ['zoom'],
-  10, ['case', flag('interchange'), 3.4, 2.1],
-  13, ['case', flag('interchange'), 5.6, 3.4],
-  16, ['case', flag('interchange'), 8.6, 5.4],
+  STOPS_FROM_ZOOM, ['case', flag('interchange'), 3.2, 2.5],
+  17, ['case', flag('interchange'), 5.6, 4.4],
 ];
 
 const MAJOR_STOP_STROKE: Expr = [
   'interpolate',
   ['linear'],
   ['zoom'],
-  10, ['case', flag('interchange'), 1.7, 1.1],
-  13, ['case', flag('interchange'), 2.4, 1.6],
-  16, ['case', flag('interchange'), 3.2, 2.2],
+  STOPS_FROM_ZOOM, ['case', flag('interchange'), 1.5, 1.2],
+  17, ['case', flag('interchange'), 2.2, 1.8],
 ];
 
 /**
@@ -338,6 +366,23 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
       'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 9, 3, 12, 4.6, 15, 7.2, 18, 12],
     },
   });
+  // The route under the pointer, bold and cased over the rest of the network.
+  map.addLayer({
+    id: 'network-hover-casing',
+    type: 'line',
+    source: 'network',
+    filter: routeHoverFilter(null),
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': p.casing, 'line-width': HOVER_CASING_WIDTH },
+  });
+  map.addLayer({
+    id: 'network-hover',
+    type: 'line',
+    source: 'network',
+    filter: routeHoverFilter(null),
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': HOVER_LINE_WIDTH },
+  });
 
   // --- A browsed route, drawn on from one end -------------------------------
   map.addLayer({
@@ -395,9 +440,9 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     id: 'vehicle-trip-stops',
     type: 'circle',
     source: 'vehicle-trip-stops',
-    minzoom: 11,
+    minzoom: STOPS_FROM_ZOOM,
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.6, 15, 4.6],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], STOPS_FROM_ZOOM, 3, 17, 4.6],
       'circle-color': p.stopFill,
       'circle-stroke-color': ['get', 'color'],
       'circle-stroke-width': 2,
@@ -436,64 +481,48 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
   });
 
   // --- Stops ------------------------------------------------------------------
-  // Major stops — stations, METRO stops, the busiest corners — from metro
-  // scale; every other stop only once you are looking at a street.
+  // Only once you are looking at a street, all of them together: ordinary
+  // stops from the viewport's own list, stations and busy stops from the
+  // network-wide one.
   map.addLayer({
     id: 'stops-circle',
     type: 'circle',
     source: 'stops',
-    minzoom: 14.5,
+    minzoom: STOPS_FROM_ZOOM,
     filter: ['!', flag('major')],
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14.5, 2, 17, 4.6],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], STOPS_FROM_ZOOM, 2, 17, 3.8],
       'circle-color': p.stopFill,
       'circle-stroke-color': p.stopStroke,
-      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 14.5, 1.1, 17, 1.8],
-      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 14.5, 0, 15, 1],
-      'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 14.5, 0, 15, 1],
-    },
-  });
-  // From the widest view only stations and stops on rail or branded lines,
-  // the stops a printed network map shows; the busiest bus stops join them
-  // once there is room, or downtown alone would be a field of dots.
-  map.addLayer({
-    id: 'line-stops-circle',
-    type: 'circle',
-    source: 'major-stops',
-    minzoom: 9.5,
-    maxzoom: MAJOR_STOPS_FROM_ZOOM,
-    filter: flag('onLine'),
-    paint: {
-      'circle-radius': MAJOR_STOP_RADIUS,
-      'circle-color': p.stopFill,
-      'circle-stroke-color': p.stopStroke,
-      'circle-stroke-width': MAJOR_STOP_STROKE,
-      'circle-opacity': majorFade(),
-      'circle-stroke-opacity': majorFade(),
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], STOPS_FROM_ZOOM, 1, 17, 1.6],
+      'circle-opacity': stopFade(),
+      'circle-stroke-opacity': stopFade(),
     },
   });
   map.addLayer({
     id: 'major-stops-circle',
     type: 'circle',
     source: 'major-stops',
-    minzoom: MAJOR_STOPS_FROM_ZOOM,
+    minzoom: STOPS_FROM_ZOOM,
     paint: {
       'circle-radius': MAJOR_STOP_RADIUS,
       'circle-color': p.stopFill,
       'circle-stroke-color': p.stopStroke,
       'circle-stroke-width': MAJOR_STOP_STROKE,
+      'circle-opacity': stopFade(),
+      'circle-stroke-opacity': stopFade(),
     },
   });
   map.addLayer({
     id: 'major-stops-label',
     type: 'symbol',
     source: 'major-stops',
-    minzoom: 12,
+    minzoom: STOPS_FROM_ZOOM,
     layout: {
       // Interchanges named first, the other major stops a little closer in.
-      'text-field': ['step', ['zoom'], ['case', flag('interchange'), ['get', 'name'], ''], 13.5, ['get', 'name']],
+      'text-field': ['step', ['zoom'], ['case', flag('interchange'), ['get', 'name'], ''], 15.75, ['get', 'name']],
       'text-font': ['case', flag('interchange'), ['literal', FONT_BOLD], ['literal', FONT_REGULAR]] as unknown as string[],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 12.5],
+      'text-size': ['interpolate', ['linear'], ['zoom'], STOPS_FROM_ZOOM, 10.5, 17, 12.5],
       'text-transform': 'uppercase',
       'text-letter-spacing': 0.06,
       'text-offset': [0, 0.95],
@@ -911,6 +940,22 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
   });
 
+  // Every vehicle on the route under the pointer, ringed a little wider, so
+  // they can be picked out across the map while the rest of the fleet fades.
+  map.addLayer({
+    id: 'vehicles-hover',
+    type: 'circle',
+    source: 'vehicles',
+    filter: ['all', NOT_GROUPED, flag('hovered')] as maplibregl.FilterSpecification,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 8.5, 10, 11.5, 16, 19],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.28,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 2.5,
+    },
+  });
+
   // The plate, nose and all, then the pictogram upright on top of it.
   map.addLayer({
     id: 'vehicles-dot',
@@ -946,7 +991,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
     paint: {
       'icon-color': ['get', 'textColor'],
-      'icon-opacity': ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13, 1] as Expr,
+      'icon-opacity': glyphOpacity(null),
     },
   });
   // The route number on a plate beside the vehicle, once there is room.
@@ -1078,11 +1123,12 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     if (map.getLayer(layer)) setPaint(map, layer, property, value);
   };
   set('network-casing', 'line-color', p.casing);
+  set('network-hover-casing', 'line-color', p.casing);
   set('isochrone-fill', 'fill-color', p.text);
   set('vehicle-trip-casing', 'line-color', p.casing);
   set('itinerary-casing', 'line-color', p.casing);
   set('route-shape-casing', 'line-gradient', solid(p.casing));
-  for (const layer of ['stops-circle', 'line-stops-circle', 'major-stops-circle']) {
+  for (const layer of ['stops-circle', 'major-stops-circle']) {
     set(layer, 'circle-color', p.stopFill);
     set(layer, 'circle-stroke-color', p.stopStroke);
   }
@@ -1177,19 +1223,19 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
     map.setFilter('vehicles-route', ['all', NOT_GROUPED, ['in', ['get', 'routeId'], ['literal', ringed]]] as maplibregl.FilterSpecification);
   }
   for (const layer of ['vehicles-dot', 'vehicles-glyph', 'vehicles-label']) {
-    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'symbol-sort-key', lineFocus ? ['case', lineFocus, 1, 0] : 0);
+    if (map.getLayer(layer)) map.setLayoutProperty(layer, 'symbol-sort-key', vehicleSortKey(lineFocus));
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
   set('vehicles-label', 'icon-opacity', vehicleOpacity(lineFocus));
-  set('vehicle-groups-circle', 'circle-opacity', ids ? 0.35 : 1);
-  set('vehicle-groups-circle', 'circle-stroke-opacity', ids ? 0.35 : 1);
-  set('vehicle-groups-count', 'text-opacity', ids ? 0.4 : 1);
+  // Groups step back for a route under the pointer as for a selection: its
+  // vehicles have all stepped out of them.
+  set('vehicle-groups-circle', 'circle-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
+  set('vehicle-groups-circle', 'circle-stroke-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
+  set('vehicle-groups-count', 'text-opacity', ['case', HOVER_DIMMED, 0.4, ids ? 0.4 : 1]);
 
   const stopOpacity = (base: Expr | number): unknown => (stopFocus ? ['case', stopFocus, base, 0.22] : base);
-  set('line-stops-circle', 'circle-opacity', majorFade(stopFocus));
-  set('line-stops-circle', 'circle-stroke-opacity', majorFade(stopFocus));
-  set('major-stops-circle', 'circle-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : 1);
-  set('major-stops-circle', 'circle-stroke-opacity', stopFocus ? ['case', stopFocus, 1, 0.25] : 1);
+  set('major-stops-circle', 'circle-opacity', stopFade(stopFocus));
+  set('major-stops-circle', 'circle-stroke-opacity', stopFade(stopFocus));
   set('major-stops-label', 'text-opacity', stopOpacity(1));
   set('major-stop-badges', 'text-opacity', stopOpacity(1));
   set('major-stop-badges', 'icon-opacity', stopOpacity(1));
@@ -1237,6 +1283,18 @@ export function syncPlaneFocus(
   namePlanes(map, selectedId, hoveredId);
 }
 
+/** The filter that draws only the route under the pointer, or nothing. */
+function routeHoverFilter(routeId: string | null): maplibregl.FilterSpecification {
+  return ['==', ['get', 'routeId'], routeId ?? ''];
+}
+
+/** Draws the route under the pointer bold over the network, or no route at all. */
+export function syncRouteHover(map: maplibregl.Map, routeId: string | null): void {
+  for (const layer of ['network-hover-casing', 'network-hover']) {
+    if (map.getLayer(layer)) map.setFilter(layer, routeHoverFilter(routeId));
+  }
+}
+
 /**
  * Names the chosen and hovered planes in full, and leaves the rest to the
  * quiet callsign layer. Filters only, so pointing at a plane never disturbs
@@ -1249,14 +1307,19 @@ export function namePlanes(map: maplibregl.Map, selectedId: string | null, hover
   map.setFilter('planes-label-focus', ['in', ['get', 'id'], ['literal', named]]);
 }
 
-/** Line stops fade in over the first zoom level they are drawn at. */
-function majorFade(focus: Expr | null = null): Expr {
+/** Stops fade in as they are first drawn; off the focused routes, they stay faint. */
+function stopFade(focus: Expr | null = null): Expr {
   const at = (v: number): Expr | number => (focus ? ['case', focus, v, v * 0.25] : v);
-  return ['interpolate', ['linear'], ['zoom'], 9.5, at(0), 10.5, at(1)] as Expr;
+  return ['interpolate', ['linear'], ['zoom'], STOPS_FROM_ZOOM, at(0), STOPS_FROM_ZOOM + STOPS_FADE_ZOOM, at(1)] as Expr;
 }
 
 function glyphOpacity(focus: Expr | null): Expr {
-  const at = (v: number): Expr | number => (focus ? ['case', focus, STALE_THEN_LIVE(v, v * 0.6), 0.15] : STALE_THEN_LIVE(v, v * 0.6));
+  const at = (v: number): Expr => [
+    'case',
+    HOVER_DIMMED,
+    v * 0.2,
+    focus ? ['case', focus, STALE_THEN_LIVE(v, v * 0.6), 0.15] : STALE_THEN_LIVE(v, v * 0.6),
+  ] as Expr;
   return ['interpolate', ['linear'], ['zoom'], 12.5, at(0), 13, at(1)] as Expr;
 }
 
@@ -1274,8 +1337,6 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'route-shape-line', property: 'line-opacity', value: 0.08 },
   { layer: 'stops-circle', property: 'circle-opacity', value: 0.1 },
   { layer: 'stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
-  { layer: 'line-stops-circle', property: 'circle-opacity', value: 0.1 },
-  { layer: 'line-stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
   { layer: 'major-stops-circle', property: 'circle-opacity', value: 0.1 },
   { layer: 'major-stops-circle', property: 'circle-stroke-opacity', value: 0.1 },
   { layer: 'stops-label', property: 'text-opacity', value: 0 },

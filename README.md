@@ -28,17 +28,25 @@ worldwide — adding another city is a config entry rather than a rewrite.
   drawn from open vector tiles in a few quiet values of one blue-grey, so the
   only colour on it is the agency's. METRO lines and other branded routes are
   thick, in their official colours, with a casing that keeps crossings
-  legible; ordinary bus routes are a quiet wash until you zoom in. Stations
-  and busy stops show from metro scale (interchanges as larger hollow rings),
-  every other stop and every label appears as you get close enough to read
-  it, and each stop carries a plate listing its routes.
+  legible; ordinary bus routes are a quiet wash until you zoom in. Stops stay
+  off the map until you are down at street level, then appear as small dots
+  (interchanges a touch larger) with their names as you get close enough to
+  read them, and a selected stop carries a plate listing its routes.
 - **Every bus and train, live.** Drawn from the agency's GTFS-Realtime feed and
   gliding at constant speed between reports, so vehicles never stop and start
-  at each update. Each is a plate in its route's colour — round for a bus,
+  at each update. The glide runs along the route's own line, turning where
+  the street turns, so a late report never sends a bus cutting across the
+  blocks to catch up. Each is a plate in its route's colour — round for a bus,
   square for a train — with a nose pointing its way, a pictogram once there is
   room, and its route number beside it. Markers shrink as you zoom out, and
   vehicles that overlap on screen gather into small counted discs while the
   rest keep moving; grouping can be switched off in the legend.
+- **Point at a line to ask about it.** Resting the mouse on a route draws it
+  bold and rings every bus or train out on it now, stepping them out of any
+  group while the rest of the fleet fades; a tooltip beside the pointer names
+  the route and gives the status board's verdict on it (how many vehicles are
+  running, how many are late, any alert in force) and the other routes on the
+  same street.
 - **Planes overhead, quietly.** Aircraft over and around the Twin Cities,
   live from community ADS-B receivers: thin yellow silhouettes beneath the
   buses and trains, turned to their track and carried along it between

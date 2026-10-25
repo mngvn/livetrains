@@ -3998,6 +3998,131 @@ button.board-row__button:hover,
 }
 
 /* --------------------------------------------------------------------------
+   Route tooltip: the line under a resting pointer
+   -------------------------------------------------------------------------- */
+
+/* Placed by the map with a transform, beside the pointer; never in its way. */
+.route-tip {
+  --state: var(--live);
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 24;
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+.route-tip.is-hidden {
+  display: none;
+}
+
+.route-tip__state.is-minor,
+.route-tip__state.is-disrupted {
+  --state: var(--late);
+}
+
+.route-tip__state.is-severe,
+.route-tip__state.is-suspended {
+  --state: var(--danger);
+}
+
+.route-tip__state.is-quiet {
+  --state: var(--text-faint);
+}
+
+.route-tip__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.route-tip__name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.route-tip__meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The verdict, set as the status board sets it, in its state's colour. */
+.route-tip__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 9px 0 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--state);
+}
+
+.route-tip__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.route-tip__detail {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.route-tip__alert {
+  margin: 7px 0 0;
+  padding-left: 8px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  border-left: 2px solid var(--late);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.route-tip__others {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.route-tip__others-label {
+  margin-right: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.route-tip__more {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
    Network status: the whole system on one board
    -------------------------------------------------------------------------- */
 

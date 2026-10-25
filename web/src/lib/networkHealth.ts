@@ -154,6 +154,15 @@ export function lineHealth(
   return { route, state, label, vehicles: vehicles.length, measured, late, medianDelay, alert: worst, reason };
 }
 
+/**
+ * One line's health from the whole fleet and every alert: for a glance at a
+ * single route, such as the one under the pointer.
+ */
+export function routeHealth(route: RouteSummary, vehicles: Vehicle[], alerts: ServiceAlert[], now: number): LineHealth {
+  const live = vehicles.filter((v) => v.routeId === route.id && now - v.timestamp <= LIVE_SECONDS);
+  return lineHealth(route, live, lineAlerts(alerts, now).get(route.id) ?? []);
+}
+
 export function networkHealth(
   routes: RouteSummary[],
   vehicles: Vehicle[],

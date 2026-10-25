@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RouteSummary, ServiceAlert, Vehicle } from './api.ts';
-import { isTrunkLine, lineHealth, networkHealth } from './networkHealth.ts';
+import { isTrunkLine, lineHealth, networkHealth, routeHealth } from './networkHealth.ts';
 
 const NOW = 1_800_000_000;
 
@@ -138,5 +138,20 @@ describe('trunk lines', () => {
     expect(isTrunkLine(route('21'))).toBe(false);
     expect(isTrunkLine(route('BLUE', 'tram'))).toBe(true);
     expect(isTrunkLine({ ...route('C'), shortName: 'METRO C Line' })).toBe(true);
+  });
+});
+
+describe('routeHealth', () => {
+  it("reads one route out of the whole fleet and every alert", () => {
+    const health = routeHealth(
+      route('21'),
+      // Another route's bus, and one of this route's gone quiet, do not count.
+      [vehicle('21', 30), vehicle('21', 60), vehicle('5', 900), vehicle('21', 0, 600)],
+      [alert('21', 'DETOUR'), alert('5', 'NO_SERVICE')],
+      NOW,
+    );
+    expect(health.vehicles).toBe(2);
+    expect(health.state).toBe('disrupted');
+    expect(health.alert?.id).toBe('21-DETOUR');
   });
 });

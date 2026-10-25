@@ -1,4 +1,14 @@
-import { getApiBase, type Vehicle } from './api.ts';
+import { getApiBase, type RouteNetwork, type Vehicle, type VehicleTrip } from './api.ts';
+import { splitLineAt } from './geometry.ts';
+import {
+  followLines,
+  headingBetween,
+  metresBetween,
+  routeLines,
+  snapToLines,
+  trackLine,
+  type TrackLine,
+} from './routeTracks.ts';
 
 /**
  * Keeps the live vehicle picture and smooths it for display.
@@ -7,7 +17,9 @@ import { getApiBase, type Vehicle } from './api.ts';
  * they land makes vehicles jump across several blocks at a time. This holds the
  * last known position and the newly reported one and interpolates between them
  * on an animation frame, which is what makes the map read as "live" rather than
- * as a slideshow.
+ * as a slideshow. The glide runs along the vehicle's own line where it has one
+ * (see routeTracks.ts), so a late report never sends a bus across the blocks
+ * between it and where it is drawn.
  *
  * Deliberately outside React: at 60fps, routing every frame through component
  * state would dominate the render budget. Subscribers get the interpolated
@@ -39,6 +51,8 @@ export const STALE_AFTER_SECONDS = 180;
  */
 export const TRAIL_SECONDS = 20 * 60;
 
+type Point = [number, number];
+
 interface TrailPoint {
   lat: number;
   lon: number;
@@ -46,12 +60,27 @@ interface TrailPoint {
   t: number;
   /** Its delay against the timetable at that report, when the feed gave one. */
   delay?: number;
+  /**
+   * The way along the line from the report before, once worked out; null
+   * when there is no line to follow and the trail runs straight.
+   */
+  via?: Point[] | null;
+}
+
+/** The way a vehicle is drawn moving from where it was to where it reported. */
+interface Glide {
+  /** [lon, lat], in the order travelled. A single point for a vehicle at rest. */
+  points: Point[];
+  /** Metres from the start to each point. */
+  along: number[];
+  length: number;
+  /** Runs along the vehicle's line, so it turns where the line turns. */
+  onLine: boolean;
 }
 
 interface Track {
   vehicle: Vehicle;
-  fromLat: number;
-  fromLon: number;
+  glide: Glide;
   fromBearing: number;
   startedAt: number;
   durationMs: number;
@@ -125,10 +154,47 @@ function extendTrail(trail: TrailPoint[], vehicle: Vehicle): TrailPoint[] {
  */
 const GLIDE_STRETCH = 1.2;
 
+/**
+ * A glide along a line this short is not long enough to say which way the
+ * vehicle faces: GPS jitter at a stop can put a report a few metres back.
+ * The feed's own heading is kept instead.
+ */
+const TURN_WITH_LINE_METRES = 20;
+
+/**
+ * Along a line, a vehicle faces the way the line runs over this many metres
+ * either side of it, so it swings round a corner rather than snapping at
+ * each vertex.
+ */
+const HEADING_SPAN_METRES = 12;
+
+/** How long a vehicle takes to turn onto the line it has started along. */
+const TURN_IN_MS = 600;
+
 /** Interpolates between two bearings the short way around the circle. */
 function lerpAngle(from: number, to: number, t: number): number {
   let delta = ((to - from + 540) % 360) - 180;
   return (from + delta * t + 360) % 360;
+}
+
+function makeGlide(points: Point[], onLine: boolean): Glide {
+  const along = [0];
+  for (let i = 1; i < points.length; i++) along.push(along[i - 1] + metresBetween(points[i - 1], points[i]));
+  return { points, along, length: along[along.length - 1], onLine };
+}
+
+/** The point so many metres into a glide, held at either end. */
+function pointAlong(glide: Glide, distance: number): Point {
+  const { points, along } = glide;
+  if (distance <= 0) return points[0];
+  for (let i = 1; i < points.length; i++) {
+    if (along[i] < distance) continue;
+    const span = along[i] - along[i - 1];
+    const t = span > 0 ? (distance - along[i - 1]) / span : 1;
+    const [a, b] = [points[i - 1], points[i]];
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+  return points[points.length - 1];
 }
 
 export class VehicleTracker {
@@ -156,6 +222,15 @@ export class VehicleTracker {
   private unsubscribePush: (() => void) | null = null;
 
   private status: StreamStatus = { connected: false, vehicleCount: 0, lastUpdate: null, error: null };
+
+  /** Every route's lines, from the network underlay, for vehicles to keep to. */
+  private routeLines = new Map<string, TrackLine[]>();
+  /**
+   * The exact trip shapes of the vehicles someone is watching, by vehicle.
+   * The underlay draws one pattern per route and direction, so a vehicle on
+   * a branch or a short-turn leaves it; its own trip never does.
+   */
+  private tripLines = new Map<string, { tripId: string; line: TrackLine }>();
 
   /**
    * How long a vehicle takes to travel to its newly reported position.
@@ -234,6 +309,42 @@ export class VehicleTracker {
     return () => this.statusListeners.delete(listener);
   }
 
+  /**
+   * The route lines vehicles keep to between reports. Until they arrive,
+   * vehicles glide straight.
+   */
+  setNetwork(network: RouteNetwork | null): void {
+    this.routeLines = network ? routeLines(network) : new Map();
+    for (const track of this.tracks.values()) this.forgetLegs(track);
+  }
+
+  /**
+   * The trips of the vehicles being watched (selected, or ridden), so those
+   * keep to their own trip's shape rather than their route's underlay line.
+   */
+  setTrips(trips: readonly (VehicleTrip | null)[]): void {
+    const next = new Map<string, { tripId: string; line: TrackLine }>();
+    for (const trip of trips) {
+      if (!trip || next.has(trip.vehicleId)) continue;
+      const held = this.tripLines.get(trip.vehicleId);
+      // Refreshed every twenty seconds with the same trip: nothing to redo.
+      if (held && held.tripId === trip.tripId) {
+        next.set(trip.vehicleId, held);
+        continue;
+      }
+      const line = trackLine(trip.geometry);
+      if (line) next.set(trip.vehicleId, { tripId: trip.tripId, line });
+    }
+    const changed = [...new Set([...this.tripLines.keys(), ...next.keys()])].filter(
+      (id) => this.tripLines.get(id) !== next.get(id),
+    );
+    this.tripLines = next;
+    for (const id of changed) {
+      const track = this.tracks.get(id);
+      if (track) this.forgetLegs(track);
+    }
+  }
+
   /** The most recent raw position reported for a vehicle. */
   get(id: string): Vehicle | undefined {
     return this.tracks.get(id)?.vehicle;
@@ -241,18 +352,33 @@ export class VehicleTracker {
 
   /**
    * Where a vehicle has been over the last twenty minutes, oldest first, as
-   * [lon, lat] — ending at where it is drawn right now, so the trail stays
-   * attached to the marker while it glides between reports.
+   * [lon, lat] — along its line where it has one, and ending at where it is
+   * drawn right now, so the trail stays attached to the marker while it
+   * glides between reports.
    */
   trail(id: string): [number, number][] {
     const track = this.tracks.get(id);
     if (!track) return [];
-    const points: [number, number][] = track.trail.map((p) => [p.lon, p.lat]);
-    const here = this.positionAt(track, performance.now());
-    // The glide runs from the previous report towards the newest, so the
-    // newest is still ahead of the marker: end the trail at the marker.
-    if (points.length > 0 && track.durationMs > 0 && performance.now() - track.startedAt < track.durationMs) points.pop();
-    points.push([here.lon, here.lat]);
+    const now = performance.now();
+    const here = this.positionAt(track, now);
+    const marker: Point = [here.lon, here.lat];
+    const reports = track.trail;
+    const legs: Point[][] = [];
+    for (let i = 1; i < reports.length; i++) legs.push(this.leg(track.vehicle, reports[i - 1], reports[i]));
+
+    const points: Point[] = [];
+    const add = (p: Point) => {
+      const last = points[points.length - 1];
+      if (!last || last[0] !== p[0] || last[1] !== p[1]) points.push(p);
+    };
+    // Mid-glide the newest report is still ahead of the marker, and since a
+    // glide arrives a little late, so can the one before be: the last two
+    // legs are cut where the marker is rather than drawn to their ends.
+    const gliding = track.durationMs > 0 && now - track.startedAt < track.durationMs;
+    const settled = gliding ? Math.max(0, legs.length - 2) : legs.length;
+    for (const leg of legs.slice(0, settled)) leg.forEach(add);
+    if (settled < legs.length) splitLineAt(legs.slice(settled).flat(), marker).behind.forEach(add);
+    add(marker);
     return points;
   }
 
@@ -284,8 +410,7 @@ export class VehicleTracker {
     for (const vehicle of vehicles) {
       this.tracks.set(vehicle.id, {
         vehicle,
-        fromLat: vehicle.lat,
-        fromLon: vehicle.lon,
+        glide: makeGlide([[vehicle.lon, vehicle.lat]], false),
         fromBearing: vehicle.bearing ?? 0,
         startedAt: now,
         durationMs: 0,
@@ -372,10 +497,11 @@ export class VehicleTracker {
       if (!existing) {
         // First sighting: place it immediately rather than animating from
         // nowhere, which would make it streak across the map.
+        const lines = this.linesFor(vehicle);
+        const at: Point = [vehicle.lon, vehicle.lat];
         this.tracks.set(vehicle.id, {
           vehicle,
-          fromLat: vehicle.lat,
-          fromLon: vehicle.lon,
+          glide: makeGlide([(lines.length > 0 && snapToLines(lines, at)) || at], false),
           fromBearing: vehicle.bearing ?? 0,
           startedAt: now,
           durationMs: 0,
@@ -402,8 +528,7 @@ export class VehicleTracker {
       const current = this.positionAt(existing, now);
       this.tracks.set(vehicle.id, {
         vehicle,
-        fromLat: current.lat,
-        fromLon: current.lon,
+        glide: this.glideTo([current.lon, current.lat], vehicle),
         fromBearing: current.bearing,
         startedAt: now,
         durationMs: this.animationMs * GLIDE_STRETCH,
@@ -423,16 +548,67 @@ export class VehicleTracker {
     this.resetOnNextMessage = false;
   }
 
-  private positionAt(track: Track, now: number): { lat: number; lon: number; bearing: number } {
-    if (track.durationMs <= 0) {
-      return { lat: track.vehicle.lat, lon: track.vehicle.lon, bearing: track.vehicle.bearing ?? track.fromBearing };
+  /** The lines a vehicle keeps to: its own trip's, when watched, then its route's. */
+  private linesFor(vehicle: Vehicle): TrackLine[] {
+    const route = (vehicle.routeId && this.routeLines.get(vehicle.routeId)) || [];
+    const own = this.tripLines.get(vehicle.id);
+    return own && own.tripId === vehicle.tripId ? [own.line, ...route] : route;
+  }
+
+  /**
+   * The glide from where a vehicle is drawn to its new report: along its
+   * line when both ends are on it, else straight, as there is nothing truer
+   * to follow (a detour, or a branch the underlay does not draw).
+   */
+  private glideTo(from: Point, vehicle: Vehicle): Glide {
+    const to: Point = [vehicle.lon, vehicle.lat];
+    const lines = this.linesFor(vehicle);
+    if (lines.length === 0) return makeGlide([from, to], false);
+    const path = followLines(lines, from, to);
+    if (path) {
+      // Joined from exactly where it is drawn, even a little off the line,
+      // so it never jumps.
+      if (metresBetween(from, path[0]) > 0.5) path.unshift(from);
+      return makeGlide(path, true);
     }
-    const t = Math.min(1, (now - track.startedAt) / track.durationMs);
-    return {
-      lat: track.fromLat + (track.vehicle.lat - track.fromLat) * t,
-      lon: track.fromLon + (track.vehicle.lon - track.fromLon) * t,
-      bearing: lerpAngle(track.fromBearing, track.vehicle.bearing ?? track.fromBearing, t),
-    };
+    return makeGlide([from, snapToLines(lines, to) ?? to], false);
+  }
+
+  /** The way along the line between two reports, worked out once. */
+  private leg(vehicle: Vehicle, from: TrailPoint, to: TrailPoint): Point[] {
+    if (to.via === undefined) {
+      const lines = this.linesFor(vehicle);
+      to.via = lines.length > 0 ? followLines(lines, [from.lon, from.lat], [to.lon, to.lat]) : null;
+    }
+    return to.via ?? [[from.lon, from.lat], [to.lon, to.lat]];
+  }
+
+  /** Lets go of a trail's worked-out legs, once the lines they followed have changed. */
+  private forgetLegs(track: Track): void {
+    for (const point of track.trail) point.via = undefined;
+  }
+
+  private positionAt(track: Track, now: number): { lat: number; lon: number; bearing: number } {
+    const { glide } = track;
+    if (track.durationMs <= 0) {
+      const [lon, lat] = glide.points[glide.points.length - 1];
+      return { lat, lon, bearing: track.vehicle.bearing ?? track.fromBearing };
+    }
+    const elapsed = now - track.startedAt;
+    const t = Math.min(1, elapsed / track.durationMs);
+    const distance = glide.length * t;
+    const [lon, lat] = pointAlong(glide, distance);
+    let bearing = lerpAngle(track.fromBearing, track.vehicle.bearing ?? track.fromBearing, t);
+    if (glide.onLine && glide.length >= TURN_WITH_LINE_METRES) {
+      // Facing the way the line runs, turned into gently from wherever the
+      // vehicle faced when this glide began.
+      const heading = headingBetween(
+        pointAlong(glide, distance - HEADING_SPAN_METRES),
+        pointAlong(glide, distance + HEADING_SPAN_METRES),
+      );
+      if (heading !== null) bearing = lerpAngle(track.fromBearing, heading, Math.min(1, elapsed / TURN_IN_MS));
+    }
+    return { lat, lon, bearing };
   }
 
   private startFrames(): void {
