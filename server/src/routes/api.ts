@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AlertsResponse, PlanRequest, Vehicle } from '../shared/api.js';
 import { MAX_BOARD_DEPARTURES, majorStops, stopWithRoutes } from '../departures.js';
-import { alertPlaces, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
+import { alertPlaces, crashReports, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from '../queries.js';
 import { buildRouteNetwork, type RouteNetwork } from '../network.js';
 import type { TransitService } from '../service.js';
 import { parseCoordinates } from '../geocode.js';
@@ -444,7 +444,7 @@ export async function registerApi(app: FastifyInstance, service: TransitService)
 
   app.get('/api/alerts', async (): Promise<AlertsResponse> => {
     const alerts = service.realtime.alerts;
-    return { alerts, places: alertPlaces(service.store, alerts) };
+    return { alerts, places: alertPlaces(service.store, alerts), crashes: crashReports(service.store, alerts) };
   });
 }
 

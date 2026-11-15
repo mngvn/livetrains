@@ -144,7 +144,7 @@ livetrains/
 │       ├── components/     TransitMap, mapLayers, mapStyle, basemaps, mapIcons, panels, search, …
 │       └── lib/            vehicleTracker, planeTracker, walkRouter, journey, ride, lateness,
 │                           networkHealth, reliability, savedTrips, leaveReminder, shareLink, …
-├── relay/                  planes-worker.js (Cloudflare Worker) and deno.js (Deno Deploy)
+├── relay/                  planes-worker.js (the relay), node-server.js (any Node host), deno.js (Deno Deploy)
 ├── .github/workflows/      pages.yml (build + deploy), verify-feed.yml (weekly real-feed check)
 └── docs/                   This document, THIRD_PARTY.md, SECURITY.md
 ```
@@ -353,6 +353,18 @@ naming a route *and a different stop* is a closure elsewhere on the line and
 does not apply here. (Flattening these, as an earlier version did, put news of
 one closed stop on every stop the route serves.)
 
+**Crashes** (`shared/incidents.ts`, `queries.ts → crashReports`): an alert is
+a crash report when its cause is `ACCIDENT` or its text says crash or
+collision. Where it happened is not a field, and the stops an alert lists
+are the ones it *affects* — for a trip cut short by a collision, every stop
+the bus never reached, in no order. So the place is worked out, in order of
+how much each says: a trip cancelled part-way is placed at the first of its
+listed stops in the order the trip calls at them (where it was cancelled
+from); failing that, a stop on the alert's own routes named in its text;
+failing that, the one stop of a single-stop alert. With nothing to go on the
+crash is listed but not drawn. It is a stop *near* the crash, and is labelled
+that way. Both backends send the result with the alerts.
+
 ---
 
 ## 7. Trip planning
@@ -534,7 +546,7 @@ fallback so deep links work.
 | `GET /api/vehicles/stream` | Server-Sent Events: a `vehicles` frame on every poll, keep-alive every 25 s |
 | `GET /api/search`, `/api/geocode`, `/api/reverse-geocode` | Transit search, place search, naming a dropped pin |
 | `GET /api/plan` | Ranked itineraries (`departAt`, `arriveBy`, `maxWalk`, `maxTransfers`, `walkSpeed`) |
-| `GET /api/alerts`, `/api/planes` | All alerts, with the position of each stop they name; aircraft over the area (relayed, cached 4 s) |
+| `GET /api/alerts`, `/api/planes` | All alerts, with the position of each stop they name and which of them report a crash, and where; aircraft over the area (relayed, cached 4 s) |
 
 The vehicle stream uses SSE rather than WebSockets: the traffic is
 one-directional and periodic, and SSE survives proxies and reconnects with no
@@ -587,8 +599,8 @@ more than the animation.
   shape, the selected vehicle's trip (drawn on end to end, then split into
   faded behind / bold ahead), its 20-minute trail, the itinerary, stops (two
   classes, from zoom 15 only) and labels, approach links, endpoints, aircraft (trail, way ahead,
-  icon, label), vehicle groups, vehicles (dot, glyph, label, hit area), and
-  the journey traveller.
+  icon, label), vehicle groups (and their late count), vehicles (dot, glyph,
+  label, late mark, hit area), reported crashes, and the journey traveller.
 - **Selection dims everything else**: choosing a vehicle, stop, route or plan
   sets a focus; `syncSelectionFocus` rewrites paint properties so unrelated
   lines, stops and vehicles step back.
@@ -694,6 +706,21 @@ reports, which also feeds the delay history used by "why is it late?".
   line-wide alerts say: Suspended / Severe delays / Disrupted / Minor delays /
   Good service / Not running now. Trip-cancellation notices are not mistaken
   for a suspended line.
+- **Late marks** (`lib/lateMarks.ts`): the status board's own line, on the
+  map. A vehicle 5+ minutes behind carries an amber dot on its plate's
+  shoulder, red from 10, with "+7 min" beneath from zoom 13. A dot rather than
+  a ring or a recolour, because rings already mean chosen/browsed/hovered and
+  the plate's colour is the route's. Every plate is the same size at a given
+  zoom, so the dot's offset is a zoom-only `circle-translate`. A group's disc
+  carries the count of late vehicles in it, positioned from the disc's
+  radius when the grouping is worked out. Stale positions are never marked;
+  the legend has a switch (`livetrains.late`).
+- **Crashes** (`lib/crashMap.ts`): the one kind of alert drawn whichever tab
+  is open — a red burst above the vehicles with a slow ripple, one per place
+  however many alerts report it, only while the alert is in force. A line
+  under the status bar names each ("Crash reported on the E Line near 4th St
+  & 15th Ave Station") and takes the map to it; tapping either opens the
+  stop, whose alerts say what the agency said.
 - **Alerts**: everywhere they matter, plus an Alerts tab filtered by kind and
   route; elevator/ramp outages are promoted to "Accessibility" even when filed
   as generic notices. While the tab is open the map draws what it lists
@@ -741,10 +768,33 @@ page cannot read them. In server mode the API relays them (`planes.ts`: one
 fetch shared by every client, cached 4 s, concurrent requests share the one in
 flight, the feed that last answered is tried first, and a minute-old answer is
 served during an upstream blip). On a static host, a one-file relay
-(`relay/planes-worker.js`) runs on Cloudflare Workers or Deno Deploy. It
+(`relay/planes-worker.js`) runs on Deno Deploy or any Node host. It
 answers exactly one path, `/planes/{lat}/{lon}/{radius}`, caps the radius at
 100 nm, rounds the centre to two decimals so a city's visitors share a cached
 answer for five seconds, and can be restricted to the site's own origin.
+
+**Listening, not polling.** A free host's allowance is counted in requests,
+and a map polling every 15 s spends 240 an hour. So the relay, asked with
+`?stream=1`, answers with Server-Sent Events: the sky at once, then again on
+every 15-second beat of the clock, for as long as the page listens. Every
+stream sends on the same beat and concurrent requests share the one in
+flight, so any number of listeners cost the feed one request a beat. A
+stream ends itself after 30 minutes (which bounds what a silently dead
+connection can cost, and gives a page on a fallback relay its turn to go
+home); the page opens the next. When the feeds are down the stream says so
+(`event: problem`) and stays open.
+
+The page (`lib/planeFeed.ts`) reads the stream with `fetch` rather than
+`EventSource`, to see status codes, time out a silent connection (50 s), and
+keep reconnection on the tracker's schedule. It only asks addresses shaped
+like this relay's to stream; a relay from before streaming ignores the
+parameter and answers once, which is taken as a poll, remembered, and polled
+from then on. The tracker (`lib/planeTracker.ts`) listens while the tab is
+visible and has been touched in the last half hour, hangs up when hidden,
+and otherwise polls: 15 s in use, 30 s after five idle minutes, 2 min after
+half an hour. A stream cut short inside one poll interval is paced like a
+poll, so a host that will not hold connections open costs what polling it
+would and never more.
 
 **The area** (`shared/planes.ts → planeArea`) is the circle covering the
 agency's bounding box plus 15 nm, so a plane is already on the map as it
@@ -756,9 +806,9 @@ of lag; at jet speeds that would be a mile behind. Aircraft report ground
 speed and track, so they are **dead-reckoned**: drawn where the last report
 says they are *now*, carried forward along their track for up to 25 s. When a
 new report lands, the gap between guess and truth is blended away over 2 s, so
-a turning plane bends round instead of teleporting. Polling (every 10 s) runs
-only while the tab is visible and backs off from 20 s to 2 min after errors.
-The device's clock skew is corrected using the feed's own `now`.
+a turning plane bends round instead of teleporting. Failed requests back off
+from 20 s to 2 min. The device's clock skew is corrected using the feed's own
+`now`.
 
 **Drawing**: thin yellow silhouettes (jet, light aircraft or helicopter, from
 the emitter category or type code) beneath the transit, fainter the higher
@@ -805,7 +855,7 @@ faded and dated until live positions replace it.
 | IndexedDB `livetrains` | `observations` | Reliability history for saved trips |
 | IndexedDB `livetrains` | `kv` → `lastVehicles` | Last-known vehicle positions |
 | localStorage | `livetrains.savedTrips` | Saved trips |
-| localStorage | `livetrains.theme`, `.basemap`, `.three`, `.group`, `.planes`, `.panelHidden`, `.onboarded` | Preferences |
+| localStorage | `livetrains.theme`, `.basemap`, `.three`, `.group`, `.planes`, `.late`, `.panelHidden`, `.onboarded` | Preferences |
 | localStorage | `livetrains.boardFilter.<stopId>` | Per-stop departure-board filters |
 | localStorage | `livetrains.dataMode`, `.apiUrl`, `.planesUrl` | Developer overrides (set from the console) |
 
@@ -856,8 +906,8 @@ findings of the latest review are in [SECURITY.md](SECURITY.md).
 downtown transfer point, three bus routes crossing them, service past
 midnight, two operators, stations with pathways, a vehicle simulator that
 places a vehicle on every trip that should be running and interpolates it
-along the timetable with stable pseudo-random delays, invented alerts, and a
-few simulated aircraft on fixed loops. Tests never depend on the network or on
+along the timetable with stable pseudo-random delays, invented alerts (one of
+them a crash), and a few simulated aircraft on fixed loops. Tests never depend on the network or on
 service running at the moment you look. `npm run fixtures` writes the same
 feed out as a real `gtfs.zip` and `.pb` files to exercise browser mode
 end to end offline.

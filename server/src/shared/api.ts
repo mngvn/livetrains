@@ -200,10 +200,26 @@ export interface AlertPlace {
   lon: number;
 }
 
+/**
+ * A crash the agency has reported, and roughly where.
+ *
+ * An alert rarely says where in so many words that a machine can read, so
+ * the place is worked out from what it does say (see `crashReports`) and is
+ * a stop near the crash rather than the spot itself. With nothing to go on
+ * there is no place, and the crash is listed but not drawn.
+ */
+export interface CrashReport {
+  /** The alert that reported it. */
+  alertId: string;
+  place?: AlertPlace;
+}
+
 export interface AlertsResponse {
   alerts: ServiceAlert[];
   /** Every stop the alerts name that the timetable knows, once each. */
   places: AlertPlace[];
+  /** The alerts that report a crash. Absent from a server older than this. */
+  crashes?: CrashReport[];
 }
 
 /** A geocoded place the rider can plan to or from. */

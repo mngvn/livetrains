@@ -22,6 +22,8 @@ export interface GroupInput {
   lon: number;
   lat: number;
   rail: boolean;
+  /** How late it is running, as the map marks it: 0 not, 1 late, 2 very late. */
+  late?: 0 | 1 | 2;
 }
 
 export interface VehicleGroup {
@@ -30,6 +32,9 @@ export interface VehicleGroup {
   count: number;
   /** How many of them are trains, for tinting the disc. */
   rail: number;
+  /** How many of them are running late, and how many of those very late. */
+  late: number;
+  veryLate: number;
 }
 
 export interface Grouping {
@@ -57,6 +62,8 @@ interface Gathering {
   lat: number;
   count: number;
   rail: number;
+  late: number;
+  veryLate: number;
 }
 
 /**
@@ -105,6 +112,8 @@ export function groupVehicles(
     g.lat += p.lat;
     g.count += 1;
     if (p.rail) g.rail++;
+    if (p.late) g.late++;
+    if (p.late === 2) g.veryLate++;
     grouped.add(p.id);
   };
 
@@ -126,7 +135,7 @@ export function groupVehicles(
     }
     if (members.length < MIN_GROUP) continue;
 
-    const g: Gathering = { x: 0, y: 0, lon: 0, lat: 0, count: 0, rail: 0 };
+    const g: Gathering = { x: 0, y: 0, lon: 0, lat: 0, count: 0, rail: 0, late: 0, veryLate: 0 };
     for (const m of members) join(g, m);
     gatherings.push(g);
   }
@@ -148,6 +157,8 @@ export function groupVehicles(
           a.lat += b.lat;
           a.count += b.count;
           a.rail += b.rail;
+          a.late += b.late;
+          a.veryLate += b.veryLate;
           gatherings.splice(j, 1);
           // `a` has moved and grown: check it against everything again.
           j = i;
@@ -167,7 +178,14 @@ export function groupVehicles(
   }
 
   const groups = gatherings.map(
-    (g): VehicleGroup => ({ lon: g.lon / g.count, lat: g.lat / g.count, count: g.count, rail: g.rail }),
+    (g): VehicleGroup => ({
+      lon: g.lon / g.count,
+      lat: g.lat / g.count,
+      count: g.count,
+      rail: g.rail,
+      late: g.late,
+      veryLate: g.veryLate,
+    }),
   );
   return { groups, grouped };
 }

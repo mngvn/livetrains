@@ -229,6 +229,18 @@ const drawBadge: Draw = (ctx, { width, height }) => {
   ctx.fill();
 };
 
+/**
+ * A pill: round at both ends however long the number in it. For the count
+ * of late vehicles on a group's disc, where a squared-off badge would read
+ * as a train's plate.
+ */
+const PILL = { width: 20, height: 14 };
+const drawPill: Draw = (ctx, { width, height }) => {
+  ctx.beginPath();
+  ctx.roundRect(1, 1, width - 2, height - 2, (height - 2) / 2);
+  ctx.fill();
+};
+
 /** Ferries: a diamond, since they follow neither rails nor streets. */
 const drawFerry: Draw = (ctx, { width: size }) => {
   const c = size / 2;
@@ -332,6 +344,27 @@ const drawHelicopter: Draw = (ctx, { width: size }) => {
   ctx.stroke();
 };
 
+/**
+ * A crash: a spiked burst, the comic-strip shorthand for an impact. Nothing
+ * else on the map has a jagged edge, so it is told apart from a stop, a
+ * vehicle and an alert's round dot by outline alone, at any size.
+ */
+const drawBurst: Draw = (ctx, { width: size }) => {
+  const c = size / 2;
+  const spikes = 10;
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = size * (i % 2 === 0 ? 0.4 : 0.275);
+    const angle = (i * Math.PI) / spikes - Math.PI / 2;
+    const x = c + r * Math.cos(angle);
+    const y = c + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+};
+
 interface IconSpec {
   draw: Draw;
   box?: Box;
@@ -358,6 +391,7 @@ export const VEHICLE_ICONS: Record<string, IconSpec> = {
   'plane-jet': { draw: drawJet },
   'plane-light': { draw: drawLightPlane },
   'plane-heli': { draw: drawHelicopter },
+  'crash-burst': { draw: drawBurst },
   badge: {
     draw: drawBadge,
     box: BADGE,
@@ -365,6 +399,16 @@ export const VEHICLE_ICONS: Record<string, IconSpec> = {
       stretchX: [[px(4), px(BADGE.width - 4)]],
       stretchY: [[px(4), px(BADGE.height - 4)]],
       content: [px(3), px(2), px(BADGE.width - 3), px(BADGE.height - 2)],
+    },
+  },
+  pill: {
+    draw: drawPill,
+    box: PILL,
+    // Only the middle stretches, so the ends stay half-circles.
+    stretch: {
+      stretchX: [[px(7.5), px(PILL.width - 7.5)]],
+      stretchY: [[px(6.5), px(PILL.height - 6.5)]],
+      content: [px(5), px(2), px(PILL.width - 5), px(PILL.height - 2)],
     },
   },
 };

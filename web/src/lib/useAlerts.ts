@@ -14,7 +14,7 @@ const REFRESH_MS = 60_000;
 const EMPTY_RETRY_MS = 4_000;
 const EMPTY_RETRIES = 8;
 
-const NONE: AlertsResponse = { alerts: [], places: [] };
+const NONE: Required<AlertsResponse> = { alerts: [], places: [], crashes: [] };
 
 /**
  * Every service alert the agency is publishing, kept fresh.
@@ -27,8 +27,8 @@ const NONE: AlertsResponse = { alerts: [], places: [] };
 export function useAlerts(
   load: (signal?: AbortSignal) => Promise<AlertsResponse>,
   enabled: boolean,
-): AlertsResponse {
-  const [alerts, setAlerts] = useState<AlertsResponse>(NONE);
+): Required<AlertsResponse> {
+  const [alerts, setAlerts] = useState<Required<AlertsResponse>>(NONE);
 
   useEffect(() => {
     if (!enabled) return;
@@ -40,8 +40,8 @@ export function useAlerts(
       load(controller.signal)
         .then((result) => {
           if (cancelled) return;
-          // An older server answers without places; draw nothing rather than fail.
-          setAlerts({ alerts: result.alerts, places: result.places ?? [] });
+          // An older server answers without places or crashes; draw nothing rather than fail.
+          setAlerts({ alerts: result.alerts, places: result.places ?? [], crashes: result.crashes ?? [] });
           if (result.alerts.length === 0 && retries < EMPTY_RETRIES) {
             retries += 1;
             window.clearTimeout(retryTimer);

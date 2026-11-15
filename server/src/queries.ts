@@ -4,6 +4,7 @@ import type { PatternSet } from './planner/patterns.js';
 import type { RealtimeState } from './realtime/state.js';
 import type {
   AlertPlace,
+  CrashReport,
   PathwaySummary,
   RouteDetail,
   RouteSummary,
@@ -14,6 +15,7 @@ import type {
   VehicleTrip,
 } from './shared/api.js';
 import { departuresForStops, groupedStopIndices, stopWithRoutes } from './departures.js';
+import { isCrashAlert } from './shared/incidents.js';
 import { routeSummary, stopSummary } from './summaries.js';
 
 /**
@@ -327,4 +329,83 @@ export function alertPlaces(store: GtfsStore | null, alerts: ServiceAlert[]): Al
     }
   }
   return [...places.values()];
+}
+
+/**
+ * The alerts that report a crash, each placed at a stop as nearly as the
+ * alert allows.
+ *
+ * Needs the timetable to place anything; without one the crashes are still
+ * listed, so they can be named even where they cannot be drawn.
+ */
+export function crashReports(store: GtfsStore | null, alerts: ServiceAlert[]): CrashReport[] {
+  const reports: CrashReport[] = [];
+  for (const alert of alerts) {
+    if (!isCrashAlert(alert)) continue;
+    const stop = store ? crashStop(store, alert) : undefined;
+    reports.push({
+      alertId: alert.id,
+      ...(stop ? { place: { stopId: stop.id, name: stop.name, lat: stop.lat, lon: stop.lon } } : {}),
+    });
+  }
+  return reports;
+}
+
+/** How far into a trip a cancellation must start to say anything about where. */
+const CUT_SHORT_FROM = 2;
+
+/**
+ * The stop a crash alert points to, or nothing when it points nowhere.
+ *
+ * The stops an alert lists are the ones it affects, which for a trip cut
+ * short by a collision is every stop the bus never reached: thirty of them,
+ * in no order, the crash at none in particular. So, in order of how much
+ * they say:
+ *
+ * 1. A trip cancelled part-way stopped where it was cancelled from: the
+ *    first of its listed stops in the order the trip calls at them. (A trip
+ *    cancelled from the start never set out, and says nothing.)
+ * 2. A stop on the alert's routes named in its text: "…after a collision
+ *    near Franklin Ave Station".
+ * 3. An alert about a single stop is about that stop.
+ */
+function crashStop(store: GtfsStore, alert: ServiceAlert): GtfsStore['stops'][number] | undefined {
+  const listed = new Set(alert.stopIds);
+
+  for (const tripId of new Set(alert.informed.flatMap((entity) => (entity.tripId ? [entity.tripId] : [])))) {
+    const trip = store.tripIndexById.get(tripId);
+    if (trip === undefined) continue;
+    const start = store.stopTimeStart[trip];
+    for (let i = start; i < store.stopTimeStart[trip + 1]; i++) {
+      const stop = store.stops[store.stopTimeStop[i]];
+      if (!listed.has(stop.id)) continue;
+      if (i - start >= CUT_SHORT_FROM) return stop;
+      break;
+    }
+  }
+
+  const routes = new Set(
+    alert.routeIds.flatMap((id) => {
+      const index = store.routeIndexById.get(id);
+      return index === undefined ? [] : [index];
+    }),
+  );
+  if (routes.size > 0) {
+    const text = ` ${normalise(`${alert.header} ${alert.description}`)} `;
+    let best: { stop: GtfsStore['stops'][number]; length: number } | undefined;
+    store.stops.forEach((stop, index) => {
+      if (!store.routesAtStop[index]?.some((route) => routes.has(route))) return;
+      // "Franklin Ave Station" is as often written "Franklin Ave".
+      const name = normalise(stop.name).replace(/ station$/, '');
+      // Short names turn up inside other words and other names.
+      if (name.length < 6 || (best && name.length <= best.length)) return;
+      const at = text.indexOf(` ${name} `);
+      // Where a trip set out from is in the text too, and is not where it stopped.
+      if (at < 0 || text.slice(0, at).endsWith(' departing')) return;
+      best = { stop, length: name.length };
+    });
+    if (best) return best.stop;
+  }
+
+  return alert.stopIds.length === 1 ? store.stopById(alert.stopIds[0]) : undefined;
 }

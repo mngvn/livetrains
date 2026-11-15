@@ -291,6 +291,77 @@ button {
 }
 
 /* --------------------------------------------------------------------------
+   Reported crashes
+   --------------------------------------------------------------------------
+   A line under the status bar for each crash the agency is reporting. In the
+   colour kept for trouble, and a button: it takes the map to the crash. */
+
+.crash-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.crash-notice__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.crash-notice__item:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.crash-notice__item:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.crash-notice__item--more {
+  min-height: 28px;
+  color: var(--text-muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+.crash-icon {
+  flex: none;
+}
+
+.crash-notice__text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.crash-notice__go {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--danger);
+}
+
+.alert-card__crash {
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------------------
    Tabs
    --------------------------------------------------------------------------
    Apart from the panel they open, as map and transit apps keep their
@@ -2779,6 +2850,12 @@ button {
   width: 24px;
   height: 16px;
   flex: none;
+}
+
+/* A swatch that is an icon rather than a drawing: centred in the same box. */
+.legend__swatch--icon {
+  display: grid;
+  place-items: center;
 }
 
 /* A small switch, sized so it is comfortably tappable without making the

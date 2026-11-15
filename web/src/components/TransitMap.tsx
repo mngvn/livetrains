@@ -20,6 +20,7 @@ import { deadReckon } from '../lib/planeTracker.ts';
 import { distanceKm, greatCircle } from '../lib/planeBound.ts';
 import { plateLabel, readableTextColor } from '../lib/format.ts';
 import { groupVehicles as groupOnScreen, type GroupInput, type Grouping } from '../lib/grouping.ts';
+import { lateLabel, lateLevel } from '../lib/lateMarks.ts';
 import { PALETTES, type Palette } from '../lib/palette.ts';
 import { escapeHtml } from '../lib/safeUrl.ts';
 import { distanceToLines, pickRoute, type RouteHover } from '../lib/routeHover.ts';
@@ -44,7 +45,9 @@ import {
   JOURNEY_DIMMING,
   ensureLayers,
   getPaint,
+  CRASH_RADIUS,
   groupDiscRadius,
+  groupLateOffset,
   groupMergeRadius,
   revealLines,
   setPaint,
@@ -152,6 +155,10 @@ interface Props {
   planeBound: { kind: 'destination' | 'landing' | 'toward'; label: string; lat: number; lon: number } | null;
   /** Alerted stops, while the alerts view is open; see `alertMarkers`. */
   alerts: GeoJSON.FeatureCollection | null;
+  /** Where a crash has been reported, whichever view is open; see `crashMarkers`. */
+  crashes: GeoJSON.FeatureCollection | null;
+  /** Whether vehicles running late are marked as such. */
+  markLate: boolean;
   /** Every route, for naming the one under the pointer. */
   routes: RouteSummary[];
   /** Every alert in the feed, for saying how the route under the pointer is doing. */
@@ -366,6 +373,9 @@ class NetworkViewControl implements maplibregl.IControl {
 
 /** Layers a tap can land on, most specific first. */
 const PICKABLE_LAYERS = [
+  // A reported crash is drawn over everything, and there is never more than
+  // a handful: a tap on one means it, whatever is underneath.
+  'crashes-hit',
   // Alerted stops are only drawn while the alerts view is open, and then
   // they are what a tap means. Below the vehicles they would never be
   // reached: at network scale every cluster sits under a bus or a group.
@@ -419,6 +429,8 @@ export function TransitMap({
   planeAttribution,
   planeBound,
   alerts,
+  crashes,
+  markLate,
   routes,
   serviceAlerts,
   creditHeld = false,
@@ -451,6 +463,8 @@ export function TransitMap({
   const approachStopsRef = useRef<Map<string, ApproachStop>>(new Map());
   const feedStaleRef = useRef(feedStale);
   feedStaleRef.current = feedStale;
+  const markLateRef = useRef(markLate);
+  markLateRef.current = markLate;
   const followRef = useRef(followVehicleId);
   followRef.current = followVehicleId;
   /** When the rider last moved the map themselves; following waits for them. */
@@ -789,6 +803,9 @@ export function TransitMap({
     instance.on('mousemove', (event) => {
       const feature = pickFeature(event.point);
       instance.getCanvas().style.cursor = feature ? 'pointer' : '';
+      // A crash under the pointer says what the agency said about it.
+      const crash = feature?.layer.id === 'crashes-hit' ? String(feature.properties?.header ?? '') : '';
+      if (instance.getCanvas().title !== crash) instance.getCanvas().title = crash;
       // A plane under the pointer says what it is, without a click.
       const plane = feature?.layer.id === 'planes-hit' ? String(feature.properties?.id ?? '') : null;
       if (plane !== hoveredPlane.current) {
@@ -868,7 +885,15 @@ export function TransitMap({
           // away into a count.
           if (v.id === selected || (v.routeId !== undefined && (focus.has(v.routeId) || v.routeId === hovered))) continue;
           const point = instance.project([v.displayLon, v.displayLat]);
-          inputs.push({ id: v.id, x: point.x, y: point.y, lon: v.displayLon, lat: v.displayLat, rail: RAIL_MODES.has(v.mode) });
+          inputs.push({
+            id: v.id,
+            x: point.x,
+            y: point.y,
+            lon: v.displayLon,
+            lat: v.displayLat,
+            rail: RAIL_MODES.has(v.mode),
+            late: markLateRef.current && !v.stale && !feedStaleRef.current ? lateLevel(v.delaySeconds) : 0,
+          });
         }
         const zoom = instance.getZoom();
         grouping = groupOnScreen(inputs, groupMergeRadius(zoom), null, {
@@ -880,12 +905,20 @@ export function TransitMap({
           features: grouping.groups.map((group) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [group.lon, group.lat] },
-            properties: { count: group.count, rail: group.rail, hoverDim: hovered !== undefined },
+            properties: {
+              count: group.count,
+              rail: group.rail,
+              late: group.late,
+              veryLate: group.veryLate,
+              lateAt: groupLateOffset(group.count, zoom),
+              hoverDim: hovered !== undefined,
+            },
           })),
         });
       }
 
       const feedQuiet = feedStaleRef.current;
+      const markLate = markLateRef.current;
       const hoveredRoute = routeHoverRef.current?.routeId;
       const chosen = selectedRef.current;
       setData('vehicles', {
@@ -893,6 +926,8 @@ export function TransitMap({
         features: vehicles.map((v) => {
           const stale = v.stale || feedQuiet;
           const color = `#${v.color}`;
+          // A position that is no longer live says nothing about lateness now.
+          const late = markLate && !stale ? lateLevel(v.delaySeconds) : 0;
           return {
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [v.displayLon, v.displayLat] },
@@ -909,6 +944,8 @@ export function TransitMap({
               // confident lie.
               hasHeading: v.bearing !== undefined,
               stale,
+              late,
+              lateLabel: late > 0 ? lateLabel(v.delaySeconds!) : '',
               grouped: grouping?.grouped.has(v.id) ?? false,
               // The route under the pointer: its vehicles ringed, the rest
               // faded, bar the one the rider has chosen.
@@ -1434,6 +1471,32 @@ export function TransitMap({
     if (!ready.current) return;
     setData('alerts', alerts ?? EMPTY);
   }, [alerts, setData, styleEpoch]);
+
+  // Reported crashes, whichever view is open, with the same slow ripple.
+  useEffect(() => {
+    if (!ready.current) return;
+    setData('crashes', crashes ?? EMPTY);
+  }, [crashes, setData, styleEpoch]);
+  const crashed = (crashes?.features.length ?? 0) > 0;
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !crashed) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const beat = 2400;
+    const restyle = (spread: number, opacity: number) => {
+      if (!instance.getLayer('crashes-pulse')) return;
+      instance.setPaintProperty('crashes-pulse', 'circle-radius', CRASH_RADIUS + spread);
+      instance.setPaintProperty('crashes-pulse', 'circle-stroke-opacity', opacity);
+    };
+    const timer = window.setInterval(() => {
+      const phase = (performance.now() % beat) / beat;
+      restyle(alertPulseSpread(phase), 0.8 * (1 - phase));
+    }, 1000 / 24);
+    return () => {
+      window.clearInterval(timer);
+      restyle(alertPulseSpread(0), 0);
+    };
+  }, [crashed, styleEpoch]);
 
   // A slow ripple off whatever is severe and in force, only while there is
   // something to ripple. Every ring is sized by a plain number, so restyling

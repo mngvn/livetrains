@@ -35,6 +35,9 @@ import { useVehicleTrip } from './lib/useVehicleTrip.ts';
 import { routeWideAlertCounts, useAlerts } from './lib/useAlerts.ts';
 import { isActive } from './lib/alerts.ts';
 import { alertedRouteIds, alertMarkers } from './lib/alertMap.ts';
+import { activeCrashes, crashMarkers, type Crash } from './lib/crashMap.ts';
+import { lateCounts } from './lib/lateMarks.ts';
+import { CrashNotice } from './components/CrashNotice.tsx';
 import { RoutesTab } from './components/RoutesTab.tsx';
 import { AlertsView } from './components/AlertsView.tsx';
 import type { BasemapId } from './components/basemaps.ts';
@@ -196,6 +199,8 @@ export function App() {
    * anyone who would rather not. Off means off — the feed is not even asked.
    */
   const [planesOn, togglePlanes] = usePersistedFlag('livetrains.planes', true);
+  /** Vehicles running late are marked on the map, unless switched off in the legend. */
+  const [markLate, toggleMarkLate] = usePersistedFlag('livetrains.late', true);
   const planeTracker = useMemo(() => new PlaneTracker(), []);
   const planeTemplate = useMemo(() => planeFeedTemplate(source.mode), [source]);
   const [planeStatus, setPlaneStatus] = useState<PlaneFeedStatus>({
@@ -907,7 +912,7 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [arrived]);
 
-  const { alerts, places: alertPlacesList } = useAlerts(source.alerts, engine.state === 'ready');
+  const { alerts, places: alertPlacesList, crashes: crashReports } = useAlerts(source.alerts, engine.state === 'ready');
   /** What the alerts view is showing after its filters, mirrored on the map. */
   const [shownAlerts, setShownAlerts] = useState<ServiceAlert[]>([]);
   // The view rebuilds its list on every one-second tick. Keep the same array
@@ -924,6 +929,32 @@ export function App() {
   const alertMapMarkers = useMemo(
     () => (tab === 'alerts' ? alertMarkers(shownAlerts, alertPlacesList, alertMinute) : null),
     [tab, shownAlerts, alertPlacesList, alertMinute],
+  );
+  // Crashes the agency has reported and that are in force: marked on the
+  // map whichever tab is open, and named under the status line.
+  const crashes = useMemo(
+    () => activeCrashes(alerts, crashReports, routesById, alertMinute),
+    [alerts, crashReports, routesById, alertMinute],
+  );
+  const crashMapMarkers = useMemo(() => crashMarkers(crashes), [crashes]);
+  const showCrash = useCallback(
+    (crash: Crash) => {
+      if (!crash.place) {
+        setTab('alerts');
+        return;
+      }
+      setCameraTarget({ lon: crash.place.lon, lat: crash.place.lat, zoom: 14 });
+      showStop(crash.place.stopId);
+    },
+    [showStop],
+  );
+  // How many of the fleet are late, for the legend: counted every few
+  // seconds, like the status board, rather than on every tick of the clock.
+  const lateTick = Math.floor(now / 5);
+  const late = useMemo(
+    () => lateCounts(tracker.snapshot()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tracker, lateTick],
   );
   const alertCounts = useMemo(() => routeWideAlertCounts(alerts), [alerts]);
   const activeAlertCount = useMemo(() => alerts.filter((alert) => isActive(alert, now)).length, [alerts, now]);
@@ -1160,6 +1191,8 @@ export function App() {
             : null
         }
         alerts={alertMapMarkers}
+        crashes={crashMapMarkers}
+        markLate={markLate}
         routes={routes}
         serviceAlerts={alerts}
         creditHeld={showTour}
@@ -1234,6 +1267,8 @@ export function App() {
         grouped={groupVehicles}
         onToggleGrouped={toggleGroupVehicles}
         planes={planeTemplate ? { on: planesOn, status: planeStatus, onToggle: togglePlanes } : null}
+        late={{ on: markLate, onToggle: toggleMarkLate, ...late }}
+        crashes={crashes.length}
       />
 
       {mapPickTarget && (
@@ -1300,6 +1335,7 @@ export function App() {
             online={online}
             lastKnownAt={lastKnownAt}
           />
+          <CrashNotice crashes={crashes} onShow={showCrash} onShowAll={() => setTab('alerts')} />
           <TransitSearch
             search={source.search}
             onRoute={(route) => openRoute(route.id)}

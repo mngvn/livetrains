@@ -3,6 +3,9 @@ import type { RouteSummary } from '../lib/api.ts';
 import { modeLabel, plateLabel, readableTextColor } from '../lib/format.ts';
 import { splitBrandedLines } from '../lib/legend.ts';
 import { PLANE_PATH } from '../lib/planeInfo.ts';
+import { LATE_SECONDS } from '../lib/networkHealth.ts';
+import { VERY_LATE_SECONDS } from '../lib/lateMarks.ts';
+import { CrashIcon } from './CrashNotice.tsx';
 import type { PlaneFeedStatus } from '../lib/planeTracker.ts';
 
 /**
@@ -25,9 +28,13 @@ interface Props {
   onReplayTour: () => void;
   /** Aircraft overhead, when there is a feed for them at all. */
   planes: { on: boolean; status: PlaneFeedStatus; onToggle: () => void } | null;
+  /** The marks on vehicles running late, and how many are right now. */
+  late: { on: boolean; onToggle: () => void; late: number; veryLate: number };
+  /** How many crashes the agency is reporting right now. */
+  crashes: number;
 }
 
-export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, planes }: Props) {
+export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, planes, late, crashes }: Props) {
   const [open, setOpen] = useState(false);
   const { branded, genericColor, genericCount } = useMemo(() => splitBrandedLines(routes), [routes]);
 
@@ -100,6 +107,32 @@ export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, plan
                 >
                   <span className="legend__switch-knob" aria-hidden="true" />
                 </button>
+              </li>
+              <li className={`legend__item${late.on ? '' : ' is-off'}`}>
+                <Swatch kind="late" />
+                <span>
+                  Running late
+                  <em>{lateNote(late)}</em>
+                </span>
+                <button
+                  type="button"
+                  className="legend__switch"
+                  role="switch"
+                  aria-checked={late.on}
+                  aria-label="Mark vehicles running late"
+                  onClick={late.onToggle}
+                >
+                  <span className="legend__switch-knob" aria-hidden="true" />
+                </button>
+              </li>
+              <li className="legend__item">
+                <span className="legend__swatch legend__swatch--icon">
+                  <CrashIcon size={15} />
+                </span>
+                <span>
+                  Crash reported
+                  <em>{crashes === 0 ? 'none reported right now' : `${crashes} right now, from the agency's alerts`}</em>
+                </span>
               </li>
               {planes && (
                 <li className={`legend__item${planes.on ? '' : ' is-off'}`}>
@@ -212,6 +245,15 @@ export function MapLegend({ routes, grouped, onToggleGrouped, onReplayTour, plan
   );
 }
 
+/** What the late row says under its name: what the dots mean, and how many there are. */
+function lateNote({ on, late }: Props['late']): string {
+  if (!on) return 'not marked';
+  const from = LATE_SECONDS / 60;
+  const very = VERY_LATE_SECONDS / 60;
+  const key = `amber ${from}+ min behind, red ${very}+`;
+  return late === 0 ? `none now · ${key}` : `${late} now · ${key}`;
+}
+
 /** What the aircraft row says under its name: how many, or why none. */
 function planeNote(on: boolean, status: PlaneFeedStatus): string {
   if (!on) return 'hidden';
@@ -244,9 +286,20 @@ function Swatch({
     | 'walk'
     | 'origin'
     | 'destination'
-    | 'plane';
+    | 'plane'
+    | 'late';
 }) {
   switch (kind) {
+    // A late bus and a very late train: the plate, with the dot on its shoulder.
+    case 'late':
+      return (
+        <svg className="legend__swatch" viewBox="0 0 24 16" aria-hidden="true">
+          <circle cx="7" cy="9" r="4.6" fill="#0b5fa5" stroke="var(--bg)" strokeWidth="1.4" />
+          <circle cx="10.4" cy="5.6" r="2.3" fill="var(--late)" stroke="var(--bg)" strokeWidth="1" />
+          <rect x="13.2" y="4.6" width="8.8" height="8.8" rx="1.3" fill="#00a94f" stroke="var(--bg)" strokeWidth="1.4" />
+          <circle cx="21" cy="5.6" r="2.3" fill="var(--danger)" stroke="var(--bg)" strokeWidth="1" />
+        </svg>
+      );
     // Rail markers are rounded squares and buses discs — shape, not a glyph,
     // because at the size a vehicle occupies on a city map a silhouette turns
     // to mush while a corner survives.

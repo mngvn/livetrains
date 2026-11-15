@@ -2,6 +2,7 @@ import type { RouteSummary, ServiceAlert } from '../lib/api.ts';
 import { effectMeta, isActive, nextStart } from '../lib/alerts.ts';
 import { clockTime } from '../lib/format.ts';
 import { safeWebUrl } from '../lib/safeUrl.ts';
+import { isCrashAlert } from '@shared/incidents.ts';
 import { RouteBadge } from './RouteBadge.tsx';
 
 /**
@@ -34,7 +35,11 @@ export function AlertCard({
   return (
     <details className={`alert-card alert-card--${meta.tone}${active ? '' : ' is-upcoming'}`}>
       <summary className="alert-card__summary">
-        <span className="alert-card__effect">{meta.label}</span>
+        <span className="alert-card__effect">
+          {meta.label}
+          {/* Said in so many words: "No service" does not say why. */}
+          {isCrashAlert(alert) && <span className="alert-card__crash"> · Crash</span>}
+        </span>
         <span className="alert-card__header">{alert.header}</span>
         {starts !== null && <span className="alert-card__when">From {formatWhen(starts, now)}</span>}
       </summary>
