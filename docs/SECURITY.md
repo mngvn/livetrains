@@ -64,6 +64,7 @@ four real concerns:
 | Control | Detail |
 | --- | --- |
 | Relay is not an open proxy | Answers one path, asks only the two aircraft feeds, caps the radius, rounds the centre, caches 5 s; `ALLOWED_ORIGINS` limits which sites' pages may use it |
+| Relay streams are bounded | A stream (`?stream=1`) is under the same origin rule, shares one feed request per 15 s beat with every other stream, stops asking the feed when its reader goes, and ends itself after 30 minutes |
 | Least-privilege CI tokens | `pages.yml` and `verify-feed.yml` both declare their permissions (`contents: read`, plus Pages deployment for the former) |
 | Dependency updates | Dependabot groups npm updates weekly and Actions monthly |
 
