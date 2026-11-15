@@ -3,7 +3,9 @@ import type { GtfsStore } from './gtfs/store.js';
 import { PatternSet } from './planner/patterns.js';
 import { RealtimeState } from './realtime/state.js';
 import { createMockSystem } from './mock/index.js';
-import { alertPlaces, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from './queries.js';
+import { alertPlaces, crashReports, routeDetail, searchTransit, sortedRoutes, stopDetail, vehicleTrip } from './queries.js';
+import type { ServiceAlert } from './shared/api.js';
+import { isCrashAlert } from './shared/incidents.js';
 
 let store: GtfsStore;
 let patterns: PatternSet;
@@ -204,5 +206,90 @@ describe('alertPlaces', () => {
     const alert = { ...realtime.alerts[0], stopIds: ['NOT-A-STOP'] };
     expect(alertPlaces(store, [alert])).toEqual([]);
     expect(alertPlaces(null, realtime.alerts)).toEqual([]);
+  });
+});
+
+describe('crash reports', () => {
+  const crash = (overrides: Partial<ServiceAlert>): ServiceAlert => ({
+    id: 'crash',
+    header: '',
+    description: '',
+    routeIds: [],
+    stopIds: [],
+    informed: [],
+    periods: [],
+    ...overrides,
+  });
+  /** A trip's stops, in the order it calls at them. */
+  const stopsOf = (trip: number) =>
+    Array.from({ length: store.stopTimeStart[trip + 1] - store.stopTimeStart[trip] }, (_, i) =>
+      store.stops[store.stopTimeStop[store.stopTimeStart[trip] + i]],
+    );
+  const aTrip = () => {
+    const trip = store.tripIds.findIndex((_, t) => store.stopTimeStart[t + 1] - store.stopTimeStart[t] >= 6);
+    return { trip, tripId: store.tripIds[trip], routeId: store.routes[store.tripRoute[trip]].id, stops: stopsOf(trip) };
+  };
+
+  it("knows a crash by the agency's cause, or by its wording", () => {
+    expect(isCrashAlert(crash({ cause: 'ACCIDENT', header: 'Route 5 delayed' }))).toBe(true);
+    expect(isCrashAlert(crash({ header: 'Trip canceled from 4th St & 15th Ave today due to collision' }))).toBe(true);
+    expect(isCrashAlert(crash({ header: 'Buses detoured', description: 'A crash has closed Lake St.' }))).toBe(true);
+    expect(isCrashAlert(crash({ cause: 'CONSTRUCTION', header: 'Route 21 detour on Lake Street' }))).toBe(false);
+    expect(isCrashAlert(crash({ header: 'Elevator out of service', description: 'Use the stairs.' }))).toBe(false);
+  });
+
+  it('places a trip cut short where it was cancelled from, not at the first stop listed', () => {
+    const { tripId, routeId, stops } = aTrip();
+    // The stops the bus never reached, in no particular order, as the feed sends them.
+    const skipped = stops.slice(3).map((stop) => stop.id).reverse();
+    const [report] = crashReports(store, [
+      crash({
+        header: 'Trip canceled today due to collision',
+        routeIds: [routeId],
+        stopIds: skipped,
+        informed: skipped.map((stopId) => ({ routeId, stopId, tripId })),
+      }),
+    ]);
+    expect(report.alertId).toBe('crash');
+    expect(report.place?.stopId).toBe(stops[3].id);
+  });
+
+  it('does not guess from a trip that never set out', () => {
+    const { tripId, routeId, stops } = aTrip();
+    const all = stops.map((stop) => stop.id);
+    const [report] = crashReports(store, [
+      crash({ cause: 'ACCIDENT', header: 'Trip canceled', routeIds: [routeId], stopIds: all, informed: all.map((stopId) => ({ routeId, stopId, tripId })) }),
+    ]);
+    expect(report.place).toBeUndefined();
+  });
+
+  it("finds a stop on the alert's own line named in its text", () => {
+    const report = crashReports(store, realtime.alerts).find((r) => r.alertId === 'mock-alert-4')!;
+    expect(report.place).toMatchObject({ stopId: 'BL09', name: '38th St Station' });
+    // A station of some other line with the same words in its name is not it.
+    const [elsewhere] = crashReports(store, [
+      crash({ cause: 'ACCIDENT', header: 'Collision near 38th St Station', routeIds: ['ROUTE21'], informed: [{ routeId: 'ROUTE21' }] }),
+    ]);
+    expect(elsewhere.place).toBeUndefined();
+  });
+
+  it('does not take where a trip set out from for where it stopped', () => {
+    const [report] = crashReports(store, [
+      crash({
+        header: 'Blue Line trip departing Target Field Station at 2:09 PM canceled from Franklin Ave at 2:18 PM due to collision',
+        routeIds: ['BLUE'],
+        informed: [{ routeId: 'BLUE' }],
+      }),
+    ]);
+    expect(report.place?.name).toBe('Franklin Ave Station');
+  });
+
+  it('lists a crash it cannot place, and only crashes', () => {
+    const reports = crashReports(store, [
+      crash({ cause: 'ACCIDENT', header: 'Delays across the network after a crash' }),
+      crash({ id: 'works', cause: 'CONSTRUCTION', header: 'Route 21 detour' }),
+    ]);
+    expect(reports).toEqual([{ alertId: 'crash' }]);
+    expect(crashReports(null, realtime.alerts).map((r) => r.alertId)).toEqual(['mock-alert-4']);
   });
 });

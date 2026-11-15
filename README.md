@@ -41,6 +41,14 @@ worldwide — adding another city is a config entry rather than a rewrite.
   room, and its route number beside it. Markers shrink as you zoom out, and
   vehicles that overlap on screen gather into small counted discs while the
   rest keep moving; grouping can be switched off in the legend.
+- **Late is marked, and so is a crash.** A bus or train running five minutes
+  or more behind carries a small amber dot on its plate, red from ten
+  minutes, with "+7 min" beneath it once you are close enough to read; a
+  group's disc carries the count of late vehicles inside it. A crash the
+  agency reports — an alert filed as an accident, or one that says collision
+  — is drawn as a red burst where it was reported, whichever tab is open,
+  and named in a line under the status bar that takes the map to it. The
+  late marks can be switched off in the legend.
 - **Point at a line to ask about it.** Resting the mouse on a route draws it
   bold and rings every bus or train out on it now, stepping them out of any
   group while the rest of the fleet fades; a tooltip beside the pointer names
@@ -372,7 +380,9 @@ has to relay them:
   relay is one dependency-free file, `relay/planes-worker.js`, which answers
   only the one question the app asks, strips each answer down to the fields
   the map reads (about a third the size) and shares it between visitors for
-  five seconds. It runs three ways:
+  five seconds. Asked to (`?stream=1`), it keeps the connection open and
+  sends the sky again every 15 seconds, so an open map costs it one request
+  rather than one every poll. It runs three ways:
 
   | Where | How | Limits |
   | --- | --- | --- |
@@ -392,9 +402,15 @@ has to relay them:
   out of its allowance, and goes back to the first listed every five minutes,
   so free tiers on different hosts add up.
 
-  The app is frugal with them: it asks every 15 seconds while the map is in
-  use, every 30 once it has sat untouched for five minutes, every two minutes
-  after half an hour, and not at all from a hidden tab. Planes keep moving by
+  The app is frugal with them. Free hosts count requests, so it **listens**
+  rather than polls: one connection per visit, however long, with the relay
+  pushing every 15 seconds (about 2 requests an hour instead of 240, since a
+  relay ends each stream after half an hour and the app opens the next). A
+  hidden tab hangs up; a map left untouched for half an hour lets the
+  connection go and asks once every two minutes instead. A relay deployed
+  before streaming existed simply answers each request once, and is polled
+  as before — every 15 seconds in use, 30 after five idle minutes, two
+  minutes after half an hour — until it is redeployed. Planes keep moving by
   dead reckoning in between.
 
   Then, under Settings → Secrets and variables → Actions → Variables, set

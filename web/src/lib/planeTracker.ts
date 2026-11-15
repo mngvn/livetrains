@@ -44,6 +44,28 @@ export interface PlaneFeedStatus {
 export type PlaneFetcher = (signal: AbortSignal) => Promise<PlanesResponse>;
 
 /**
+ * How a spell of listening finished: the relay `ended` its stream, or it
+ * cannot push at all and the one answer it gave was `polled`.
+ */
+export type PlaneListening = 'ended' | 'polled';
+
+/**
+ * Somewhere to get aircraft from: by asking, and — where the relay can push
+ * — by listening on one connection for as long as the map is being watched.
+ */
+export interface PlaneFeed {
+  fetch: PlaneFetcher;
+  listen?: (
+    signal: AbortSignal,
+    on: {
+      planes: (response: PlanesResponse) => void;
+      /** The relay is there but the feed behind it is not answering. */
+      problem: (message: string) => void;
+    },
+  ) => Promise<PlaneListening>;
+}
+
+/**
  * How often the feed is asked, by how long since anyone touched the page.
  *
  * Every poll is a request against someone's free allowance — the relay's
@@ -52,6 +74,11 @@ export type PlaneFetcher = (signal: AbortSignal) => Promise<PlanesResponse>;
  * a fraction of one being explored. Between polls the planes keep moving by
  * dead reckoning, so a slower rhythm shows as the odd small correction, not
  * as planes stopping. A hidden tab asks nothing at all.
+ *
+ * A relay that can push is listened to instead, which costs it one request
+ * however long the map is watched; these rhythms are then what an older
+ * relay gets, and what any relay gets once the map has sat untouched for
+ * half an hour and the connection is let go.
  */
 export const PLANE_POLL_MS = 15_000;
 const IDLE_POLL_MS = 30_000;
@@ -72,6 +99,12 @@ const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touc
 /** After a failed poll, how long before the next try; doubling to the cap. */
 const RETRY_MS = 20_000;
 const RETRY_MAX_MS = 120_000;
+
+/** How long a relay gets to give its first answer. */
+const ANSWER_TIMEOUT_MS = 20_000;
+
+/** How soon to listen again after a stream that was working ends or drops. */
+const RELISTEN_MS = 1_000;
 
 /**
  * How far past its last report a plane is carried forward.
@@ -144,8 +177,10 @@ export class PlaneTracker {
   private readonly frameListeners = new Set<(planes: TrackedPlane[]) => void>();
   private readonly statusListeners = new Set<(status: PlaneFeedStatus) => void>();
   private status: PlaneFeedStatus = { state: 'off', count: 0, airborne: 0, lastUpdate: null, error: null, source: null };
-  private fetcher: PlaneFetcher | null = null;
+  private feed: PlaneFeed | null = null;
   private pollTimer: number | null = null;
+  /** Set while a stream is open: when to check whether the map has been left. */
+  private sleepTimer: number | null = null;
   private frameHandle: number | null = null;
   private controller: AbortController | null = null;
   private retryMs = RETRY_MS;
@@ -155,21 +190,25 @@ export class PlaneTracker {
     const was = Date.now() - this.lastActivity;
     this.lastActivity = Date.now();
     // Back from a while away: ask now, rather than wait out a slow poll.
-    if (was >= IDLE_AFTER_MS && this.fetcher && document.visibilityState === 'visible') this.schedule(0);
+    // (While a stream is open there is nothing to hurry: it is already current.)
+    if (was >= IDLE_AFTER_MS && this.feed && this.sleepTimer === null && document.visibilityState === 'visible') {
+      this.schedule(0);
+    }
   };
   private readonly onVisibility = () => {
-    if (!this.fetcher) return;
+    if (!this.feed) return;
     // A hidden tab asks for nothing: these are free community feeds, and a
-    // forgotten tab should not keep polling them all night. Coming back
-    // asks at once, so the sky is current the moment it is looked at.
+    // forgotten tab should not keep polling them all night, nor hold a
+    // stream open. Coming back asks at once, so the sky is current the
+    // moment it is looked at.
     if (document.visibilityState === 'visible') this.schedule(0);
-    else this.clearPoll();
+    else this.hangUp();
   };
 
-  /** Starts polling and drawing. Calling it again swaps the feed. */
-  start(fetcher: PlaneFetcher): void {
+  /** Starts asking and drawing. Calling it again swaps the feed. */
+  start(feed: PlaneFetcher | PlaneFeed): void {
     this.stop();
-    this.fetcher = fetcher;
+    this.feed = typeof feed === 'function' ? { fetch: feed } : feed;
     this.setStatus({ state: 'loading', error: null });
     this.lastActivity = Date.now();
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -180,10 +219,8 @@ export class PlaneTracker {
 
   /** Stops polling and clears the sky. */
   stop(): void {
-    this.fetcher = null;
-    this.clearPoll();
-    this.controller?.abort();
-    this.controller = null;
+    this.feed = null;
+    this.hangUp();
     document.removeEventListener('visibilitychange', this.onVisibility);
     for (const type of ACTIVITY_EVENTS) window.removeEventListener(type, this.onActivity);
     if (this.frameHandle !== null) cancelAnimationFrame(this.frameHandle);
@@ -314,27 +351,92 @@ export class PlaneTracker {
     this.pollTimer = null;
   }
 
+  /** Drops whatever is in flight or being listened to, and asks for nothing more. */
+  private hangUp(): void {
+    this.clearPoll();
+    if (this.sleepTimer !== null) window.clearTimeout(this.sleepTimer);
+    this.sleepTimer = null;
+    this.controller?.abort();
+    this.controller = null;
+  }
+
+  /**
+   * While a stream is open, checks back when the map would count as left
+   * untouched for half an hour. A stream costs the relay no requests, but
+   * it does make it ask the feed every fifteen seconds for a map nobody is
+   * looking at; past that point it is let go for a poll every two minutes.
+   */
+  private watchForSleep(): void {
+    if (this.sleepTimer !== null) window.clearTimeout(this.sleepTimer);
+    const left = ASLEEP_AFTER_MS - (Date.now() - this.lastActivity);
+    this.sleepTimer = window.setTimeout(() => {
+      this.sleepTimer = null;
+      if (Date.now() - this.lastActivity >= ASLEEP_AFTER_MS) this.schedule(0);
+      else this.watchForSleep();
+    }, Math.max(1_000, left));
+  }
+
   private schedule(delayMs: number): void {
     this.clearPoll();
     this.pollTimer = window.setTimeout(() => void this.poll(), delayMs);
   }
 
   private async poll(): Promise<void> {
-    const fetcher = this.fetcher;
-    if (!fetcher) return;
-    this.controller?.abort();
+    const feed = this.feed;
+    if (!feed) return;
+    this.hangUp();
     const controller = new AbortController();
     this.controller = controller;
+    /** Still the feed and the request in charge: not stopped, hidden or replaced since. */
+    const current = () => this.feed === feed && this.controller === controller;
     // Long enough for a couple of relays to be tried in turn.
-    const timeout = window.setTimeout(() => controller.abort(), 20_000);
-    try {
-      const response = await fetcher(controller.signal);
-      if (this.fetcher !== fetcher) return;
+    const timeout = window.setTimeout(() => controller.abort(), ANSWER_TIMEOUT_MS);
+    let answered = false;
+    const began = Date.now();
+    /**
+     * When to listen again once a stream that had been answering is over. A
+     * stream cut short straight away is no better than a poll, so it is
+     * paced like one; that way a host that will not hold a connection open
+     * costs what polling it would, and never more.
+     */
+    const relisten = () =>
+      Date.now() - began >= PLANE_POLL_MS ? RELISTEN_MS : pollDelay(Date.now() - this.lastActivity);
+    const take = (response: PlanesResponse) => {
+      if (!current()) return;
+      window.clearTimeout(timeout);
+      answered = true;
       this.ingest(response);
       this.retryMs = RETRY_MS;
-      this.schedule(pollDelay(Date.now() - this.lastActivity));
+    };
+    try {
+      const awake = Date.now() - this.lastActivity < ASLEEP_AFTER_MS;
+      if (feed.listen && awake) {
+        this.watchForSleep();
+        const outcome = await feed.listen(controller.signal, {
+          planes: take,
+          problem: (message) => {
+            if (!current()) return;
+            window.clearTimeout(timeout);
+            this.setStatus({ state: 'error', error: message });
+          },
+        });
+        if (!current()) return;
+        // The relay closes a stream every so often on purpose; listen again.
+        // One that cannot push has answered the once, and is polled.
+        this.schedule(outcome === 'ended' ? relisten() : pollDelay(Date.now() - this.lastActivity));
+      } else {
+        take(await feed.fetch(controller.signal));
+        if (!current()) return;
+        this.schedule(pollDelay(Date.now() - this.lastActivity));
+      }
     } catch (err) {
-      if (this.fetcher !== fetcher) return;
+      if (!current()) return;
+      // A stream that was answering and dropped is simply picked up again;
+      // if the relay has really gone, that next try is what says so.
+      if (answered) {
+        this.schedule(relisten());
+        return;
+      }
       // Planes already drawn stay, and go stale as they age; the legend says
       // the feed is not answering. Retries back off so an outage upstream is
       // not met with a stampede from every open tab.
@@ -346,6 +448,10 @@ export class PlaneTracker {
       this.retryMs = Math.min(this.retryMs * 2, RETRY_MAX_MS);
     } finally {
       window.clearTimeout(timeout);
+      if (this.controller === controller && this.sleepTimer !== null) {
+        window.clearTimeout(this.sleepTimer);
+        this.sleepTimer = null;
+      }
     }
   }
 

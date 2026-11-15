@@ -7,6 +7,7 @@ import { majorStops, stopWithRoutes } from '../../../server/src/departures.js';
 import { reachableFrom } from '../../../server/src/reachability.js';
 import {
   alertPlaces,
+  crashReports,
   routeDetail,
   searchTransit,
   sortedRoutes,
@@ -372,7 +373,11 @@ function handle(method: EngineMethod, params: Record<string, unknown>): unknown 
     }
 
     case 'alerts':
-      return { alerts: realtime.alerts, places: alertPlaces(store, realtime.alerts) };
+      return {
+        alerts: realtime.alerts,
+        places: alertPlaces(store, realtime.alerts),
+        crashes: crashReports(store, realtime.alerts),
+      };
 
     default:
       throw new Error(`Unknown method "${String(method)}"`);

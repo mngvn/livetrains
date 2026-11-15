@@ -22,6 +22,21 @@ describe('groupVehicles', () => {
     expect(groups[0].lon).toBeCloseTo(0.2, 9);
   });
 
+  it('counts how many of a group are running late, and how many very late', () => {
+    const late = (id: string, x: number, level: 0 | 1 | 2): GroupInput => ({ ...at(id, x, 0), late: level });
+    const { groups } = groupVehicles([late('a', 0, 0), late('b', 10, 1), late('c', 20, 2), late('d', 30, 2), at('e', 35, 0)], 50);
+    expect(groups[0]).toMatchObject({ count: 5, late: 3, veryLate: 2 });
+    // Groups merged because their discs would touch keep the count.
+    const merged = groupVehicles(
+      [late('a', 0, 1), late('b', 4, 0), late('c', 8, 0), late('d', 30, 2), late('e', 34, 0), late('f', 38, 0)],
+      10,
+      null,
+      { disc: () => 16, plate: 8 },
+    );
+    expect(merged.groups).toHaveLength(1);
+    expect(merged.groups[0]).toMatchObject({ count: 6, late: 2, veryLate: 1 });
+  });
+
   it('never folds the selected vehicle into a group', () => {
     const { groups, grouped } = groupVehicles([at('a', 0, 0), at('b', 5, 0), at('c', 10, 0)], 40, 'b');
     expect(groups).toHaveLength(0);

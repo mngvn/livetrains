@@ -5,12 +5,38 @@ server that fetches aircraft positions from adsb.lol / adsb.fi and passes them
 to the browser (those services don't let web pages read them directly). The
 site finds its relays in the GitHub variable `PLANES_URL`.
 
-**Where things stand:** the Deno Deploy relay ran out of its free monthly
-allowance. The app has since been made much lighter on relays (it asks every
-15 seconds while the map is in use, less when it sits untouched, never from a
-hidden tab, and answers are a third the size), and it can now use several
-relays, moving on when one fails. The plan below adds a second free relay on
-Render and keeps Deno as the fallback.
+**Where things stand:** the relays kept running out of their free monthly
+allowance, which hosts count in requests. Every open map used to ask its
+relay again every 15 seconds — 240 requests an hour, each. Now the map opens
+one connection and the relay pushes the planes down it every 15 seconds, so a
+visit costs about 2 requests an hour however long it lasts. The app can also
+use several relays, moving on when one fails.
+
+**For that to take effect, each relay has to be redeployed once** with the
+new code, after this change is merged to `main` (see "Update a relay" just
+below). Until then nothing breaks: the site notices an older relay and polls
+it as before.
+
+The rest of this page sets up a second free relay on Render, with Deno as the
+fallback. If you already have both, "Update a relay" is all you need.
+
+## Update a relay to the streaming version
+
+- **Render:** it redeploys by itself when `main` changes. If Auto-Deploy is
+  off, open the service and choose **Manual Deploy → Deploy latest commit**.
+- **Deno Deploy:** open the playground and click **Deploy** again. (It loads
+  `planes-worker.js` from `main` at the moment it is deployed, so an existing
+  deployment keeps the old code until you do.)
+- **A computer at home:** `git pull`, then restart `node relay/node-server.js`.
+
+To check, open the relay's address with `?stream=1` on the end, e.g.
+`https://livetrains-planes.onrender.com/planes/44.95/-93.23/37?stream=1`.
+
+- **The page keeps loading and a new `data: {…}` block appears every 15
+  seconds:** it is streaming. Done. (Firefox may offer to save a file
+  instead of showing it; that is a stream too.)
+- **One block of data and the page finishes loading:** that relay is still
+  running the old code. Redeploy it.
 
 ## 1. Create a free relay on Render
 
@@ -78,7 +104,7 @@ moment it is deployed.)
 
 | File | What it is |
 | --- | --- |
-| `planes-worker.js` | The relay itself. One file, no dependencies. |
+| `planes-worker.js` | The relay itself. One file, no dependencies. Answers a poll, or streams with `?stream=1`. |
 | `node-server.js` | Runs it on any Node host (Render, a home computer). |
 | `deno.js` | Runs it on Deno Deploy: paste into a playground. |
 

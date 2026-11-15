@@ -17,6 +17,7 @@ import type {
 export type {
   AlertPlace,
   AlertsResponse,
+  CrashReport,
   Accessibility,
   AgencyInfo,
   Departure,

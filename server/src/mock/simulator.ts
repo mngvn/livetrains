@@ -207,6 +207,17 @@ export class MockSimulator {
         informed: [{ agencyId: 'MOCK' }],
         periods: [],
       },
+      {
+        id: 'mock-alert-4',
+        header: 'Blue Line trains delayed after a collision with a vehicle near 38th St Station',
+        description: 'Expect delays of up to 15 minutes in both directions while the crossing is cleared.',
+        cause: 'ACCIDENT',
+        effect: 'SIGNIFICANT_DELAYS',
+        routeIds: ['BLUE'],
+        stopIds: [],
+        informed: [{ routeId: 'BLUE' }],
+        periods: [],
+      },
     ];
   }
 }

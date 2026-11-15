@@ -88,6 +88,54 @@ export function groupDiscRadius(count: number, zoom: number): number {
   return near[tier] + clamp01((zoom - z0) / (z1 - z0)) * (far[tier] - near[tier]);
 }
 
+/**
+ * The mark on a vehicle running late: a small dot on the shoulder of its
+ * plate, the way a badge sits on an app's icon. Amber for late, the colour
+ * kept for trouble for very late (see `lateMarks.ts`).
+ *
+ * A dot rather than a ring, because rings already mean something here — the
+ * chosen vehicle, the browsed route, the route under the pointer — and
+ * rather than recolouring the plate, whose colour is the route's.
+ *
+ * Every plate is the same size at a given zoom, so where the shoulder is
+ * depends on zoom alone: 45° up and to the right, just inside the edge.
+ */
+const LATE_DOT_AT: Expr = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  ...VEHICLE_SIZE_STOPS.flatMap(([zoom, size]): [number, Expr] => {
+    const reach = PLATE_HALF_PX * size * 0.74;
+    return [zoom, ['literal', [reach, -reach]]];
+  }),
+];
+const LATE_DOT_RADIUS: Expr = ['interpolate', ['linear'], ['zoom'], 7, 1.8, 9, 2.4, 11, 3.6, 13, 4.4, 16, 5.2];
+
+function lateTone(p: Palette): Expr {
+  return ['match', ['get', 'late'], 2, p.danger, p.late];
+}
+
+/**
+ * The late count on a group's disc: its text size at zoom 8 and at zoom 11,
+ * eased between. Small at network scale, where a phone shows the whole metro
+ * as a crowd of discs and a full-size count on each would bury them; there
+ * it reads as a coloured dot first and a number second.
+ */
+const GROUP_LATE_SIZE_AT: [number, number] = [6, 9];
+const GROUP_LATE_SIZE: Expr = ['interpolate', ['linear'], ['zoom'], 8, GROUP_LATE_SIZE_AT[0], 11, GROUP_LATE_SIZE_AT[1]];
+
+/**
+ * Where a group's late count sits: on the shoulder of its disc, 45° up and
+ * to the right, as an offset in ems of the count's own text — the unit the
+ * map takes a label's offset in.
+ */
+export function groupLateOffset(count: number, zoom: number): [number, number] {
+  const [near, far] = GROUP_LATE_SIZE_AT;
+  const size = near + Math.min(1, Math.max(0, (zoom - 8) / 3)) * (far - near);
+  const reach = (groupDiscRadius(count, zoom) * 0.88) / size;
+  return [reach, -reach];
+}
+
 /** Half a lone vehicle's plate in pixels, as `VEHICLE_SIZE` draws it. */
 export function vehiclePlateRadius(zoom: number): number {
   const stops = VEHICLE_SIZE_STOPS;
@@ -176,6 +224,11 @@ export function alertPulseSpread(phase: number): number {
   return 4 + phase * 14;
 }
 const NOT_GROUPED: Expr = ['!', flag('grouped')];
+
+/** A crash marker's ripple starts from about its burst's edge. */
+export const CRASH_RADIUS = 13;
+/** The mark on the burst: white on the red of either theme. */
+const CRASH_MARK_COLOR = '#FFFFFF';
 
 /**
  * The filter for a stop-badge layer: the selected stop only, or nothing. A
@@ -295,7 +348,7 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
   for (const id of [
     'network', 'itinerary', 'itinerary-points', 'stops', 'major-stops', 'vehicles', 'vehicle-groups',
     'endpoints', 'journey-trail', 'journey-traveller', 'vehicle-trip', 'vehicle-trip-stops', 'isochrone',
-    'approach-lines', 'approach-rings', 'planes', 'plane-ahead', 'plane-ahead-end',
+    'approach-lines', 'approach-rings', 'planes', 'plane-ahead', 'plane-ahead-end', 'crashes',
   ]) {
     if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: EMPTY });
   }
@@ -908,6 +961,34 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     },
     paint: { 'text-color': p.text },
   });
+  // How many of a group are running late, on the disc's shoulder. Where to
+  // put it depends on the disc's size, which the grouping works out and
+  // hands over with each group (`lateAt`, in ems of this text).
+  map.addLayer({
+    id: 'vehicle-groups-late',
+    type: 'symbol',
+    source: 'vehicle-groups',
+    filter: ['>', ['get', 'late'], 0],
+    layout: {
+      'text-field': ['to-string', ['get', 'late']],
+      'text-font': FONT_BOLD,
+      'text-size': GROUP_LATE_SIZE,
+      'text-offset': ['get', 'lateAt'],
+      'icon-image': 'pill',
+      'icon-text-fit': 'both',
+      'icon-text-fit-padding': [0, 1, 0, 1],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+    },
+    paint: {
+      'text-color': p.casing,
+      'icon-color': ['case', ['>', ['get', 'veryLate'], 0], p.danger, p.late],
+      'icon-halo-color': p.casing,
+      'icon-halo-width': 1.2,
+    },
+  });
 
   // The selected vehicle's halo, beneath its marker.
   map.addLayer({
@@ -1024,6 +1105,45 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
       'icon-opacity': vehicleOpacity(null),
     },
   });
+  // Running late: a dot on the plate's shoulder at every zoom, and how late
+  // beneath it once the map is close enough to read.
+  map.addLayer({
+    id: 'vehicles-late',
+    type: 'circle',
+    source: 'vehicles',
+    filter: ['all', NOT_GROUPED, ['>', ['get', 'late'], 0]] as maplibregl.FilterSpecification,
+    paint: {
+      'circle-radius': LATE_DOT_RADIUS,
+      'circle-translate': LATE_DOT_AT,
+      'circle-color': lateTone(p),
+      'circle-stroke-color': p.casing,
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 12, 1.4],
+      'circle-opacity': vehicleOpacity(null),
+      'circle-stroke-opacity': vehicleOpacity(null),
+    },
+  });
+  map.addLayer({
+    id: 'vehicles-late-label',
+    type: 'symbol',
+    source: 'vehicles',
+    minzoom: 13,
+    filter: ['all', NOT_GROUPED, ['>', ['get', 'late'], 0]] as maplibregl.FilterSpecification,
+    layout: {
+      'text-field': ['get', 'lateLabel'],
+      'text-font': FONT_BOLD,
+      'text-size': 10.5,
+      'text-anchor': 'top',
+      'text-offset': [0, 1.55],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color': lateTone(p),
+      'text-halo-color': p.halo,
+      'text-halo-width': 1.6,
+      'text-opacity': vehicleOpacity(null),
+    },
+  });
   // A generous invisible hit target: markers are small on a phone.
   map.addLayer({
     id: 'vehicles-hit',
@@ -1031,6 +1151,77 @@ export function ensureLayers(map: maplibregl.Map, p: Palette): boolean {
     source: 'vehicles',
     filter: NOT_GROUPED,
     paint: { 'circle-radius': 16, 'circle-opacity': 0 },
+  });
+
+  // --- Reported crashes, over the vehicles -----------------------------------
+  // Drawn whichever tab is open, and above the fleet: there are never many,
+  // and one hidden under a bus would be the one thing the map failed to say.
+  map.addLayer({
+    id: 'crashes-pulse',
+    type: 'circle',
+    source: 'crashes',
+    paint: {
+      'circle-radius': CRASH_RADIUS + alertPulseSpread(0),
+      'circle-color': 'transparent',
+      'circle-stroke-color': p.danger,
+      'circle-stroke-width': 1.8,
+      'circle-stroke-opacity': 0,
+      'circle-radius-transition': { duration: 0, delay: 0 },
+      'circle-stroke-opacity-transition': { duration: 0, delay: 0 },
+    },
+  });
+  map.addLayer({
+    id: 'crashes-burst',
+    type: 'symbol',
+    source: 'crashes',
+    layout: {
+      'icon-image': 'crash-burst',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.72, 12, 0.9, 16, 1.1],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'text-field': '!',
+      'text-font': FONT_BOLD,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 12, 13.5, 16, 16],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: {
+      'icon-color': p.danger,
+      'icon-halo-color': p.casing,
+      'icon-halo-width': 1.8,
+      'text-color': CRASH_MARK_COLOR,
+    },
+  });
+  map.addLayer({
+    id: 'crashes-label',
+    type: 'symbol',
+    source: 'crashes',
+    layout: {
+      // "Crash" at network scale; where, once there is room to say it.
+      'text-field': [
+        'step',
+        ['zoom'],
+        ['format', 'Crash', { 'text-font': ['literal', FONT_BOLD] }],
+        11.5,
+        ['format', 'Crash', { 'text-font': ['literal', FONT_BOLD] }, '\n', {}, ['concat', 'near ', ['get', 'name']], {}],
+      ],
+      'text-font': FONT_REGULAR,
+      'text-size': 11,
+      'text-letter-spacing': 0.03,
+      'text-line-height': 1.15,
+      'text-max-width': 12,
+      'text-anchor': 'top',
+      'text-offset': [0, 1.35],
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    },
+    paint: { 'text-color': p.text, 'text-halo-color': p.halo, 'text-halo-width': 1.8 },
+  });
+  map.addLayer({
+    id: 'crashes-hit',
+    type: 'circle',
+    source: 'crashes',
+    paint: { 'circle-radius': 18, 'circle-opacity': 0 },
   });
 
   // --- The animated journey, above everything ---------------------------------
@@ -1156,6 +1347,18 @@ export function syncOverlayTheme(map: maplibregl.Map, p: Palette): void {
     p.muted,
   ]);
   set('vehicle-groups-count', 'text-color', p.text);
+  set('vehicle-groups-late', 'text-color', p.casing);
+  set('vehicle-groups-late', 'icon-color', ['case', ['>', ['get', 'veryLate'], 0], p.danger, p.late]);
+  set('vehicle-groups-late', 'icon-halo-color', p.casing);
+  set('vehicles-late', 'circle-color', lateTone(p));
+  set('vehicles-late', 'circle-stroke-color', p.casing);
+  set('vehicles-late-label', 'text-color', lateTone(p));
+  set('vehicles-late-label', 'text-halo-color', p.halo);
+  set('crashes-pulse', 'circle-stroke-color', p.danger);
+  set('crashes-burst', 'icon-color', p.danger);
+  set('crashes-burst', 'icon-halo-color', p.casing);
+  set('crashes-label', 'text-color', p.text);
+  set('crashes-label', 'text-halo-color', p.halo);
   set('planes-icon', 'icon-color', p.plane);
   set('planes-icon', 'icon-halo-color', p.casing);
   set('planes-label', 'text-color', p.plane);
@@ -1227,11 +1430,17 @@ export function syncSelectionFocus(map: maplibregl.Map, focus: MapFocus | null):
   }
   set('vehicles-label', 'text-opacity', vehicleOpacity(lineFocus));
   set('vehicles-label', 'icon-opacity', vehicleOpacity(lineFocus));
+  // A late mark is as much in the foreground as the vehicle it is on.
+  set('vehicles-late', 'circle-opacity', vehicleOpacity(lineFocus));
+  set('vehicles-late', 'circle-stroke-opacity', vehicleOpacity(lineFocus));
+  set('vehicles-late-label', 'text-opacity', vehicleOpacity(lineFocus));
   // Groups step back for a route under the pointer as for a selection: its
   // vehicles have all stepped out of them.
   set('vehicle-groups-circle', 'circle-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
   set('vehicle-groups-circle', 'circle-stroke-opacity', ['case', HOVER_DIMMED, 0.35, ids ? 0.35 : 1]);
   set('vehicle-groups-count', 'text-opacity', ['case', HOVER_DIMMED, 0.4, ids ? 0.4 : 1]);
+  set('vehicle-groups-late', 'text-opacity', ['case', HOVER_DIMMED, 0.4, ids ? 0.4 : 1]);
+  set('vehicle-groups-late', 'icon-opacity', ['case', HOVER_DIMMED, 0.4, ids ? 0.4 : 1]);
 
   const stopOpacity = (base: Expr | number): unknown => (stopFocus ? ['case', stopFocus, base, 0.22] : base);
   set('major-stops-circle', 'circle-opacity', stopFade(stopFocus));
@@ -1357,6 +1566,14 @@ export const JOURNEY_DIMMING: { layer: string; property: string; value: number }
   { layer: 'vehicle-groups-circle', property: 'circle-opacity', value: 0.12 },
   { layer: 'vehicle-groups-circle', property: 'circle-stroke-opacity', value: 0.12 },
   { layer: 'vehicle-groups-count', property: 'text-opacity', value: 0.15 },
+  { layer: 'vehicle-groups-late', property: 'text-opacity', value: 0 },
+  { layer: 'vehicle-groups-late', property: 'icon-opacity', value: 0 },
+  { layer: 'vehicles-late', property: 'circle-opacity', value: 0 },
+  { layer: 'vehicles-late', property: 'circle-stroke-opacity', value: 0 },
+  { layer: 'vehicles-late-label', property: 'text-opacity', value: 0 },
+  { layer: 'crashes-burst', property: 'icon-opacity', value: 0.3 },
+  { layer: 'crashes-burst', property: 'text-opacity', value: 0.3 },
+  { layer: 'crashes-label', property: 'text-opacity', value: 0 },
   { layer: 'planes-icon', property: 'icon-opacity', value: 0 },
   { layer: 'planes-label', property: 'text-opacity', value: 0 },
   { layer: 'planes-label-focus', property: 'text-opacity', value: 0 },
