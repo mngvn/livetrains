@@ -57,7 +57,7 @@ import { ReachLegend } from './components/ReachLegend.tsx';
 import { explainDelay } from './lib/lateness.ts';
 import { networkHealth } from './lib/networkHealth.ts';
 import { PlaneTracker, type PlaneFeedStatus } from './lib/planeTracker.ts';
-import { planeFeedTemplate, planeFetcher } from './lib/planeFeed.ts';
+import { planeFeed, planeFeedTemplate } from './lib/planeFeed.ts';
 import { PlanePanel } from './components/PlanePanel.tsx';
 import { routeFits, usePlaneDetails } from './lib/planeLookup.ts';
 import { greatCircle, whereBound } from './lib/planeBound.ts';
@@ -480,7 +480,7 @@ export function App() {
   const bboxKey = agencyBbox?.join(',');
   useEffect(() => {
     if (!planesOn || !planeTemplate || !agencyBbox || engine.state !== 'ready') return;
-    planeTracker.start(planeFetcher(planeTemplate, agencyBbox));
+    planeTracker.start(planeFeed(planeTemplate, agencyBbox));
     return () => planeTracker.stop();
     // The box by value: a new agency object with the same box is the same sky.
     // eslint-disable-next-line react-hooks/exhaustive-deps

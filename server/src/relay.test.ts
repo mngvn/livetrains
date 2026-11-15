@@ -118,3 +118,106 @@ describe('what the relay passes on', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('the relay as a stream', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Reads what a stream has sent so far, as events. */
+  async function events(reader: ReadableStreamDefaultReader<Uint8Array>, count: number) {
+    const decoder = new TextDecoder();
+    const found: { event: string; data: any }[] = [];
+    let text = '';
+    while (found.length < count) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      const blocks = text.split('\n\n');
+      text = blocks.pop() ?? '';
+      for (const block of blocks) {
+        const data = /^data: (.*)$/m.exec(block);
+        if (data) found.push({ event: /^event: (.*)$/m.exec(block)?.[1] ?? 'message', data: JSON.parse(data[1]) });
+      }
+    }
+    return found;
+  }
+
+  it('sends the sky at once, then again every fifteen seconds, for one request', async () => {
+    vi.useFakeTimers({ now: 1_791_140_610_000 });
+    const fetch = vi.fn(async () => new Response(JSON.stringify(FEED), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const response = await ask('/planes/44.95/-93.2/37?stream=1', { origin: 'https://mngvn.github.io' });
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    const reader = response.body!.getReader();
+    const [first] = await events(reader, 1);
+    expect(readPlanes(first.data).planes[0].callsign).toBe('EDV5350');
+    expect(first.data.source).toBe('adsb.lol');
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(await events(reader, 3)).toHaveLength(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    // The page going away stops the relay asking the feed.
+    await reader.cancel();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('serves every listener from one request to the feed each beat', async () => {
+    vi.useFakeTimers({ now: 1_791_140_610_000 });
+    const fetch = vi.fn(async () => new Response(JSON.stringify(FEED), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const readers = [];
+    for (let i = 0; i < 5; i++) {
+      readers.push((await ask('/planes/44.95/-93.2/37?stream=1')).body!.getReader());
+      // People arrive when they arrive, not on the beat.
+      await vi.advanceTimersByTimeAsync(700);
+    }
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const reader of readers) expect((await events(reader, 4)).length).toBe(4);
+    // One at the start, shared while fresh, then one a beat: not five a beat.
+    expect(fetch.mock.calls.length).toBeLessThanOrEqual(6);
+    await Promise.all(readers.map((reader) => reader.cancel()));
+  });
+
+  it('says when the feeds are down, and carries on', async () => {
+    vi.useFakeTimers({ now: 1_791_140_610_000 });
+    let up = false;
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(up ? JSON.stringify(FEED) : '', { status: up ? 200 : 503 })));
+    const reader = (await ask('/planes/44.95/-93.2/37?stream=1')).body!.getReader();
+    const [problem] = await events(reader, 1);
+    expect(problem.event).toBe('problem');
+    expect(problem.data.error).toMatch(/No aircraft feed answered/);
+    up = true;
+    await vi.advanceTimersByTimeAsync(15_000);
+    const [next] = await events(reader, 1);
+    expect(next.event).toBe('message');
+    await reader.cancel();
+  });
+
+  it('ends a stream after half an hour, so the page opens a fresh one', async () => {
+    vi.useFakeTimers({ now: 1_791_140_610_000 });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(FEED), { status: 200 })));
+    const reader = (await ask('/planes/44.95/-93.2/37?stream=1')).body!.getReader();
+    await vi.advanceTimersByTimeAsync(31 * 60_000);
+    const all = await events(reader, 1000);
+    expect(all[all.length - 1].event).toBe('bye');
+    expect(all.length).toBeGreaterThan(100);
+  });
+
+  it('keeps to the feed that works rather than waiting on the one that does not', async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url.includes('adsb.lol') ? new Response('', { status: 503 }) : new Response(JSON.stringify(FEED), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    await ask('/planes/44.95/-93.2/37');
+    await ask('/planes/41.88/-87.63/37');
+    expect(fetch.mock.calls.map((c) => (String(c[0]).includes('adsb.lol') ? 'lol' : 'fi'))).toEqual(['lol', 'fi', 'fi']);
+  });
+
+  it('is under the same origin rule as a poll', async () => {
+    const env = { ALLOWED_ORIGINS: 'https://mngvn.github.io' };
+    expect((await ask('/planes/44.95/-93.2/37?stream=1', { origin: 'https://elsewhere.example' }, env)).status).toBe(403);
+  });
+});
